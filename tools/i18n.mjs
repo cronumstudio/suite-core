@@ -1,8 +1,7 @@
 /**
- * Catalog checks, for the suite's own texts and for each app's (taken from
- * Focus's tools/i18n.mjs):
+ * Catalog checks, for the suite's own texts and for each app's:
  *
- *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]… [--kit-words]
+ *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]… [--allow <word>]… [--kit-words]
  *                                                            all of the below for an app, as its tests run them
  *   node server/suite/tools/i18n.mjs parity [dir]            every language says the same things
  *   node server/suite/tools/i18n.mjs used <dir> <src>…       every key the code uses exists
@@ -140,10 +139,12 @@ export function unknownKeys(english, dirs) {
 
 /**
  * Names that are the same in every language: the brand that signs every app,
- * the products and the protocols. An app adds its own with `allow`.
+ * the suite's own apps and the protocols. An app adds its own name, and any
+ * other, with `allow` (`--allow <word>` on the command line), or marks the
+ * line that writes it `i18n-exempt`, saying why.
  */
 export const BRAND_WORDS = [
-  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Focus', 'Notes', 'Tracker',
+  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Notes',
   'MCP', 'OAuth', 'WorkOS', 'Claude', 'ChatGPT', 'English', 'Español', 'Français', 'Deutsch',
 ];
 
@@ -525,16 +526,18 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     let problems;
     if (command === 'app') {
       const skip = [];
+      const allow = [];
       let root = '.';
       let kitWords = false;
       let typed = false;
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--skip') skip.push(args[++i]);
+        else if (args[i] === '--allow') allow.push(args[++i]);
         else if (args[i] === '--kit-words') kitWords = true;
         else if (args[i] === '--typography') typed = true;
         else root = args[i];
       }
-      const checks = appChecks(path.resolve(root), { skip, kitWords, typography: typed });
+      const checks = appChecks(path.resolve(root), { skip, allow, kitWords, typography: typed });
       for (const { name, problems: found } of checks) {
         console.log(`${found.length ? '✗' : '✓'} ${name}`);
         for (const problem of found.slice(0, 20)) console.log(`    ${problem}`);
@@ -561,7 +564,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
       problems = command === 'parity' ? parity(catalogs)
         : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-          : [`Use: app [root] [--skip <file>]… [--kit-words] [--typography] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir> | typography [dir]`];
+          : [`Use: app [root] [--skip <file>]… [--allow <word>]… [--kit-words] [--typography] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir> | typography [dir]`];
       if (!problems.length) {
         console.log(command === 'parity'
           ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`

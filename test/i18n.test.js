@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import {
   LANGUAGES, SUITE_CATALOGS, flatten, unflatten, mergeCatalogs, negotiate, translator, createTexts, appTexts,
 } from '../i18n.js';
-import { parity, catalogsOf, appChecks } from '../tools/i18n.mjs';
+import { parity, catalogsOf, appChecks, BRAND_WORDS } from '../tools/i18n.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -266,6 +266,39 @@ test('appChecks: an app passes when its catalogs are flat and agree, its keys ex
     fs.rmSync(good, { recursive: true, force: true });
     fs.rmSync(bad, { recursive: true, force: true });
   }
+});
+
+test('an app’s own name is flagged where its pages write it, unless it passes allow (--allow on the command line)', () => {
+  const root = folder({
+    'public/i18n/en.json': { 'app.hello': 'Hello' },
+    'public/i18n/es.json': { 'app.hello': 'Hola' },
+    'public/i18n/fr.json': { 'app.hello': 'Bonjour' },
+    'public/i18n/de.json': { 'app.hello': 'Hallo' },
+    'public/index.html': '<!DOCTYPE html><html><head><title>Acme</title></head><body></body></html>',
+    'server/notices.js': "send({ title: t('app.hello') });",
+  });
+  try {
+    assert.match(appChecks(root)[3].problems.join(' | '), /index\.html:1: Acme/, 'a name the list doesn’t have is a text');
+    assert.deepEqual(appChecks(root, { allow: ['Acme'] }).filter((c) => c.problems.length), []);
+
+    const tool = fileURLToPath(new URL('../tools/i18n.mjs', import.meta.url));
+    const run = (...more) => spawnSync(process.execPath, [tool, 'app', root, ...more], { encoding: 'utf8' });
+    const ko = run();
+    assert.equal(ko.status, 1);
+    assert.match(ko.stdout, /✗ No text for people[\s\S]*Acme/);
+    const ok = run('--allow', 'Acme');
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    assert.equal((ok.stdout.match(/✓/g) || []).length, 5);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('BRAND_WORDS: the brand, the suite’s own apps and the protocols, the same in every language', () => {
+  assert.deepEqual(BRAND_WORDS, [
+    'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Notes',
+    'MCP', 'OAuth', 'WorkOS', 'Claude', 'ChatGPT', 'English', 'Español', 'Français', 'Deutsch',
+  ]);
 });
 
 test('the catalog a page loads leaves out the admin panel’s, the e-mails’ and the connect page’s texts', async () => {
