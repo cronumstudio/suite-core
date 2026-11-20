@@ -34,6 +34,10 @@
  * `modules.devices`, `POST /api/devices/actions { module: '<mount>', action, id, ... }`
  * with the device's token reaches it, as that person.
  *
+ * A module's MCP tools run in the time zone of the person they act for, as on
+ * its own (time.js), and its routes too when it says so (`zonedRoutes: true`):
+ * today is theirs.
+ *
  * One process, one database (DATA_DIR/<host id>.db), one session cookie, one
  * table of accounts, one sign-in and one admin panel, all of them the host's,
  * from its own configuration. Each module keeps what is its own: its tables
@@ -91,6 +95,7 @@ import { combinePrefs } from './prefs.js';
 import { FOUNDER_NOTICE_PREFS } from './billing.js';
 import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
+import { inZoneOf } from './time.js';
 import {
   fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush, catalogsOverEnglish,
 } from './host-worker.js';
@@ -429,7 +434,9 @@ function suiteErrorSentence(code, extra = {}) {
  *
  * What a tool throws reads as its module says (its `describeError`), else as
  * the suite's catalog says (`errors.<code>` in English): the host's own tools
- * too, so `field_invalid` is never all an assistant gets.
+ * too, so `field_invalid` is never all an assistant gets. A module's tool runs
+ * in the time zone of the person it acts for (time.js); the host's own read
+ * the day as they always have (the calendar's with `todayFor(user)`).
  * · `record(principal, tool)`: after each call that changed something.
  * · `maxResultChars`: the most text an answer carries (mcp.js capResult).
  * · `calendar` (calendar.js createCalendar): `<host>_calendar`, what has a
@@ -464,11 +471,12 @@ export function hostMcp({
       ...(feature ? { feature } : {}),
       ...(namesInText ? { description: say(tool.description), inputSchema: schemaSaying(tool.inputSchema, say) } : {}),
       // A module's errors read as that module says, for the assistant to pass on; with
-      // `namesInText`, its answers name its tools as the host does.
+      // `namesInText`, its answers name its tools as the host does. It runs in the time zone of
+      // the person it acts for (time.js), as on its own: their today.
       handler: async (principal, args) => {
         let result;
         try {
-          result = await tool.handler(principal, args);
+          result = await inZoneOf(principal, () => tool.handler(principal, args));
         } catch (error) {
           const text = m.parts.mcp.describeError?.(error);
           if (!text) throw error;
@@ -628,6 +636,9 @@ export function hostMcp({
   };
   return {
     instructions, instructionsLeftOut, tools, prompts, allows, visible,
+    // Its modules' tools run in the person's zone already, and its own read the day their own way:
+    // createApp leaves them as they are.
+    zoned: true,
     describeError: describeErrorWith({ errorSentence: suiteErrorSentence }),
     ...(kept.size ? { onDemand: (principal, tool) => kept.has(tool.name) && !allTools(principal), door: hostId } : {}),
     ...(record ? { recordChange: record } : {}),
@@ -1008,6 +1019,8 @@ export async function createHost({
       : null;
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
+      // The person's storage across every module, as the module's own uploads check it.
+      storage: () => entry.view?.storage,
       app: { id: app.id, name: app.name, version: v }, roles: config.accounts.roles,
       baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
       limits: withImportCeiling(limits, install.importMaxMb),
@@ -1059,9 +1072,10 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
-      // Whose something is, in the module's words, with the host's one brake on deletion notices.
+      // Whose something is, in the module's words, with the host's one brake on deletion notices:
+      // its email, its push and that brake as the module's suite has them when a notice goes.
       ownership: createOwnership({
-        db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
+        db: suite.database, suite: () => entry.view, log,
         texts: (user) => moduleTexts(null, user).t,
       }),
       organizations: resolved.modules.organizations ? suite.organizations : null,
@@ -1134,6 +1148,8 @@ export async function createHost({
     if (actionsProblem) stop([`${entry.mount}: ${actionsProblem}`]);
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
+      // Its routes in the zone of whoever asks, when it says so, as on its own.
+      zonedRoutes: parts.zonedRoutes === true,
       serializeUser: parts.serializeUser ?? null, version: parts.version ?? '0.0.0',
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,

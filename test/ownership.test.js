@@ -8,11 +8,15 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createOwnership, notYours, mayDelete, pickHeir, NOT_YOURS } from '../ownership.js';
+import { createOwnership, createGoneBrake, notYours, mayDelete, pickHeir, NOT_YOURS } from '../ownership.js';
+import { createSuite } from '../app.js';
 import { createShareMail } from '../share-mail.js';
 import { mailBrand } from '../mail-layout.js';
-import { createTexts, SUITE_CATALOGS, translator } from '../i18n.js';
+import { appTexts, createTexts, SUITE_CATALOGS, translator } from '../i18n.js';
 import { describeErrorWith } from '../mcp-kit.js';
 import { installFakeDom, FakeElement } from './fake-dom.js';
 
@@ -141,6 +145,48 @@ test('tellGone never throws: a push or an email that fails is logged, the rest s
   });
   assert.equal(await ownership.tellGone({ kind: 'group', name: 'G', actorId: 1, audience: [2, 3] }), 1);
   assert.equal(logged.length, 3);
+});
+
+test('with `suite`, each notice goes with the push, email and brake the suite has then: one put there later, one brake for two', async () => {
+  const db = setup();
+  const on = { push: null, shareMail: null, goneBrake: createGoneBrake() };
+  const texts = (user) => translator(JSON.parse(user.prefs || '{}').lang || 'en', SUITE_CATALOGS);
+  const ownership = createOwnership({ db, suite: () => on, texts });
+  assert.equal(await ownership.tellGone({ kind: 'list', name: 'Compra', actorId: 1, audience: [2] }), 0, 'neither push nor email on the suite yet');
+  const delivered = [];
+  const mailed = [];
+  on.push = { subscriptionsOf: (ids) => ids.map((id) => ({ user_id: id })), deliver: async (subs, payload) => { delivered.push(payload); } };
+  on.shareMail = Object.assign(async () => true, { gone: async (notice) => { mailed.push(notice.to.id); return true; } });
+  assert.equal(await ownership.tellGone({ kind: 'list', name: 'Compra', actorId: 1, audience: [3] }), 1, 'what the suite has when it goes');
+  assert.deepEqual([delivered.map((p) => p.title), mailed], [['“Compra” is gone'], [3]]);
+  // Another one on the same suite (another module's, in a host) counts against the same brake.
+  const other = createOwnership({ db, suite: () => on, texts });
+  assert.equal(await other.tellGone({ kind: 'notebook', name: 'Ideas', actorId: 1, audience: [3] }), 0, 'once a day from the same person, whichever module');
+  assert.equal(mailed.length, 1);
+});
+
+test('suite.ownership: in the app’s words (hooks.texts), with the push and email the suite has when a notice goes', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-ownership-'));
+  // The app's catalogs over the suite's, as each module's i18n.js makes them (appTexts).
+  fs.mkdirSync(path.join(dir, 'i18n'));
+  fs.writeFileSync(path.join(dir, 'i18n', 'en.json'), JSON.stringify({ ownership: { gone: { title: '“{thing}” left Demo' } } }));
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, accounts: { minPasswordLength: 8 } },
+    hooks: { texts: appTexts(path.join(dir, 'i18n')).textsFor },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1' }, log: () => {}, exitOnError: false,
+  });
+  t.after(() => { suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const ana = suite.accounts.create({ username: 'ana', password: 'ana-password', displayName: 'Ana' });
+  const ben = suite.accounts.create({ username: 'ben', password: 'ben-password', email: 'ben@example.com' });
+  // A test's stand-ins, put on the suite after it was made.
+  const delivered = [];
+  const mailed = [];
+  suite.push = { subscriptionsOf: (ids) => ids.map((id) => ({ user_id: id })), deliver: async (subs, payload) => { delivered.push(payload); } };
+  suite.shareMail = Object.assign(async () => true, { gone: async (notice) => { mailed.push([notice.to.id, notice.actor]); return true; } });
+  assert.equal(await suite.ownership.tellGone({ kind: 'list', name: 'Compra', actorId: ana.id, audience: [ben.id], id: 4 }), 1);
+  assert.deepEqual(delivered, [{ title: '“Compra” left Demo', body: 'Ana deleted what they shared with you.', tag: 'gone-list-4' }],
+    'the app’s words where it has them, the suite’s for the rest');
+  assert.deepEqual(mailed, [[ben.id, 'Ana']]);
 });
 
 test('every language has the words of not_yours, the copy, the gift and the notice', () => {

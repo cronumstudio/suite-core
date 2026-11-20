@@ -61,6 +61,7 @@ import { createStrangerInvites, registerUnsubscribeApi } from './stranger-invite
 import { createShareMail } from './share-mail.js';
 import { createShareBrake, SUITE_OFFERS_PER_HOUR } from './share-brake.js';
 import { createOwnership, createGoneBrake } from './ownership.js';
+import { inZoneOf } from './time.js';
 import { createAlerts } from './alerts.js';
 import { createAdminNotices, registerAdminNoticesApi } from './admin-notices.js';
 import { cloudflareCountry } from './http.js';
@@ -128,7 +129,7 @@ const EXAMPLE_PASSWORDS = new Set([
  *     onOrganizationDeleted({ organization, reason, by }), inside the change's transaction
  *     (organizations.js: the app deletes its own rows with them; one that throws undoes it all);
  *   texts(req, user) → { lang, t } for the OAuth consent screen (oauth-page.js, with app.color
- *     and app.icon) and the mail
+ *     and app.icon), the mail and the notices of `suite.ownership`
  * @param {boolean} [options.exitOnError]  print and exit(1) on a configuration error (default),
  *   or throw a SuiteConfigError (tests)
  */
@@ -663,6 +664,8 @@ export function createSuite({
    */
   const portabilityFor = (declaration, { version = null, limits = {}, onErased = null } = {}) => createPortability({
     database, accounts, uploads, entitlements, live, audit,
+    // What someone keeps against storage.mb, once the app says it (countStorage, createApp's `storage`).
+    storage: () => made?.storage,
     app: { id: config.app.id, name: config.app.name, version }, roles: config.accounts.roles,
     baseUrl: install.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, onErased,
     // What stands before the server may take less than the app would (IMPORT_MAX_MB, config.js).
@@ -684,8 +687,10 @@ export function createSuite({
     /**
      * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
      * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
+     * Its notices speak the app's words (`hooks.texts`, its catalogs over the suite's) and go with
+     * the push, email and brake on the suite when they go, a test's stand-ins too.
      */
-    ownership: createOwnership({ db: database, shareMail, push, texts: (user) => texts(null, user).t, brake: goneBrake, log }),
+    ownership: createOwnership({ db: database, suite: () => made, texts: (user) => texts(null, user).t, log }),
     mailBrand: brand, strangers, signupUrl,
     portabilityFor, idempotency, deletion, devices, stores, uploadLinks, nativePush, alerts, notices,
     workosClient, workosPeople, revokeEverything, whenRevoked: revoker.whenRevoked, workosResets, freshSignIns,
@@ -759,7 +764,12 @@ export function clientTexts(flat) {
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
  * @param {object|Function} [options.routes]  the app's router, or (router) => { … } to fill one
- * @param {object} [options.mcp]          { instructions, tools, prompts, describeError }
+ * @param {boolean} [options.zonedRoutes]  each of the app's own routes runs in the time zone of
+ *   whoever asks (time.js inZoneOf), as its tools do: `todayFor()` and the date parsers read their
+ *   day. The suite's routes are left as they are. A host passes its module's (`createModule().zonedRoutes`)
+ * @param {object} [options.mcp]          { instructions, tools, prompts, describeError }: each tool runs
+ *   in the time zone of the person it acts for (time.js inZoneOf), unless the spec says `zoned: true`,
+ *   as a host's does (hostMcp: its modules' tools already run there, and its own read the day their way)
  * @param {Function} [options.serializeUser]  the account as the browser sees it (never its hash)
  * @param {object} [options.prefs]        the app's preferences (prefs.js: `{ defaults, normalize, merge,
  *   view, store }`): with them the suite serves `GET`/`PATCH /api/me` (api.js registerMeApi), and
@@ -818,8 +828,27 @@ export function healthOf(database, versionOf) {
   return [200, { ok: true, version: { app, version, built } }];
 }
 
+/** An app's tool run in the time zone of the person it acts for (time.js): their today, through awaits too. */
+const zonedTool = (tool) => ({ ...tool, handler: (principal, args) => inZoneOf(principal, () => tool.handler(principal, args)) });
+
+/**
+ * An app's router whose routes run in the time zone of whoever asks (`zonedRoutes`, time.js). What a
+ * handler says of itself (answeredOnce, keyedByRoute: idempotency.js) stays with it.
+ */
+function zonedRouter(router) {
+  return {
+    ...router,
+    match(method, pathname) {
+      const found = router.match(method, pathname);
+      if (!found?.handler) return found;
+      const { handler } = found;
+      return { ...found, handler: Object.assign((ctx) => inZoneOf(ctx.user, () => handler(ctx)), handler) };
+    },
+  };
+}
+
 export function createApp({
-  suite, publicDir = null, routes = null, mcp = null, serializeUser = null, prefs = null,
+  suite, publicDir = null, routes = null, zonedRoutes = false, mcp = null, serializeUser = null, prefs = null,
   clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
@@ -993,6 +1022,7 @@ export function createApp({
     appApi = createRouter();
     routes(appApi);
   }
+  if (zonedRoutes && appApi) appApi = zonedRouter(appApi);
 
   /* --------------------------------- MCP ---------------------------------- */
 
@@ -1017,7 +1047,7 @@ export function createApp({
   const mcpServer = mcp && config.modules.mcp ? createMcpServer({
     serverInfo: { name: config.app.id, title: config.app.name, version, ...(mcp.serverInfo || {}) },
     instructions: mcp.instructions,
-    tools: mcp.tools,
+    tools: mcp.zoned ? mcp.tools : (mcp.tools || []).map(zonedTool),
     prompts: mcp.prompts,
     describeError: mcp.describeError,
     // Arguments checked against each tool's inputSchema; an app may turn it off (`mcp.checkArgs: false`).

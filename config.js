@@ -31,6 +31,7 @@ import { OAUTH_PREFIXES } from './oauth.js';
 import { appLinksFrom } from './app-links.js';
 import { organizationKinds } from './organizations.js';
 import { DEFAULT_LIMITS } from './rate-limit.js';
+import { isObject } from './http.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -95,7 +96,6 @@ const OLD_NAMES = Object.freeze({
   RECARGA_EN_CALIENTE: 'HOT_RELOAD', PORT_HOST: 'HOST_PORT', PUERTO: 'HOST_PORT', PUBLIC_URL: 'BASE_URL',
 });
 
-const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 const wholeNumber = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 
 /**
