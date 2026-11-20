@@ -90,6 +90,30 @@
 }
 
 /*
+ * Cronum Work's one-document shell: the page is Work's, and each module keeps its accent inside
+ * its windows and the pieces it hangs on the page (`data-module`, `data-owner`): its --app…
+ * from tokens.css there, and the kit's accent from them again, since what :root gave is already
+ * worked out in Work's colour. The greys stay the page's.
+ */
+:root[data-app="work"] :is([data-module], [data-owner]) {
+  --kit-hue: var(--app, #7A7064);
+  --kit-accent: var(--app-accent, var(--app, #16130E));
+  --kit-on-accent: var(--app-on, #FFFFFF);
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 12%, #FFFFFF);
+}
+:root[data-app="work"][data-theme="dark"] :is([data-module], [data-owner]) {
+  --kit-accent: var(--app-accent-dark, color-mix(in oklab, var(--app, #FFC21A) 55%, #FFF7E6));
+  --kit-on-accent: var(--app-on-dark, #16130E);
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 18%, #1C1914);
+}
+:root[data-app="work"][data-look="clean"]:not([data-theme="dark"]) :is([data-module], [data-owner]) {
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 10%, #FFFFFF);
+}
+:root[data-app="work"][data-look="clean"][data-theme="dark"] :is([data-module], [data-owner]) {
+  --kit-accent-soft: color-mix(in oklab, var(--kit-accent) 18%, #1C1C1E);
+}
+
+/*
  * The Clean look (<html data-look="clean">, a host's choice for each person:
  * theme.js and shell.js): white and greys with no hue in them, hairline
  * borders, soft shadows and Inter everywhere. The product's accent stays, as
@@ -1381,6 +1405,9 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-shared__person .kit-icon-btn { width: 32px; height: 32px; flex: none; }
 .kit-shared__about { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .kit-shared__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
+/* Without a signal (shared.js): what changes something is off, greyed as the kit's buttons are. */
+.kit-shared > .kit-settings__offline-hint { margin-bottom: 10px; }
+.kit-shared .kit-icon-btn[disabled], .kit-shared .kit-segmented button[disabled], .kit-shared select[disabled] { opacity: .55; cursor: default; pointer-events: none; }
 /* What can be bought (plan.js): on a narrow phone the button goes under the name, not over it. */
 .kit-plan__offer .kit-list__row { flex-wrap: wrap; row-gap: 8px; }
 .kit-plan__offer .kit-list__text { flex: 1 1 150px; }
@@ -1412,6 +1439,59 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-fold__list { display: grid; gap: 6px; margin: 0; padding-inline-start: 18px; }
 .kit-fold__list strong { color: var(--kit-text); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .kit-fold__chevron { transition: none; } }
+
+/* Administration › Notifications (admin.js renderNotices): a head with how things stand, then
+   cards — where they go (a fold), one row per group (when, how it reads, its words), the summary. */
+.kit-notices__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.kit-notices__head h2 { margin: 0; }
+/* minmax(0, …): the destination's one-line summary (nowrap) mustn't widen the page on a phone. */
+.kit-notices { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 14px; }
+.kit-notices > .kit-fold > summary > .kit-icon,
+.kit-notices__card-head > .kit-icon { width: 20px; height: 20px; color: var(--kit-muted); flex: none; }
+/* The destination's title whole, and its summary after it, cut short when the line is short. */
+.kit-notices > .kit-fold > summary > span { flex: none; }
+.kit-notices > .kit-fold > summary > .kit-fold__now { flex: 1 1 auto; text-align: end; }
+.kit-notices__card {
+  display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--kit-border);
+  border-radius: var(--look-r-lg, 12px); background: var(--kit-panel);
+}
+.kit-notices__card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 32px; }
+.kit-notices__card-head h3 { margin: 0; font-size: inherit; font-weight: 600; flex: 1 1 auto; }
+.kit-notices__extras { display: flex; flex-wrap: wrap; gap: 16px; }
+.kit-notices__via { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; }
+.kit-notices__via > .kit-row { gap: 14px; }
+.kit-notices__rows { display: grid; }
+.kit-notices__row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px 12px;
+  grid-template-areas: "name mode edit" "preview preview preview" "editor editor editor";
+  padding: 10px 0; border-top: 1px solid var(--kit-border);
+}
+.kit-notices__name { grid-area: name; font-weight: 500; }
+.kit-notices__row > .kit-segmented { grid-area: mode; }
+.kit-notices__row > .kit-icon-btn { grid-area: edit; }
+.kit-notices__row > .kit-notices__preview { grid-area: preview; }
+.kit-notices__row > .kit-notices__editor { grid-area: editor; }
+.kit-notices__row .kit-segmented button { min-height: 30px; padding: 4px 11px; font-size: var(--look-footnote, 13px); }
+.kit-notices__preview { margin: 0; color: var(--kit-muted); font-size: var(--look-footnote, 13px); overflow-wrap: anywhere; }
+.kit-notices__row[data-mode="off"] .kit-notices__preview { text-decoration: line-through; opacity: .6; }
+.kit-notices__editor { display: grid; gap: 8px; padding-top: 4px; }
+.kit-notices__editor textarea { width: 100%; box-sizing: border-box; }
+.kit-notices__vars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kit-notices__vars > button:not(.kit-btn) {
+  font-family: var(--kit-font-mono); font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--kit-border); background: var(--kit-hover); color: var(--kit-text);
+}
+.kit-notices__vars > button:not(.kit-btn):hover { border-color: var(--kit-muted); }
+.kit-notices__vars > .kit-btn { margin-inline-start: auto; }
+.kit-notices__rules { padding-top: 8px; border-top: 1px solid var(--kit-border); }
+.kit-notices__hour { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kit-notices__hour select { width: auto; }
+.kit-notices__save { justify-content: flex-end; }
+@media (max-width: 560px) {
+  .kit-notices__row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name edit" "mode mode" "preview preview" "editor editor"; }
+  .kit-notices__row > .kit-segmented { display: flex; }
+  .kit-notices__row > .kit-segmented button { flex: 1; }
+}
 
 /* The plan: its own card, then what it includes, a check for what is in, a dash for what isn't. */
 .kit-plan-card {
@@ -1498,6 +1578,12 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 :root[data-kit-keyboard] .kit-toasts { bottom: auto; top: calc(var(--kit-view-top) + var(--kit-view-h) - 16px); translate: 0 -100%; }
 @media (max-width: 640px) {
   :root[data-kit-keyboard] dialog:modal { top: calc(var(--kit-view-top) + var(--kit-view-h)); translate: 0 -100%; max-height: calc(var(--kit-view-h) - 8px); }
+}
+/* A sheet going up or down with the keyboard in the suite's iPhone app (keyboard.js rideKeyboard):
+   held where it slides to, out of the page's layout, which comes a moment later. */
+.kit-dialog[data-riding] {
+  box-sizing: border-box; inset-block: var(--ride-top) auto; margin: 0;
+  height: var(--ride-height); max-height: none; padding-bottom: var(--ride-pad);
 }
 
 /* ------------------------------- signature -------------------------------- */
@@ -1614,6 +1700,11 @@ input, textarea { caret-color: var(--kit-accent); }
 .kit-chip--large { padding: 6px 13px; color: var(--kit-text); font-size: var(--look-subhead, 13.5px); }
 button.kit-chip { cursor: pointer; }
 button.kit-chip:hover { background: var(--kit-hover); }
+/* With a finger, 23 px are below the 24 of WCAG 2.5.8: an invisible margin takes the taps above and below, as the round check's (ui-movil-12). */
+@media (pointer: coarse) {
+  button.kit-chip { position: relative; }
+  button.kit-chip::before { content: ""; position: absolute; inset: -7px 0; }
+}
 .kit-chip[aria-pressed="true"], .kit-chip[aria-pressed="true"]:hover {
   background: var(--kit-accent); border-color: var(--kit-accent); color: var(--kit-on-accent); font-weight: 600;
 }

@@ -15,7 +15,9 @@
  *   }))));
  *
  * Each answer turns both buttons off while it is on its way, and back on if it fails (the
- * module's function throws: the kit says why).
+ * module's function throws: the kit says why). Without a signal (`offline`) the cards stay in sight
+ * with both answers off and one line above them saying why (`kit.offline.actions`): only the server
+ * takes an answer. The module draws them again when the signal goes or comes back.
  */
 import { el } from './dom.js';
 import { t } from './i18n.js';
@@ -33,14 +35,17 @@ import { avatar, toast } from './ui.js';
  * @param {string} [options.detail]       the app's own line for that instead (Projects' roles).
  * @param {Function} options.onAccept     (event) → Promise: the event, to anchor a menu (Tasks' group).
  * @param {Function} options.onDecline    () → Promise.
+ * @param {boolean} [options.offline]     no signal: both answers off.
  * @returns {HTMLElement}
  */
 export function invitationCard({
-  from = null, name, icon = null, color = null, what = null, permission = null, detail = null, onAccept, onDecline,
+  from = null, name, icon = null, color = null, what = null, permission = null, detail = null, onAccept, onDecline, offline = false,
 }) {
   const who = typeof from === 'string' ? from : from?.name || from?.display_name || '';
   const decline = el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('kit.invite.decline') });
   const accept = el('button', { type: 'button', class: 'kit-btn kit-btn--small kit-btn--primary', text: t('kit.invite.accept') });
+  decline.disabled = offline;
+  accept.disabled = offline;
   const answer = (work) => async (ev) => {
     ev?.stopPropagation?.();
     decline.disabled = true;
@@ -51,8 +56,8 @@ export function invitationCard({
       toast(errorMessage(err), { error: true });
     } finally {
       // Answered, the module draws the sidebar without it; still there, it can be answered again.
-      decline.disabled = false;
-      accept.disabled = false;
+      decline.disabled = offline;
+      accept.disabled = offline;
     }
   };
   decline.addEventListener('click', answer(() => onDecline?.()));
@@ -73,8 +78,13 @@ export function invitationCard({
   el('div', { class: 'kit-invite__actions' }, decline, accept));
 }
 
-/** Several of them, in their place at the top of the sidebar; null with none, to append nothing. */
-export function invitationCards(invitations = []) {
+/**
+ * Several of them, in their place at the top of the sidebar; null with none, to append nothing.
+ * `{ offline }` turns every answer off, with the line that says why above the cards.
+ */
+export function invitationCards(invitations = [], { offline = false } = {}) {
   if (!invitations.length) return null;
-  return el('section', { class: 'kit-invites', 'aria-label': t('kit.invite.title') }, invitations.map(invitationCard));
+  return el('section', { class: 'kit-invites', 'aria-label': t('kit.invite.title') },
+    offline ? el('p', { class: 'kit-hint kit-invites__offline', text: t('kit.offline.actions') }) : null,
+    invitations.map((invitation) => invitationCard({ ...invitation, offline: offline || invitation.offline })));
 }

@@ -321,29 +321,53 @@ export function createEntitlements({
    */
   function ofMany(users) {
     const answers = new Map();
-    const counted = [];
+    for (const user of users) if (user && isUnlimited(user)) answers.set(user.id, of(user));   // no query
+    for (const [id, grants] of grantsOfMany(users)) answers.set(id, entitledBy(grants));
+    return answers;
+  }
+
+  /**
+   * of() and sourceOf() of many people at once, for the admin's list of accounts (api.js): Map
+   * userId → { entitled, source }, the same answers, in the queries of ofMany() rather than four or
+   * more for each person (audit of 6/11, perf-srv-9).
+   */
+  function plansOfMany(users) {
+    const answers = new Map();
     for (const user of users) {
-      if (!user) continue;
-      if (isUnlimited(user)) answers.set(user.id, of(user));   // no query
-      else counted.push(user);
+      if (user && isUnlimited(user)) answers.set(user.id, { entitled: of(user), source: { kind: 'unlimited' } });
     }
-    if (!counted.length) return answers;
+    for (const [id, grants] of grantsOfMany(users)) {
+      const { entitled, grant } = shownBy(grants);
+      answers.set(id, { entitled, source: sourceFrom(grant) });
+    }
+    return answers;
+  }
+
+  /**
+   * The active grants of many people (but the unlimited, who need none), theirs and their groups',
+   * each person's in the order activeGrants() reads them: Map userId → grants. Their groups in one
+   * query, then the grants by batches of 500.
+   */
+  function grantsOfMany(users) {
+    const found = new Map();
+    const counted = users.filter((user) => user && !isUnlimited(user));
+    if (!counted.length) return found;
     const groupsOf = organizationsOfMany
       ? organizationsOfMany(counted.map((user) => user.id))
       : new Map(counted.map((user) => [user.id, organizationsOf(user) || []]));
     const now = iso(clock());
     const active = (type, ids) => {
-      const found = new Map();
+      const bySubject = new Map();
       for (let i = 0; i < ids.length; i += 500) {
         const batch = ids.slice(i, i + 500);
         for (const grant of database.all(`SELECT * FROM entitlement_grants WHERE subject_type = ?
           AND subject_id IN (${batch.map(() => '?').join(', ')})
           AND starts_at <= ? AND (ends_at IS NULL OR ends_at > ?) AND revoked_at IS NULL`, type, ...batch, now, now)) {
-          if (!found.has(grant.subject_id)) found.set(grant.subject_id, []);
-          found.get(grant.subject_id).push(grant);
+          if (!bySubject.has(grant.subject_id)) bySubject.set(grant.subject_id, []);
+          bySubject.get(grant.subject_id).push(grant);
         }
       }
-      return found;
+      return bySubject;
     };
     const ofUsers = active('user', [...new Set(counted.map((user) => user.id))]);
     const ofGroups = active('organization', [...new Set(counted.flatMap((user) => groupsOf.get(user.id) || []))]);
@@ -352,9 +376,9 @@ export function createEntitlements({
       // In the order of(user) reads them (ORDER BY id): with two of a plan, the one shown is the same.
       const grants = [...(ofUsers.get(user.id) || []), ...groups.flatMap((id) => ofGroups.get(id) || [])]
         .sort((a, b) => a.id - b.id);
-      answers.set(user.id, entitledBy(grants));
+      found.set(user.id, grants);
     }
-    return answers;
+    return found;
   }
 
   /**
@@ -425,7 +449,11 @@ export function createEntitlements({
   function sourceOf(user) {
     if (!user) return { kind: 'default' };
     if (isUnlimited(user)) return { kind: 'unlimited' };
-    const { grant } = shownBy(activeGrants(user, null));
+    return sourceFrom(shownBy(activeGrants(user, null)).grant);
+  }
+
+  /** What sourceOf() says of the grant that gives the plan shown (shownBy), or of none. */
+  function sourceFrom(grant) {
     if (!grant) return { kind: 'default' };
     const admin = grant.source === 'admin';
     return {
@@ -753,7 +781,7 @@ export function createEntitlements({
   const forgetUsage = (userId) => database.run('DELETE FROM entitlement_usage WHERE user_id = ?', userId).changes;
 
   return {
-    errors, ignored, knows, of, ofMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, better, countDaily, countWeekly, dailyUsage, usedToday, usedThisWeek,
+    errors, ignored, knows, of, ofMany, plansOfMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, better, countDaily, countWeekly, dailyUsage, usedToday, usedThisWeek,
     grant, revoke, setPlan, earlyAccessState, keepEarlyAccess, seatsOf, grantsOf, describe, forgetUsage,
   };
 }

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { wrapDatabase } from '../db.js';
-import { createStrangerInvites, strangerInvitesSchema, registerUnsubscribeApi, STRANGER_LIMITS } from '../stranger-invites.js';
+import { createStrangerInvites, strangerInvitesSchema, strangerInvitesKeepSchema, registerUnsubscribeApi, STRANGER_LIMITS, STRANGER_KEEP_DAYS } from '../stranger-invites.js';
 import { createShareMail } from '../share-mail.js';
 import { mailBrand } from '../mail-layout.js';
 import { buildMessage, mailConfigFromEnv, mailConfigErrors } from '../mail.js';
@@ -222,4 +222,32 @@ test('sharing tells an address without an account through notify.stranger, and a
   const unknown = sharing.share('board', 1, 10, { email: 'New@Example.com', permission: 'view' });
   assert.deepEqual(told, [['email', 2], ['stranger', 'new@example.com', 'Plans', 1, 'view']]);
   assert.deepEqual(Object.keys(known).sort(), Object.keys(unknown).sort());
+});
+
+test('whoever invited may go and the email they sent stays; one that never went counts no more; a year, then gone (sc-data-18, sc-data-20, #56)', async () => {
+  const { database, strangers, clock } = setup();
+  database.exec('PRAGMA foreign_keys = ON');
+  strangerInvitesKeepSchema(database);
+  const { token } = strangers.record('kept@example.com', 1, 'list');
+  database.run('DELETE FROM users WHERE id = 1');
+  // The row stays without its sender: its link still finds the address, and its month still counts.
+  assert.equal(strangers.emailOf(token), 'kept@example.com');
+  assert.equal(database.get('SELECT inviter_id FROM mail_stranger_invites WHERE token = ?', token).inviter_id, null);
+  assert.equal(strangers.suppress(token), 'kept@example.com');
+
+  // A send that fails takes its row back: the same person may offer it again.
+  const lucia = confirmed(2);
+  const failing = createShareMail({
+    mailer: { send: async () => { throw new Error('smtp down'); } }, texts: createTexts(), brand, baseUrl: BASE, strangers,
+    signupUrl: `${BASE}/`, log: () => {},
+  });
+  assert.equal(await failing.stranger({ email: 'retry@example.com', inviter: lucia, kind: 'list', name: 'X' }), false);
+  assert.equal(strangers.check('retry@example.com', lucia), null, 'not already_sent');
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM mail_stranger_invites WHERE email = 'retry@example.com'").n, 0);
+
+  // After a year the row goes; the block the address asked for stays.
+  strangers.record('old@example.com', 3, 'note');
+  clock.now += (STRANGER_KEEP_DAYS + 1) * 24 * 60 * 60 * 1000;
+  assert.equal(strangers.purge(), 2);
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM mail_suppressions').n, 1);
 });

@@ -22,7 +22,9 @@ globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => engli
 
 const { loadLanguage, t } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
-const { sharedSection, sharedPage } = await import('../web/shared.js');
+const { sharedSection } = await import('../web/shared.js');
+// The page as Settings draw it (sharedSection's render).
+const sharedPage = (options) => sharedSection(options).render();
 const { openSettings } = await import('../web/settings.js');
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((done) => setTimeout(done, 0)); };
@@ -97,10 +99,22 @@ test('each change goes through the app and the page asks again', async () => {
   await settle();
   assert.deepEqual(calls, [['permission', 3, 2, 'view'], ['load']]);
 
-  // Ben never answered: his invitation goes at once, as in the share dialog (rule 7).
+  // Taking it back from Ana, who accepted it, asks first, as the share dialog does (share.js);
+  // from Ben, whose invitation has no answer, it goes at once (Martin, 10/11).
+  calls.length = 0;
+  const anaAgain = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ana/.test(n.textContent));
+  anaAgain.all().find((n) => n.getAttribute('aria-label') === t('kit.shared.remove', { name: 'Ana' })).dispatch('click');
+  await settle();
+  const question = openDialog();
+  assert.ok(question.textContent.includes(t('kit.share.removeAsk', { name: 'Ana' })), 'the title asks');
+  assert.ok(question.textContent.includes(t('kit.shared.removeConfirm', { name: 'Ana', item: 'Recipes' })), 'the text says what goes');
+  assert.deepEqual(calls, []);
+  buttons(question, t('kit.shared.stop'))[0].dispatch('click');
+  await settle();
+  assert.deepEqual(calls, [['remove', 3, 2], ['load']]);
   calls.length = 0;
   const benRow = page.all().find((n) => n.getAttribute('class') === 'kit-shared__person' && /Ben/.test(n.textContent));
-  benRow.all().find((n) => n.getAttribute('aria-label') === t('kit.share.remove', { name: 'Ben' })).dispatch('click');
+  benRow.all().find((n) => n.getAttribute('aria-label') === t('kit.shared.remove', { name: 'Ben' })).dispatch('click');
   await settle();
   assert.deepEqual(calls, [['remove', 3, 4], ['load']]);
 
@@ -296,4 +310,82 @@ test('in Settings it is one more of the app’s sections', async () => {
   root.all().find((n) => n.tagName === 'BUTTON' && n.textContent === 'Trip').dispatch('click');
   assert.equal(root.all().length, 0, 'opening something closes the Settings it is in, without the app keeping its handle');
   settings.close();
+});
+
+/** Settings' watchOffline (settings.js), driven by hand: `set(off)` says the signal went or came back. */
+function signal(start = false) {
+  let off = start;
+  const paints = new Set();
+  return {
+    watchOffline: (paint) => { paint(off); paints.add(paint); },
+    set(now) { off = now; for (const paint of paints) paint(now); },
+  };
+}
+
+test('without a signal, what changes something is off with the line that says why, and on again once it is back', async () => {
+  const { options, calls } = fixture();
+  const { watchOffline, set } = signal(true);
+  const page = sharedSection(options).render({ watchOffline });
+  await settle();
+  const hint = () => page.all().find((n) => n.className === 'kit-hint kit-settings__offline-hint');
+  const changing = () => [
+    ...buttons(page, t('kit.shared.accept')), ...buttons(page, t('kit.shared.decline')), ...buttons(page, t('kit.shared.leave')),
+    ...page.all().filter((n) => n.tagName === 'BUTTON' && ['Ana', 'Ben'].some((name) => n.getAttribute('aria-label') === t('kit.shared.remove', { name }))),
+    ...page.all().filter((n) => n.tagName === 'BUTTON' && n.dataset?.value),
+  ];
+  assert.equal(hint().hidden, false);
+  assert.equal(hint().textContent, t('kit.offline.actions'));
+  assert.equal(buttons(page, t('kit.shared.accept')).length, 1);
+  assert.equal(buttons(page, t('kit.shared.decline')).length, 1);
+  assert.equal(buttons(page, t('kit.shared.leave')).length, 1);
+  assert.equal(changing().length, 9, 'accept, decline, leave, what each of two people may do (2 × 2), taking it back from each (2)');
+  assert.ok(changing().every((b) => b.disabled === true), 'all off');
+  assert.equal(buttons(page, 'Trip')[0].disabled, undefined, 'going to it is no change: still there');
+
+  // Back: on again, and the page asks the server what there is now (an invitation may have gone).
+  const loads = calls.filter((c) => c[0] === 'load').length;
+  set(false);
+  await settle();
+  assert.equal(hint().hidden, true);
+  assert.equal(changing().length, 9);
+  assert.ok(changing().every((b) => b.disabled === false), 'all on');
+  assert.equal(calls.filter((c) => c[0] === 'load').length, loads + 1, 'asked again');
+
+  // Gone again: the controls drawn by that answer go off too.
+  set(true);
+  assert.equal(hint().hidden, false);
+  assert.ok(changing().every((b) => b.disabled === true));
+});
+
+test('with a signal from the start nothing is off and nothing is said; drawn alone, it is always on', async () => {
+  const { options } = fixture();
+  const page = sharedSection(options).render({ watchOffline: signal(false).watchOffline });
+  await settle();
+  assert.equal(page.all().find((n) => n.className === 'kit-hint kit-settings__offline-hint').hidden, true);
+  assert.equal(buttons(page, t('kit.shared.accept'))[0].disabled, false);
+  const alone = sharedPage(fixture().options);
+  await settle();
+  assert.equal(buttons(alone, t('kit.shared.accept'))[0].disabled, false);
+});
+
+test('in Settings without a signal, Sharing has its buttons off and says why', async () => {
+  const { options } = fixture();
+  const real = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: false } });
+  const root = document.createElement('div');
+  let settings;
+  try {
+    settings = openSettings({
+      app: { id: 'notes', name: 'Notes' }, user: { username: 'ana', role: 'user' }, root, start: 'shared',
+      config: { app: { id: 'notes', modules: { mcp: false } } }, sections: [sharedSection(options)],
+    });
+    await settle();
+    const hint = root.all().find((n) => n.className === 'kit-hint kit-settings__offline-hint' && n.textContent === t('kit.offline.actions') && !n.hidden);
+    assert.ok(hint, 'the line that says why');
+    assert.equal(buttons(root, t('kit.shared.accept'))[0].disabled, true);
+    assert.equal(buttons(root, t('kit.shared.decline'))[0].disabled, true);
+  } finally {
+    settings?.close();
+    if (real) Object.defineProperty(globalThis, 'navigator', real); else delete globalThis.navigator;
+  }
 });

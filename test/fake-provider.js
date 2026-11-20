@@ -9,6 +9,11 @@
  *   POST  /subscriptions/:ref/cancel  { at: 'period_end' | 'now' }   refused with a 4xx or 5xx
  *   PATCH /subscriptions/:ref         { scheduled: null }             a scheduled cancellation taken back
  *   GET   /subscriptions/:ref         → { data: { id, status, scheduled: 'cancel' | 'pause' | null } }
+ *   POST  /discounts                  { code, offer, products, description } → { data: { id } }; 409 when taken
+ *   PATCH /discounts/:id              { active }
+ *   POST  /subscriptions/:ref/postpone { days } → { data: { next_billed_at } | { ended: true } }
+ * The last three are the affiliates' members (affiliates.js), and its checkout link names the
+ * discount it was given (`&discount=`), for a test to read.
  */
 import crypto from 'node:crypto';
 import { HttpError } from '../http.js';
@@ -25,7 +30,7 @@ export function fakeProvider({ secret = SECRET, apiBase, fetch = globalThis.fetc
   if (!apiBase) throw new Error('fakeProvider: the address of its API is needed');
   const base = String(apiBase).replace(/\/+$/, '');
 
-  async function call(method, path, body = undefined) {
+  async function call(method, path, body = undefined, { taken = null } = {}) {
     let res;
     try {
       res = await fetch(`${base}${path}`, {
@@ -36,6 +41,7 @@ export function fakeProvider({ secret = SECRET, apiBase, fetch = globalThis.fetc
       throw new HttpError(502, 'billing_provider_error');
     }
     const answer = await res.json().catch(() => null);
+    if (res.status === 409 && taken) throw new HttpError(409, taken);
     if (!res.ok) {
       log(`[billing] ${ID} ${method} ${path}: ${res.status} ${answer?.error?.code || ''}`.trim());
       throw new HttpError(502, 'billing_provider_error');
@@ -60,7 +66,23 @@ export function fakeProvider({ secret = SECRET, apiBase, fetch = globalThis.fetc
     await call('PATCH', `/subscriptions/${encodeURIComponent(ref)}`, { scheduled: null });
   }
 
-  return { ...signedProvider({ id: ID, secret }), cancelSubscription, keepSubscription };
+  const signed = signedProvider({ id: ID, secret });
+  return {
+    ...signed, cancelSubscription, keepSubscription,
+    checkoutUrl: async (args) => {
+      const url = await signed.checkoutUrl(args);
+      return args.discount ? `${url}&discount=${encodeURIComponent(args.discount)}` : url;
+    },
+    createDiscount: async ({ code, offer, products, description }) => {
+      const made = await call('POST', '/discounts', { code, offer, products, description }, { taken: 'discount_code_taken' });
+      return { id: made.id };
+    },
+    setDiscountActive: async (id, active) => { await call('PATCH', `/discounts/${encodeURIComponent(id)}`, { active }); },
+    postponeRenewal: async (ref, days) => {
+      const answer = await call('POST', `/subscriptions/${encodeURIComponent(ref)}/postpone`, { days });
+      return answer?.ended ? { ended: true } : { nextBilledAt: answer?.next_billed_at ?? null };
+    },
+  };
 }
 
 /** A webhook delivery of the suite's own events, signed as signedProvider reads it. */

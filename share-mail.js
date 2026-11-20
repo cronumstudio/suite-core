@@ -108,7 +108,7 @@ export function createShareMail({ mailer, texts, brand, module = null, baseUrl, 
       if (why !== 'already_sent' && why !== 'no_signup') log(`[mail] an invitation to an address without an account was not sent: ${why}`);
       return false;
     }
-    const { url: unsubscribe } = strangers.record(email, inviter.id, kind);
+    const { token, url: unsubscribe } = strangers.record(email, inviter.id, kind);
     const { subject, text, html } = compose({
       to: inviter, actor: inviter.display_name || inviter.username, kind, name, icon, permission, role,
       stranger: { email, signup: signupUrl, unsubscribe },
@@ -119,6 +119,8 @@ export function createShareMail({ mailer, texts, brand, module = null, baseUrl, 
     } catch (err) {
       // Never the address in the log: it is someone's who has no account here.
       log(`[mail] an invitation to an address without an account (a ${kind}) was not sent: ${err.message}`);
+      // Noted before it went (two at once can't both pass): it didn't go, so it counts no more.
+      strangers.forget?.(token);
       return false;
     }
   }

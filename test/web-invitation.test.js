@@ -78,6 +78,16 @@ test('several go in one section; none, nothing', () => {
   assert.equal(byClass(block, 'kit-invite').length, 2);
 });
 
+test('without a signal both answers are off, with one line above the cards that says why', () => {
+  const block = invitationCards([{ name: 'A', onAccept() {}, onDecline() {} }], { offline: true });
+  assert.equal(byClass(block, 'kit-invites__offline')[0].textContent, t('kit.offline.actions'));
+  assert.equal(button(block, t('kit.invite.accept')).disabled, true);
+  assert.equal(button(block, t('kit.invite.decline')).disabled, true);
+  const online = invitationCards([{ name: 'A', onAccept() {}, onDecline() {} }]);
+  assert.equal(byClass(online, 'kit-invites__offline').length, 0);
+  assert.equal(button(online, t('kit.invite.accept')).disabled, false);
+});
+
 test('the avatar takes a person or a name, their colour and a size', () => {
   assert.equal(avatar('Ana López').textContent, 'AL');
   assert.equal(avatar({ display_name: 'Ben Ros', avatar_color: '#123456' }).style.background, '#123456');

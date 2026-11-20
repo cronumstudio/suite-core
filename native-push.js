@@ -390,12 +390,12 @@ export function fcmMessage(notice, { ttl = 3600, urgency = 'normal', channel = '
 /**
  * Sends to Apple. `connect(authority)` opens the HTTP/2 session (http2.connect;
  * a test gives one to a server of its own); one session per host is kept and
- * opened again when Apple closes it.
+ * opened again when Apple closes it, or when a request on it times out.
  * → { send(target, notice, options) → { status, reason }, close() }
  */
 export function createApnsSender({
   keyId, teamId, privateKey, topic, connect = (authority) => http2.connect(authority),
-  clock = () => Date.now(), log = console.error,
+  clock = () => Date.now(), log = console.error, timeoutMs = SEND_TIMEOUT_MS,
 }) {
   const key = crypto.createPrivateKey(privateKey);
   let jwt = null;
@@ -456,9 +456,14 @@ export function createApnsSender({
         });
         let status = 0;
         const chunks = [];
-        req.setTimeout(SEND_TIMEOUT_MS, () => {
+        req.setTimeout(timeoutMs, () => {
           req.close(http2.constants.NGHTTP2_CANCEL);
           finish({ status: 0, reason: 'timeout' });
+          // A connection that stopped answering (half open after a network cut, no FIN) would
+          // take every next notice too, 10 s each, until the system gave the TCP up: minutes.
+          // Dropped, the next send opens another (audit sc-host-3).
+          if (sessions.get(authority) === session) sessions.delete(authority);
+          session.destroy();
         });
         req.on('response', (headers) => { status = Number(headers[':status']) || 0; });
         req.on('data', (chunk) => chunks.push(chunk));

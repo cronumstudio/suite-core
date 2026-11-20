@@ -28,8 +28,12 @@ globalThis.fetch = async (url) => {
   const lang = /\/i18n\/([a-z]+)\.json/.exec(String(url))?.[1];
   if (!listed.includes(lang)) return { ok: false, status: 404, json: async () => ({}) };
   if (!catalogs[lang]) return { ok: false, status: 503, json: async () => ({}) };
-  return { ok: true, status: 200, json: async () => catalogs[lang] };
+  // `?en`, as the server answers it (app.js catalogFor): the language with English under it, saying
+  // so. `olderServer` answers the language alone, as before 0.285.0.
+  const under = lang !== 'en' && /[?&]en(&|$)/.test(String(url)) && !olderServer;
+  return { ok: true, status: 200, json: async () => (under ? { ...catalogs.en, ...catalogs[lang], '$meta.fallback': 'en' } : catalogs[lang]) };
 };
+let olderServer = false;
 const events = [];
 // The page's window, as far as the module uses it.
 globalThis.dispatchEvent = (event) => { events.push({ type: event.type, ...event.detail }); return true; };
@@ -160,16 +164,49 @@ test('each catalog is asked for once per page, and one that failed is asked for 
   try {
     await i18n.loadLanguage('es');
     await i18n.loadLanguage('es');
-    assert.deepEqual(asked, ['en', 'es', 'es'], 'English once; Spanish, which failed, again');
+    assert.deepEqual(asked, ['es', 'en', 'es'], 'English once, behind the Spanish that failed; Spanish again');
+    assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hello Ana', 'without Spanish, English');
     catalogs = CATALOGS;
     await i18n.loadLanguage('es');
     await i18n.loadLanguage('en');
     await i18n.loadLanguage('es');
-    assert.deepEqual(asked, ['en', 'es', 'es', 'es'], 'once it came, never again');
+    assert.deepEqual(asked, ['es', 'en', 'es', 'es'], 'once it came, never again');
     assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hola Ana');
   } finally {
     globalThis.fetch = serve;
   }
+});
+
+test('another language is one catalog with English under it, one trip; an answer without it has English asked for, as before (0.285.0)', async () => {
+  const serve = globalThis.fetch;
+  for (const older of [false, true]) {
+    olderServer = older;
+    const i18n = await kit(CATALOGS);
+    const asked = [];
+    globalThis.fetch = (url, options) => { asked.push(String(url)); return serve(url, options); };
+    try {
+      assert.equal(await i18n.loadLanguage('es'), 'es');
+      assert.deepEqual(asked, older ? ['/i18n/es.json?en', '/i18n/en.json'] : ['/i18n/es.json?en'], older ? 'the older answer: English too' : 'one trip');
+      assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hola Ana');
+      assert.equal(i18n.t('x.onlyEnglish'), 'Only English', 'a key Spanish lacks, in English either way');
+      assert.equal(i18n.t('x.count', { n: 2 }), '2 gatos');
+      assert.equal(i18n.t('no.such.key'), 'no.such.key');
+      assert.equal(await i18n.loadLanguage('en'), 'en');
+      assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hello Ana');
+      assert.equal(asked.filter((url) => url.includes('/en.json')).length, 1, 'English once');
+      assert.equal(await i18n.loadLanguage('fr'), 'fr');
+      assert.equal(i18n.t('x.count', { n: 2 }), '2 chats');
+      assert.equal(i18n.t('x.hello', { name: 'Ana' }), 'Hello Ana');
+    } finally {
+      globalThis.fetch = serve;
+      olderServer = false;
+    }
+  }
+  const i18n = await kit(CATALOGS);
+  assert.equal(i18n.catalogPath('en'), '/i18n/en.json');
+  assert.equal(i18n.catalogPath('es'), '/i18n/es.json?en');
+  assert.equal(i18n.catalogPath('en', true), '/i18n/en.json?all');
+  assert.equal(i18n.catalogPath('de', true), '/i18n/de.json?all&en');
 });
 
 test('changeLanguage loads it and tells the app, which draws itself again', async () => {

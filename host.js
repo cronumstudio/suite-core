@@ -58,28 +58,29 @@
  * nothing of this runs unless a host is loading it.
  */
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createSuite, createApp, healthOf, SuiteConfigError } from './app.js';
+import { serverFor, jobRunner, startSuiteJobs, handleProcessSignals, listenAndSay, MINUTE_BEFORE_SWEEP } from './runtime.js';
 import { resolveConfig } from './config.js';
 import { migrate } from './migrate.js';
 import { openDatabase } from './db.js';
 import { SUITE_MIGRATIONS } from './schema.js';
 import { createEntitlements } from './entitlements.js';
-import { createLive, subscribeAll } from './live.js';
+import { createLive, createLiveAll } from './live.js';
 import { createUploads } from './uploads.js';
 import { createStorage } from './storage.js';
 import { createUploadLinks } from './mcp-files.js';
+import { describeErrorWith } from './mcp-kit.js';
 import { createTexts } from './i18n.js';
 import { createShareMail } from './share-mail.js';
-import { createPortability } from './portability.js';
+import { createOwnership } from './ownership.js';
+import { createPortability, withImportCeiling } from './portability.js';
 import {
   sendJson, sendText, securityHeaders, readJson, badRequest, unauthorized, forbidden, notFound, int, serveStatic, staticFile,
 } from './http.js';
 import { scopeCss, SCOPE_FORMAT } from './scope-css.js';
-import { watchCode } from './watcher.js';
 import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.js';
 import { createCalendar, registerCalendarApi, calendarTools, calendarModulesSchema, createCalendarChoices } from './calendar.js';
 import { createCalendarFeeds, registerCalendarFeedApi, calendarFeedsSchema } from './calendar-feed.js';
@@ -91,11 +92,10 @@ import { FOUNDER_NOTICE_PREFS } from './billing.js';
 import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
 import {
-  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush,
+  fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush, catalogsOverEnglish,
 } from './host-worker.js';
 
 const HOUR = 3600 * 1000;
-const MINUTE_BEFORE_SWEEP = 60 * 1000;
 /** What a module still finishes when the host closes (its stop's promise), at most this long. */
 const STOP_MS = 3000;
 
@@ -118,6 +118,8 @@ const MOUNT = /^[a-z][a-z0-9-]{1,30}$/;
 const RESERVED = new Set([
   'api', 'suite', 'i18n', 'admin', 'auth', 'oauth', 'mcp', 'mcp-info', 'health', 'version', 'register',
   'authorize', 'token', 'js', 'css', 'icons', 'fonts',
+  // The affiliate's panel (affiliates.js), the root's.
+  'afiliados',
 ]);
 /** Scopes migrations already use: a module's app id can't be one of them. */
 const TAKEN_SCOPES = new Set(['app', 'suite', 'host']);
@@ -213,6 +215,13 @@ export const HOST_MIGRATIONS = Object.freeze([
       chosen_at TEXT NOT NULL
     )`),
   },
+  {
+    version: 12,
+    name: 'day-notices-by-day',
+    // The notices sent are read by their day every check, and forgotten by it: the key starts by
+    // the person (audit of 6/11, sc-feat-1).
+    up: (d) => d.exec('CREATE INDEX IF NOT EXISTS ix_host_day_notices_day ON host_day_notices (day)'),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
@@ -268,7 +277,6 @@ const CATALOG_KEY = /^[A-Za-z0-9_.-]{1,80}$/;
  *
  *   settings: {
  *     sections: [{ id: 'templates', icon: 'copy', label: 'templates.title', hint: 'templates.hintShort' }],
- *     ai: true,      // it adds to Your AI (aiExtra): its own section in its group
  *     about: true,   // it says what it is (aboutExtra), out of the list
  *     standing: 'settings.standing.text',   // its instruction for an assistant, in Your AI
  *     standingMore: ['settings.standing.prompt', ['examples.home', 'examples.homeAsk']],   // under it
@@ -297,7 +305,7 @@ export function moduleSettings(declared, { data = false } = {}) {
     .filter((entry) => isKey(entry) || (Array.isArray(entry) && entry.length === 2 && entry.every(isKey)))
     .slice(0, 20);
   return {
-    sections, data: Boolean(data), ai: given.ai === true, about: given.about === true,
+    sections, data: Boolean(data), about: given.about === true,
     ...(typeof given.standing === 'string' && CATALOG_KEY.test(given.standing) ? { standing: given.standing } : {}),
     ...(typeof given.tagline === 'string' && CATALOG_KEY.test(given.tagline) ? { tagline: given.tagline } : {}),
     ...(standingMore.length ? { standingMore } : {}),
@@ -320,29 +328,37 @@ const firstParagraph = (text) => String(text || '').split(/\n\s*\n/)[0].trim();
  * its instructions). Whole parts only, as many as fit. `instead` may give a
  * module's part in place of its brief (why its tools are not there).
  * `hostDoes` says what the host's own tools (`<hostId>_…`) are for.
+ * A part that doesn't fit is left out whole, so the text never says more than
+ * `max`: `log` says so, and `onLeftOut(mounts)` is given the modules it left
+ * out (`null` for the host's own line), for a host to warn at start and its
+ * tests to see it (hostMcp's `instructionsLeftOut`).
  */
 export function hostInstructions({
   modules, hostName, hostId = null, hostDoes = 'link things between modules', max = MCP_TEXT_MAX, log = () => {}, instead = () => null,
+  onLeftOut = null,
 }) {
   if (!modules.length) return '';
   const names = modules.map((m) => m.config.app.name);
   const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
-  const parts = [`${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
+  const parts = [{ mount: null, text: `${hostName} holds the user's ${list} in one place, with one connection for all of them. Each tool's`
     + ` name starts with its module (${modules.map((m) => `${m.mount}_`).join(', ')})`
-    + `${hostId ? `, or with ${hostId}_ for the ones that ${hostDoes}` : ''}.`];
+    + `${hostId ? `, or with ${hostId}_ for the ones that ${hostDoes}` : ''}.` }];
   for (const m of modules) {
     const spec = m.parts.mcp;
     const name = (tool) => `${m.mount}_${tool}`;
-    parts.push(instead(m) ?? (typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions)));
+    parts.push({ mount: m.mount, text: instead(m) ?? (typeof spec.brief === 'function' ? spec.brief(name) : spec.brief || firstParagraph(spec.instructions)) });
   }
   let text = '';
   const left = [];
-  for (const part of parts.filter(Boolean)) {
-    const next = text ? `${text}\n\n${part}` : part;
+  for (const part of parts.filter((p) => p.text)) {
+    const next = text ? `${text}\n\n${part.text}` : part.text;
     if (next.length <= max) text = next;
-    else left.push(part.slice(0, 40));
+    else left.push(part);
   }
-  if (left.length) log(`[mcp] the instructions don't fit in ${max} characters; left out: ${left.join(' | ')}…`);
+  if (left.length) {
+    log(`[mcp] the instructions don't fit in ${max} characters; left out: ${left.map((p) => p.mount ?? 'the host’s line').join(', ')} (${left.map((p) => p.text.slice(0, 40)).join(' | ')}…)`);
+    onLeftOut?.(left.map((p) => p.mount));
+  }
   return text;
 }
 
@@ -369,6 +385,32 @@ function schemaSaying(schema, say) {
 }
 
 /**
+ * A tool's answer with `say` applied to its texts: "give it one with edit_step" is
+ * `next_edit_step` in the host, as in its description. Not the answer of a tool that only
+ * reads, unless it is an error: that one carries the person's own words (a note's body, a
+ * step's detail), which may go back whole in an edit, and a word of theirs that is a tool's
+ * name would come back changed.
+ */
+function resultSaying(result, say, { reads = false } = {}) {
+  if (!Array.isArray(result?.content) || (reads && !result.isError)) return result;
+  return {
+    ...result,
+    content: result.content.map((part) => (part?.type === 'text' && typeof part.text === 'string'
+      ? { ...part, text: say(part.text) } : part)),
+  };
+}
+
+/** The suite's sentence for an error's code, in English as every tool text, or null when it has none. */
+let suiteEnglish = null;
+function suiteErrorSentence(code, extra = {}) {
+  suiteEnglish ??= createTexts()({ headers: { 'accept-language': 'en' } }).t;
+  const t = suiteEnglish;
+  const field = extra.field ? t(`fields.${extra.field}`) : null;
+  const sentence = t(`errors.${code}`, { ...extra, ...(field ? { field: field === `fields.${extra.field}` ? extra.field : field } : {}) });
+  return sentence === `errors.${code}` ? null : sentence;
+}
+
+/**
  * One MCP for every module of a host, at the host's /mcp: each module's tools
  * with its path before their name (`tasks_add_task`), checked against that
  * module's plan features, and only those of the modules each person uses in
@@ -381,8 +423,13 @@ function schemaSaying(schema, say) {
  *   the instructions says it, and `<host>_plan_info` tells what to pass on.
  * · `onDemand` ({ mount: [tool names] }): tools kept out of the list and
  *   reached through the door (mcp.js), unless `allTools(principal)`.
- * · `namesInText`: a module's tool names in its descriptions and prompts with
- *   its prefix (prefixNames).
+ * · `namesInText`: a module's tool names in its descriptions, prompts and
+ *   answers with its prefix (prefixNames; not in what a reading tool answers,
+ *   resultSaying).
+ *
+ * What a tool throws reads as its module says (its `describeError`), else as
+ * the suite's catalog says (`errors.<code>` in English): the host's own tools
+ * too, so `field_invalid` is never all an assistant gets.
  * · `record(principal, tool)`: after each call that changed something.
  * · `maxResultChars`: the most text an answer carries (mcp.js capResult).
  * · `calendar` (calendar.js createCalendar): `<host>_calendar`, what has a
@@ -416,15 +463,18 @@ export function hostMcp({
       module: m.mount,
       ...(feature ? { feature } : {}),
       ...(namesInText ? { description: say(tool.description), inputSchema: schemaSaying(tool.inputSchema, say) } : {}),
-      // A module's errors read as that module says, for the assistant to pass on.
+      // A module's errors read as that module says, for the assistant to pass on; with
+      // `namesInText`, its answers name its tools as the host does.
       handler: async (principal, args) => {
+        let result;
         try {
-          return await tool.handler(principal, args);
+          result = await tool.handler(principal, args);
         } catch (error) {
           const text = m.parts.mcp.describeError?.(error);
-          if (text) return { isError: true, content: [{ type: 'text', text }] };
-          throw error;
+          if (!text) throw error;
+          result = { isError: true, content: [{ type: 'text', text }] };
         }
+        return namesInText ? resultSaying(result, say, { reads: tool.annotations?.readOnlyHint === true }) : result;
       },
     };
   });
@@ -554,19 +604,31 @@ export function hostMcp({
     },
   } : null;
 
-  const instructions = (principal) => {
+  const instructionsWith = (principal, { quiet = false, onLeftOut = null } = {}) => {
     const instead = principal ? new Map(blocked(principal).map(({ m, why }) => [m.mount, `${m.config.app.name}: ${upgrade(why)}`])) : new Map();
     const linksOn = linkable.length >= 2 && (!principal || linking(principal));
     const calendarOn = datable.length > 0 && (!principal || dating(principal));
     return hostInstructions({
-      modules: modules.filter((m) => m.parts?.mcp && (!principal || using(principal, m.mount))), hostName, log,
+      modules: modules.filter((m) => m.parts?.mcp && (!principal || using(principal, m.mount))), hostName, log: quiet ? () => {} : log,
       hostId: linksOn || calendarOn ? hostId : null,
       hostDoes: [linksOn && 'link things between modules', calendarOn && 'show what has a date in them'].filter(Boolean).join(' or '),
       instead: (m) => instead.get(m.mount) ?? null,
+      onLeftOut,
     });
   };
+  const instructions = (principal) => instructionsWith(principal);
+  /**
+   * The modules whose part of the instructions doesn't fit (hostInstructions), for someone
+   * or, without a principal, for whoever uses them all: [] when every one is there.
+   */
+  const instructionsLeftOut = (principal = null) => {
+    let left = [];
+    instructionsWith(principal, { quiet: true, onLeftOut: (mounts) => { left = mounts; } });
+    return left;
+  };
   return {
-    instructions, tools, prompts, allows, visible,
+    instructions, instructionsLeftOut, tools, prompts, allows, visible,
+    describeError: describeErrorWith({ errorSentence: suiteErrorSentence }),
     ...(kept.size ? { onDemand: (principal, tool) => kept.has(tool.name) && !allTools(principal), door: hostId } : {}),
     ...(record ? { recordChange: record } : {}),
     ...(maxResultChars ? { maxResultChars } : {}),
@@ -788,6 +850,10 @@ export async function createHost({
     stop(['modules: "devices" is the path of the host’s phone pages (devices.connectPage, devices.webSessions)']);
   }
   migrate(suite.database, HOST_MIGRATIONS, { scope: 'host', log });
+  // The one channel for every module (liveAll): its session asked once a heartbeat by each stream,
+  // not by every module's (live.js createLiveAll), and at once when that person's sessions close.
+  const liveStreams = liveAll ? createLiveAll({ stillIn: (userId, token) => suite.sessions.stillOpen(token) === userId }) : null;
+  if (liveStreams) suite.sessions.whenClosed((id) => liveStreams.recheck(id));
 
   /**
    * The tables a module's migrations make, worked out on an empty database with the suite's and the
@@ -795,7 +861,8 @@ export async function createHost({
    * database, where the second found the first's table there and went on, with no way back. Null
    * when they can't run there (one that needs more than the database): the copies' tables are still
    * compared, once every module is in. (A table two modules make and neither declares, such as the
-   * old `mcp_tokens` of Tasks and Projects, is no one's data: left as it is.)
+   * old `mcp_tokens` of Tasks and Projects, is no one's data: dropped once every module is in, when
+   * empty and the suite's api_tokens is there; dropLeftovers.)
    */
   function tablesMadeBy(list, scope) {
     let scratch = null;
@@ -863,6 +930,8 @@ export async function createHost({
       features: resolved.features,
       plans: resolved.plans,
       defaultPlan: resolved.defaultPlan,
+      // Which app on a phone opens the site's links is the host's, asked at its root only (app-links.js).
+      appLinks: null,
       install: moduleInstall,
       // Where it is: for what an app does differently inside a host, if anything. Settings are
       // the host's, the same in every module: whether they have notices and a plan is the host's
@@ -874,6 +943,8 @@ export async function createHost({
         billing: Boolean(suite.billing?.enabled),
         // Whether the host sells in the app on a phone (STORE_BILLING): its store's way to buy, in every module.
         ...(suite.stores?.enabled ? { stores: true } : {}),
+        // The host's affiliates' program on (affiliates.js): Settings links to the panel at its root, on the web only.
+        ...(suite.affiliates?.enabled ? { recommend: true } : {}),
         // The host's one worker: the module's page registers it and retires its own (web/worker.js).
         ...(hostWorker ? { worker: '/sw.js' } : {}),
         // The host's daily summary: its page, and Settings' section of it in every module.
@@ -938,7 +1009,8 @@ export async function createHost({
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
       app: { id: app.id, name: app.name, version: v }, roles: config.accounts.roles,
-      baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log, limits,
+      baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
+      limits: withImportCeiling(limits, install.importMaxMb),
       // A copy says how many of the module's own migrations it had: in a host they are under its id.
       migrationScope: app.id,
       // What was erased leaves nothing in the links either (links.js prune).
@@ -950,6 +1022,23 @@ export async function createHost({
     entry.config = moduleConfig;
     entry.hooks = ownHooks;
     const moduleTexts = ownHooks.texts || createTexts();
+    /**
+     * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
+     * the module —Tasks— over the heading in its colour and in the card with its icon, in the
+     * module's words; the button goes to the module.
+     */
+    const moduleShareMail = createShareMail({
+      mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
+      // To an address without an account: the host's limits, and back at the module once signed up.
+      strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
+      module: {
+        name: app.name, color: app.color || suite.mailBrand.color,
+        icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
+      },
+    });
+    // With the host's one worker, a notice opens at the module's path (host-worker.js).
+    const modulePush = resolved.modules.push && suite.push
+      ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null;
     entry.view = {
       ...suite,
       config: moduleConfig,
@@ -962,24 +1051,19 @@ export async function createHost({
         ? createUploadLinks({ baseUrl: moduleInstall.baseUrl, accounts: suite.accounts })
         : null,
       texts: moduleTexts,
-      /**
-       * The email of something offered (share-mail.js): signed by the host —Cronum Work—, with
-       * the module —Tasks— over the heading in its colour and in the card with its icon, in the
-       * module's words; the button goes to the module.
-       */
-      shareMail: createShareMail({
-        mailer: suite.mailer, texts: moduleTexts, brand: suite.mailBrand, baseUrl: moduleInstall.baseUrl, log,
-        // To an address without an account: the host's limits, and back at the module once signed up.
-        strangers: suite.strangers, signupUrl: suite.signupUrl?.(`/${entry.mount}/`) ?? null,
-        module: {
-          name: app.name, color: app.color || suite.mailBrand.color,
-          icon: app.mail.icon ? `${moduleInstall.baseUrl}${app.mail.icon}` : null,
-        },
-      }),
+      shareMail: moduleShareMail,
       portabilityFor,
-      // With the host's one worker, a notice opens at the module's path (host-worker.js).
-      push: resolved.modules.push && suite.push
-        ? (hostWorker ? hostedPush(suite.push, entry.mount) : moduleReminderPush(suite.push, entry.mount)) : null,
+      push: modulePush,
+      // The admin's notices are the host's, set at its root's /admin only.
+      notices: null,
+      // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
+      // opened with ?codigo= still gets the cookie, from the host's own handle).
+      affiliates: null,
+      // Whose something is, in the module's words, with the host's one brake on deletion notices.
+      ownership: createOwnership({
+        db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
+        texts: (user) => moduleTexts(null, user).t,
+      }),
       organizations: resolved.modules.organizations ? suite.organizations : null,
       // The host's payments in every module, whether the app sells on its own or not: Settings ›
       // Plan is the host's, the same in all of them, and a checkout comes back to the module it left.
@@ -1053,6 +1137,10 @@ export async function createHost({
       serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
+      // Its page answers its own path alone; any other there is a 404 page (audit prod-9): no module
+      // has a route in its path (Tasks and Projects read the query, Notes and Next the hash), and a
+      // deeper one drew nothing, its files asked for under it. One that has some names them.
+      clientRoutes: parts.clientRoutes ?? ['/'],
       portable: parts.portable ?? null, handleSignals: false, log,
       // In the split view (or a page of the host's that frames a module, framedModules) each module
       // is a frame of the host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
@@ -1060,6 +1148,14 @@ export async function createHost({
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
+      // Back from the provider, a person who bought from a window of the host's shell (a page that
+      // is the root, Cronum Work's) lands in the shell with that module's window open, where
+      // billingReturn() (the shell's start) thanks them; not on the module's page on its own,
+      // outside the shell (audit billing-8). Without such a page, the module's page as before.
+      billingReturn: rootPage ? {
+        checkout: `${install.baseUrl}/?open=${encodeURIComponent(`/${entry.mount}/`)}&billing=done`,
+        portal: `${install.baseUrl}/?open=${encodeURIComponent(`/${entry.mount}/`)}`,
+      } : null,
     });
   }
   const byMount = new Map(joined.map((m) => [m.mount, m]));
@@ -1168,11 +1264,24 @@ export async function createHost({
     return [...listed].sort((a, b) => at(a) - at(b));
   }
 
-  /** Whether someone uses a module: every one until they choose. */
-  const uses = (user, mount) => modulesOf(user).modules.some((m) => m.mount === mount && m.active);
+  const mounts = new Set(listed.map((m) => m.mount));
+  dropLeftovers(suite.database);
+  /**
+   * Whether someone uses a module: every one until they choose, then the ones they kept on, and
+   * one the host added since. What modulesOf() says of it, from its own row: it read all of
+   * modulesOf (five queries and the order) for each module asked (audit of 6/11, sc-host-11).
+   */
+  const uses = (user, mount) => {
+    if (!mounts.has(mount)) return false;
+    if (!user) return true;
+    const row = suite.database.get('SELECT active FROM host_modules WHERE user_id = ? AND module = ?', user.id, mount);
+    return row ? Boolean(row.active) : true;
+  };
 
   links = createLinks({
     database: suite.database, modules: () => joined, uses,
+    // A side's title is kept as whoever made the link sees it (links.js remember).
+    userOf: (id) => suite.accounts.byId(id),
     // A notice in the module's own channel, for its open tabs to repaint the link.
     notify: (mount, audience, data) => byMount.get(mount)?.view.live.publish({ audience, event: 'links', data }),
   });
@@ -1216,6 +1325,12 @@ export async function createHost({
   });
   // The same as the root says of itself (createApp): on, and with tools or links to serve.
   hostOffersMcp = Boolean(mcp && config.modules.mcp);
+  // A module's part of the instructions that doesn't fit is left out whole: said once at start,
+  // for whoever reads the log (and a host's tests), not only on each conversation.
+  const leftOut = hostOffersMcp ? mcp.instructionsLeftOut() : [];
+  if (leftOut.length) {
+    log(`[mcp] warning: the instructions leave out ${leftOut.map((mount) => mount ?? 'the host’s line').join(', ')}: their part doesn't fit in ${MCP_TEXT_MAX} characters`);
+  }
 
   // The apps' old addresses, while the bridge is up: empty, nothing of it runs.
   const legacy = parseLegacyDomains(env.LEGACY_DOMAINS, { mounts: joined.map((m) => m.mount), baseUrl: install.baseUrl });
@@ -1233,6 +1348,9 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // `/` and its own folders (`/calendar/`); any other address of the root is a 404 page, not the
+    // host's home with its files asked for at the wrong place (audit prod-9).
+    clientRoutes: ['/'],
     // The calendar's page may be framed by the host's own pages (Cronum Work opens it in a window
     // of its shell); every other page of the root, by nobody.
     // So may the daily summary's.
@@ -1301,7 +1419,8 @@ export async function createHost({
         });
       }
       // What each person uses of every module: their own in Settings › Plan, everyone's for the admin panel (usage.js).
-      const usageFor = (user) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log });
+      // `activity`: whether the modules are asked when each last changed, which only the admin's dialog shows.
+      const usageFor = (user, { activity = true } = {}) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log, activity });
       registerOwnUsageApi(api, { usageFor });
       // Everyone's nearest cap for the admin's list, asked in batches: a fixed number of queries per module where it can.
       const peaksFor = (users) => peaksOf(users, { modules: joined, entitlements: suite.entitlements, log });
@@ -1478,14 +1597,14 @@ export async function createHost({
     const shells = joined.map((m) => moduleShell(m.parts.publicDir, m.mount, { log }));
     const icon = hostWorker.icon || config.app.icon || null;
     const icons = Object.fromEntries(joined.map((m, i) => [m.mount, shells[i].icon]).filter(([, own]) => own));
-    const shell = [...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
+    const shell = catalogsOverEnglish([...new Set([...hostShell(publicDir, [config.app.icon, icon].filter(Boolean)), ...shells.flatMap((s) => s.shell),
       // The host's own pages' files, at their paths: the new worker brings them with its version.
       ...pageList.flatMap((page) => pageShell(page)),
       // A page that shows several modules loads each one's sheets scoped to its windows (scopedSheets):
       // kept too, or a module opened without a signal on a new copy shows unstyled.
-      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])];
+      ...(scopedSheets ? shells.flatMap((s) => s.shell).filter((url) => /\.css$/i.test(url)).map((url) => `${url}?scope=work`) : [])])]);
     // Each module's notice icon is kept too: a notice shows the icon of the module that sent it.
-    const optional = [...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])];
+    const optional = catalogsOverEnglish([...new Set([...shells.flatMap((s) => s.optional), ...shells.map((s) => s.icon).filter(Boolean)])]);
     const options = {
       version: `${config.app.id}-${now.version}`,
       modules: joined.map((m) => `/${m.mount}/`),
@@ -1500,7 +1619,10 @@ export async function createHost({
           ...pageList.map((page) => ({ base: page.at, dir: page.dir }))],
         catalogs: fingerprint(KIT_TEXTS).version,
       }),
-      shell,
+      // The one app-version.js its pages read, the root's, the whole app's (update.js), and not the
+      // modules' own, which none reads here: offline after an update About said «—», and one from the
+      // network said the next release was the one running (pwa-8).
+      shell: [...new Set([...shell.filter((url) => !/^\/[^/]+\/js\/app-version\.js$/.test(url)), '/js/app-version.js'])],
       optional,
       // The app's start holds every module (`pages[].root`, Work's shell): a notice opens in it.
       ...(rootPage ? { holds: ['/', rootPage.at] } : {}),
@@ -1527,7 +1649,21 @@ export async function createHost({
       res.end(req.method === 'HEAD' ? undefined : body);
       return true;
     };
-    if (url.pathname === '/sw.js') return send('text/javascript; charset=utf-8', workerBody());
+    if (url.pathname === '/sw.js') {
+      // Revalidated as /js/app-version.js is, by what it holds: the whole app's fingerprint, which
+      // the script is written from, and the host's options in it. A browser that has it gets a 304,
+      // where every check took the whole script again (audit prod-13).
+      const body = workerBody();
+      script.etag ??= `W/"${script.version}-${crypto.createHash('sha1').update(body).digest('hex').slice(0, 8)}"`;
+      const { etag } = script;
+      securityHeaders(res, { https: install.https });
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
+        res.end();
+        return true;
+      }
+      return send('text/javascript; charset=utf-8', body, { ETag: etag });
+    }
     if (url.pathname === '/version') {
       securityHeaders(res, { https: install.https });
       sendJson(res, 200, hostVersion());
@@ -1638,9 +1774,19 @@ export async function createHost({
     } catch {
       return root.handle(req, res);   // a target no URL can be made of: the root answers 400
     }
+    // A page of any module, or of the host, opened with `?codigo=<CODE>`: the code's cookie (affiliates.js).
+    suite.affiliates?.refFromQuery(req, res, url);
     // An app's old address: its connector as it was, everything else to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
+    // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else:
+    // before the host's own pages too, since a page that is the root (Work's shell) answers `/`
+    // (audit sc-host-9). The callback sends the browser there itself (connectAfterSignIn); this is
+    // for one that came to `/` all the same, with the session and the request's cookie.
+    if (root.devicePages && url.pathname === '/') {
+      securityHeaders(res, { https: install.https });
+      if (root.devicePages.back(req, res, url)) return undefined;
+    }
     // The host's own pages, before anything of the host's or a module's.
     if (pageList.length && answerPage(req, res, url)) return undefined;
     // Every module's live channel in one, with the host's session as each module's own takes it.
@@ -1651,18 +1797,13 @@ export async function createHost({
         sendJson(res, 401, { error: 'unauthorized' });
         return undefined;
       }
-      subscribeAll(liveChannels(), req, res, user, { sessionToken: suite.sessions.tokenFrom(req) ?? null });
+      liveStreams.subscribe(liveChannels(), req, res, user, { sessionToken: suite.sessions.tokenFrom(req) ?? null });
       return undefined;
     }
     const mount = url.pathname.split('/')[1];
     const m = byMount.get(mount);
     if (!m) {
       if (answerWorker(req, res, url)) return undefined;
-      // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else.
-      if (root.devicePages && url.pathname === '/') {
-        securityHeaders(res, { https: install.https });
-        if (root.devicePages.back(req, res, url)) return undefined;
-      }
       // Without a page of its own, the host opens on its first module.
       if (!hasHome && url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
         redirect(res, 302, `/${joined[0].mount}/${url.search}`);
@@ -1722,78 +1863,40 @@ export async function createHost({
     return m.app.handle(req, res);
   }
 
-  const server = http.createServer((req, res) => {
-    // Its answer is counted if it is a 5xx (ALERT_EMAIL): first, while req.url is still the whole path.
-    suite.alerts.watch(req, res);
-    handle(req, res).catch((err) => {
-      suite.alerts.noteError(req, err);
-      console.error(`[error] ${req.method} ${req.url}`, err);
-      if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
-      else res.end();
-    });
-  });
-  server.headersTimeout = 65000;
-  // Receiving the request, not answering it: a live channel stays open all the same.
-  server.requestTimeout = 600_000;
+  // Whatever escapes handle() is a 500 (runtime.js), with req.url still the whole path when counted.
+  const server = serverFor(handle, suite.alerts);
 
   /* ------------------------------ running -------------------------------- */
 
   const timers = [];
   const stops = [];
-  /** A job that fails is logged, emailed (ALERT_EMAIL), and tried again next time. */
-  const failed = (name) => (err) => {
-    log(`${tag} ${name} failed: ${err?.stack || err}`);
-    suite.alerts.jobFailed(name, err);
-  };
-  /** A clean-up that fails must not take the host down. */
-  const safely = (name, fn) => () => {
-    try { fn(); } catch (err) { failed(name)(err); }
-  };
+  const { failed, safely } = jobRunner({ log, tag, alerts: suite.alerts });
 
   /** Creates the first administrator, starts the clean-ups and each module's own jobs, and listens. */
   function listen() {
     suite.alerts.setVersion(version);
     suite.ensureAdmin();
-    const cleanUp = safely('clean-up', () => {
-      suite.purge();
-      root.portability?.purge();
-      for (const m of joined) m.app.portability?.purge();
+    // Once for every module: the install's clean-ups, account deletion, WorkOS and the groups' renewals.
+    startSuiteJobs(suite, {
+      purge: () => {
+        suite.purge();
+        root.portability?.purge();
+        for (const m of joined) m.app.portability?.purge();
+      },
+      timers, failed, safely,
     });
-    cleanUp();
-    timers.push(setInterval(cleanUp, 6 * HOUR).unref());
-    if (suite.oauth) {
-      const purgeOAuth = safely('OAuth clean-up', () => suite.oauth.purge());
-      purgeOAuth();
-      timers.push(setInterval(purgeOAuth, HOUR).unref());
-    }
-    if (suite.deletion) {
-      // The accounts whose owners asked to delete them, once their days are over: once for every module.
-      const sweepAccounts = () => suite.deletion.sweep().catch(failed('account deletion'));
-      timers.push(setTimeout(sweepAccounts, 60 * 1000).unref());
-      timers.push(setInterval(sweepAccounts, HOUR).unref());
-    }
-    if (suite.workos?.markAll) {
-      // Who signed in before the host noted itself on their WorkOS user (accounts.sharedIdentity): told once.
-      const markAll = () => suite.workos.markAll().catch(failed('noting this app at WorkOS'));
-      timers.push(setTimeout(markAll, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (suite.workosResets) {
-      // Passwords reset on AuthKit's own page, once for every module (workos-events.js). Every minute.
-      const resets = () => suite.workosResets.poll();
-      timers.push(setTimeout(resets, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(resets, MINUTE_BEFORE_SWEEP).unref());
-    }
-    if (suite.billing?.enabled) {
-      // Groups' renewals asked to stop that the provider didn't take yet, once for every module.
-      const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));
-      timers.push(setTimeout(sendStops, MINUTE_BEFORE_SWEEP).unref());
-      timers.push(setInterval(sendStops, HOUR).unref());
-    }
+    // The links forget what was deleted for good, its title too (links.js prune): it waited for an
+    // account to go (audit of 6/11, sc-feat-16). Apart, so a failure there leaves the rest done.
+    const pruneLinks = safely("links clean-up", () => links?.prune());
+    timers.push(setTimeout(pruneLinks, MINUTE_BEFORE_SWEEP).unref());
+    timers.push(setInterval(pruneLinks, 6 * HOUR).unref());
     if (daily && suite.push) {
       // The daily summary's two notices, each at the minute its person chose (day.js): asked every minute.
       const notices = createDayNotices({
         database: suite.database, push: suite.push, day: daily, texts: suite.texts, page: day, log,
         userById: (id) => suite.accounts.byId(id), languages: config.app.languages,
+        // Asked every minute, it looks every five: the step of a notice's time.
+        everyMinutes: 5,
       });
       const tell = () => notices.check().catch(failed('daily summary'));
       timers.push(setInterval(tell, MINUTE_BEFORE_SWEEP).unref());
@@ -1810,47 +1913,32 @@ export async function createHost({
       }
       // Its own timers (reminders, clean-ups): what the app's index.js starts on its own.
       if (typeof m.parts.start === 'function') {
-        // What a module's timers may need of the whole host: the day's work and who uses what.
-        const stopIt = m.parts.start({ day: daily, uses });
-        if (typeof stopIt === 'function') stops.push(stopIt);
+        // What a module's timers may need of the whole host: the day's work, who uses what, and
+        // how a job of its own that throws reaches the alerts (ALERT_EMAIL) as the host's do,
+        // under the module's name: `failed(name)` → (err) => …, for a promise's catch, and
+        // `safely(name, fn)` → a function that runs fn and reports what it throws (audit work-srv-4).
+        const jobs = {
+          failed: (name) => failed(`${m.mount} ${name}`),
+          safely: (name, fn) => safely(`${m.mount} ${name}`, fn),
+        };
+        // One module whose start throws must not keep the others from being served (audit sc-host-4).
+        try {
+          const stopIt = m.parts.start({ day: daily, uses, ...jobs });
+          if (typeof stopIt === 'function') stops.push(stopIt);
+        } catch (err) {
+          failed(`${m.mount} start`)(err);
+        }
       }
     }
-    if (handleSignals) {
-      // As an app's (app.js): `waitFor` is the crash's alert, which gives itself less than those 5 s.
-      const shutdown = (reason, code = 0, waitFor = null) => {
-        log(`${tag} ${reason}, closing…`);
-        Promise.all([close(), waitFor]).then(() => process.exit(code), () => process.exit(code));
-        setTimeout(() => process.exit(code), 5000).unref();
-      };
-      process.once('SIGTERM', () => shutdown('SIGTERM received'));
-      process.once('SIGINT', () => shutdown('SIGINT received'));
-      process.on('unhandledRejection', (err) => {
-        log(`${tag} unhandled rejection: ${err?.stack || err}`);
-        suite.alerts.report('rejection', err);
-      });
-      process.once('uncaughtException', (err) => {
-        log(`${tag} uncaught exception: ${err?.stack || err}`);
-        shutdown('uncaught exception', 1, suite.alerts.crashed(err));
-      });
-    }
-    return new Promise((resolve) => {
-      server.listen(install.port, install.host, () => {
-        log(`${tag} listening on http://${install.host}:${server.address().port}`);
-        log(`${tag} public URL: ${install.baseUrl}, with ${joined.map((m) => `/${m.mount}/`).join(', ')}`);
-        if (legacyDomains) {
-          log(`${tag} also answering the apps' old addresses: ${[...legacy.domains].map(([d, m]) => `${d} → /${m}/`).join(', ')}`);
-        }
-        if (suite.mailer?.provider === 'smtp') {
-          suite.mailer.verify().then(
-            () => log(`[mail] SMTP ready: ${install.mail.host}:${install.mail.port} (${install.mail.secure})`),
-            (err) => log(`[mail] SMTP check failed, nothing will be sent until MAIL_* are fixed: ${err.message}`),
-          );
-        }
-        if (install.hotReload) {
-          timers.push(watchCode({ root: watchRoot || path.dirname(path.resolve(process.argv[1] || '.')), log }));
-        }
-        resolve(server);
-      });
+    if (handleSignals) handleProcessSignals({ log, tag, alerts: suite.alerts, close });
+    return listenAndSay(server, {
+      install, mailer: suite.mailer, log, tag, timers, watchRoot,
+      lines: [
+        `${tag} public URL: ${install.baseUrl}, with ${joined.map((m) => `/${m.mount}/`).join(', ')}`,
+        ...(legacyDomains
+          ? [`${tag} also answering the apps' old addresses: ${[...legacy.domains].map(([d, m]) => `${d} → /${m}/`).join(', ')}`]
+          : []),
+      ],
     });
   }
 
@@ -1885,3 +1973,17 @@ export async function createHost({
     modules: joined.map((m) => ({ mount: m.mount, id: m.config.app.id, suite: m.view, app: m.app })),
   };
 }
+
+/**
+ * A table nothing uses, left by the modules (audit portable-18): Tasks', Projects' and Next's
+ * first migrations make `mcp_tokens`, which the suite renamed to api_tokens where it was the
+ * app's own; in a host the suite's api_tokens came first and theirs stayed, empty. Dropped once
+ * the modules' migrations ran, only when it is empty and api_tokens is there.
+ */
+export function dropLeftovers(database) {
+  const has = (table) => database.columnsOf(table).length > 0;
+  if (has('mcp_tokens') && has('api_tokens') && !database.get('SELECT 1 AS x FROM mcp_tokens LIMIT 1')) {
+    database.exec('DROP TABLE mcp_tokens');
+  }
+}
+

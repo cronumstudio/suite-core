@@ -46,7 +46,9 @@ globalThis.fetch = async (url) => {
 
 const { loadLanguage } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
-const { signIn, straightToProvider, leave } = await import('../web/signin.js');
+const { straightToProvider, leave, signIn: signInLater } = await import('../web/signin.js');
+// The screen itself, drawn at once (signin.js loads it when it is drawn, 0.285.0).
+const { signIn } = await import('../web/signin-form.js');
 
 const app = { name: 'Cronum Work', icon: '/icons/favicon.svg' };
 const workos = { provider: 'workos', name: 'WorkOS' };
@@ -75,6 +77,18 @@ test('with WorkOS and nothing to say first, its page opens at once, coming back 
   assert.deepEqual(went, [`/auth/login?return=${encodeURIComponent('/tasks/?list=3')}`]);
   // In place of the page, not after it: Back from the provider's page doesn't come here.
   assert.deepEqual(card().links, [], 'no card drawn on the way');
+});
+
+test('signin.js signIn draws the same screen, from signin-form.js, loaded when it is drawn (0.285.0)', async () => {
+  at('/tasks/?list=3');
+  signInLater({ app, config: workos });
+  assert.deepEqual(went, [], 'not yet: the code of the screen is on its way');
+  for (let i = 0; i < 20 && !went.length; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(went, [`/auth/login?return=${encodeURIComponent('/tasks/?list=3')}`]);
+  document.body.replaceChildren();
+  signInLater({ app, config: workos });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(card().links, ['Sign in', 'Create an account'], 'the card, the second time in the minute');
 });
 
 test('a second time within the minute the card stays, and its button no longer names WorkOS', () => {
@@ -128,4 +142,33 @@ test('straightToProvider: never in a frame nor in the suite\'s app, once a minut
   assert.equal(straightToProvider({ storage: box, now: now + 60_001, framed: false, app: false }), true);
   const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => {}, removeItem: () => {} };
   assert.equal(straightToProvider({ storage: broken, now, framed: false, app: false }), false);
+});
+
+test('back to an account waiting to be deleted, «No, let it go» shows the card, not the provider again (audit sc-auth-5)', () => {
+  // The straight redirection was over a minute ago: the minute no longer holds it back.
+  storage.set('suite.signInStraight', String(Date.now() - 120_000));
+  at('/?account_deletion=ticket-1&until=2026-12-01T00:00:00Z');
+  signIn({ app, config: workos });
+  assert.deepEqual(went, [], 'the take-back card, drawn without going anywhere');
+  const screen = document.body.childNodes.at(-1);
+  const leave = screen.querySelectorAll('button').find((b) => b.textContent === 'No, let it go');
+  assert.ok(leave, 'the take-back card has its way out');
+  leave.click();
+  assert.deepEqual(went, [], 'AuthKit, its session still open, would bring them back to the same card');
+  assert.deepEqual(card().links, ['Sign in', 'Create an account']);
+});
+
+test('with the site\'s data blocked, naming sessionStorage throws, and the card stays as before (audit sc-auth-5)', () => {
+  const kept = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true, get() { throw new Error('SecurityError: access is denied for this document'); },
+  });
+  try {
+    assert.equal(straightToProvider({ framed: false, app: false }), false, 'the default storage, read inside the try');
+    assert.doesNotThrow(() => signIn({ app, config: workos }));
+    assert.deepEqual(went, []);
+    assert.deepEqual(card().links, ['Sign in', 'Create an account']);
+  } finally {
+    Object.defineProperty(globalThis, 'sessionStorage', kept);
+  }
 });
