@@ -313,7 +313,7 @@ export function checkSubscription(subscription) {
  * @param {object} [options.native]  native-push.js, with `push.native`: the same sends also reach
  *   the person's phones through APNs and FCM. Without it everything here is Web Push only.
  *
- * `send`, `deliver` and `sendTo` take `reminder: { id, at, module? }` among
+ * `send` and `deliver` take `reminder: { id, at, module? }` among
  * their options, for a reminder's notice: with `push.native`, a phone whose app
  * said it shows that reminder itself (`PUT /api/devices/reminders`) is skipped,
  * and `deliver` adds how many to its answer (`skipped`). Web Push never is.
@@ -484,6 +484,18 @@ export function createPush({
   }
 
   /**
+   * Who has a device to tell, by id, in one query: a browser subscribed, and with `push.native` a
+   * phone with a token on a device not revoked. Never fewer than subscriptionsOf() reaches (an idle
+   * phone may be among them). What the daily summary's notices start from (day.js): every account
+   * was read every minute (audit of 6/11, sc-feat-1).
+   */
+  function peopleWithDevices() {
+    const phones = native ? `
+      UNION SELECT d.user_id FROM device_push_tokens p JOIN device_tokens d ON d.id = p.device_id WHERE d.revoked_at IS NULL` : '';
+    return database.all(`SELECT DISTINCT user_id FROM push_subscriptions${phones}`).map((row) => Number(row.user_id));
+  }
+
+  /**
    * Registers (or updates) the device that just gave permission.
    * → how many devices the person has now.
    */
@@ -563,9 +575,7 @@ export function createPush({
 
   return {
     publicKey: vapid.publicKey,
-    send, deliver, subscriptionsOf, subscribe, unsubscribe, devices, removeDevice, forgetSession, purgeSessions,
-    /** Sends to every device of some people. */
-    sendTo: (userIds, payload, options) => deliver(subscriptionsOf(userIds), payload, options),
+    send, deliver, subscriptionsOf, peopleWithDevices, subscribe, unsubscribe, devices, removeDevice, forgetSession, purgeSessions,
     checkSubscription, sendToSubscription,
   };
 }

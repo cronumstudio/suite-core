@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isoInstant } from '../time.js';
 import {
   knownTimeZone, SERVER_TIME_ZONE, zoneOf, inZoneOf, currentZone, dayIn, addDays, todayIn, todayFor, daysSince,
   dayStart, daySpan,
@@ -12,6 +13,27 @@ test('knownTimeZone canonicalises IANA names and refuses the rest', () => {
   assert.equal(knownTimeZone(''), null);
   assert.equal(knownTimeZone(42), null);
   assert.equal(knownTimeZone('x'.repeat(65)), null);
+});
+
+test('isoInstant: a stored instant as ISO, an SQLite stamp being UTC (audit of 6/11, sc-feat-14)', () => {
+  assert.equal(isoInstant('2026-11-04T10:00:00.000Z'), '2026-11-04T10:00:00.000Z');
+  assert.equal(isoInstant('2026-11-04T10:00:00+02:00'), '2026-11-04T08:00:00.000Z', 'its zone, as it says');
+  assert.equal(isoInstant('2026-11-04 10:00:00'), '2026-11-04T10:00:00.000Z', "datetime('now'): UTC");
+  assert.equal(isoInstant('2026-11-04T10:00:00'), '2026-11-04T10:00:00.000Z', 'no zone: UTC');
+  for (const nothing of [null, undefined, '', 'yesterday']) assert.equal(isoInstant(nothing), null, String(nothing));
+});
+
+test('knownTimeZone answers the same when asked again, and keeps no more than its cap of names', () => {
+  // Kept after the first time (perf-srv-1): the second answer is the first one, valid or not.
+  for (let i = 0; i < 2; i++) {
+    assert.equal(knownTimeZone('america/new_york'), 'America/New_York');
+    assert.equal(knownTimeZone('Nowhere/Land'), null);
+  }
+  // Hundreds of names nobody uses (prefs.tz is the client's) push the oldest out, never the answers.
+  for (let i = 0; i < 1200; i++) assert.equal(knownTimeZone(`Nowhere/Place${i}`), null);
+  assert.equal(knownTimeZone('europe/madrid'), 'Europe/Madrid');
+  assert.equal(knownTimeZone('Asia/Tokyo'), 'Asia/Tokyo');
+  assert.equal(dayIn('Asia/Tokyo', new Date('2026-11-04T20:00:00Z')), '2026-11-05');
 });
 
 test('zoneOf reads prefs.tz as text or object, else the server\'s', () => {
