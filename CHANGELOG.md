@@ -1540,7 +1540,7 @@ tasks and 14 000 notes.
   - By id (`user_id`) one names only one's people: whoever accepted something of theirs, offered them
     something, or has what they accepted (`knownTo(userId)`, a Set, now exported), or someone this
     thing was already offered to by id. An account only offered something by email is no longer one
-    of them: after an offer by email, trying ids told whether the address had an account, and its id
+    of them: after an offer by email, trying ids told whether the address had an account, and its id.
     `peopleOf` is those people, by name and without emails, as the modules' chips were.
   - A kind that keeps its offers by email under their address says where: `addresses: { table, key }`
     (a table with an `email` column). Then `sharesOf` for its owner shows every account by its name,
@@ -2217,7 +2217,7 @@ Changes made without a signal, on leaving and on another account signing in.
 
 Payments, `/health` and the CLA check.
 
-- **A customer the checkout didn't name is never linked, not even one nobody here has**
+- **A customer the checkout didn't name is never linked, not even one nobody here has**.
   The fix of 0.128.0 kept another account's customer from going to whoever paid a
   checkout made without one (`customerUnsigned`), but a customer linked to nobody here was linked
   all the same: the same Paddle account sells other apps, so someone paying with another app's buyer's
@@ -2448,7 +2448,7 @@ The service worker, the host and Work's shell:
   from the browser: in a module's list (a scroller) the browser took the sideways pan for itself
   whatever the desk's `touch-action` said, and cancelled the swipe; only Tasks, whose lists say
   `pan-y`, swiped. Up and down still scrolls, and what slides sideways itself still does.
-- **Inviting an email answers the same whether it has an account or not, also the second time**
+- **Inviting an email answers the same whether it has an account or not, also the second time**.
   Offered again before it was accepted, an address with an account answered `invited:
   false` and one without `true`, and only the second kind ever ran into the hourly limit. Now an
   offer by email not yet accepted is `invited` and counted each time, as an address without an
