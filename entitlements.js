@@ -31,15 +31,15 @@
  * product that covers the whole suite— they carry the app's id
  * (`tasks.attachments`); grants for other apps are ignored here.
  *
- * Some things act for a group with nobody behind them: a child's paired device
- * in Focus, the hourly sweep of a family's History. They ask for the group's
+ * Some things act for a group with nobody behind them: a device paired to the
+ * group, a sweep the app runs over each group's data. They ask for the group's
  * own plan, `ofOrganization(id)`: its grants only, never a member's own nor the
  * instance admin's "no limits", and the default plan when it has none.
  */
 import { HttpError } from './http.js';
 import { PLAN_CATALOGS } from './plans.js';
+import { iso } from './time.js';
 
-const iso = (ms) => new Date(ms).toISOString();
 const DAY = 24 * 3600 * 1000;
 /**
  * Days of a daily limit's counts kept: the barrier only needs today's, but the admin's Usage
@@ -130,7 +130,6 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
  * @param {object} [options.earlyAccess]  { plan, until }: the default plan is `plan` until that
  *                                        date (EARLY_ACCESS_PLAN, EARLY_ACCESS_UNTIL), and the
  *                                        install's default from then on, with nothing to change
- * @param {(user) => boolean} [options.isUnlimited]   by default, the instance admin
  * @param {(user) => number[]} [options.organizationsOf]   organizations whose grants count
  * @param {(userIds) => Map<number, number[]>} [options.organizationsOfMany]   the same for many
  *                                        people at once, for `ofMany()`; left out, organizationsOf
@@ -146,10 +145,12 @@ const laterEnd = (a, b) => (a == null || b == null ? null : (Date.parse(b) > Dat
 export function createEntitlements({
   database, appId, features = {}, plans = null, defaultPlan = null,
   plansJson = process.env.PLANS, defaultPlanOverride = process.env.DEFAULT_PLAN, earlyAccess = null,
-  isUnlimited = (user) => user?.role === 'admin', organizationsOf = () => [], organizationsOfMany = null, organizationExists = null,
+  organizationsOf = () => [], organizationsOfMany = null, organizationExists = null,
   clock = () => Date.now(), othersDeclare = false,
 }) {
   const errors = [];
+  // The instance's admin has no limits.
+  const isUnlimited = (user) => user?.role === 'admin';
   /** Keys of PLANS left out as another module's (othersDeclare): { plan, key }. */
   const ignored = [];
 
@@ -185,11 +186,15 @@ export function createEntitlements({
 
   let source = plans;
   const named = String(plansJson || '').trim();
+  // A name that is no catalog says so alone: no second message about the plans' shape.
+  let unknownCatalog = false;
   if (/^[a-z0-9-]+$/.test(named)) {
     // A catalog of the suite, read for the features this app has: the rest is other apps'.
     // Every feature the app declares must have its value there, or it would be left unlimited.
-    if (!PLAN_CATALOGS[named]) errors.push(`PLANS "${named}" is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')}) and no JSON`);
-    else {
+    if (!PLAN_CATALOGS[named]) {
+      errors.push(`PLANS "${named}" is no catalog of the suite (${Object.keys(PLAN_CATALOGS).join(', ')}) and no JSON`);
+      unknownCatalog = true;
+    } else {
       source = {};
       for (const [id, plan] of Object.entries(PLAN_CATALOGS[named])) {
         const values = {};
@@ -208,7 +213,7 @@ export function createEntitlements({
     }
   }
   if (!source || typeof source !== 'object' || Array.isArray(source) || !Object.keys(source).length) {
-    if (plansJson) errors.push('PLANS must be an object with at least one plan: {"free": {…}, "pro": {…}}');
+    if (plansJson && !unknownCatalog) errors.push('PLANS must be an object with at least one plan: {"free": {…}, "pro": {…}}');
     source = { free: { name: 'Free', features: {} } };
   }
   if (plansJson) {
@@ -382,13 +387,13 @@ export function createEntitlements({
   }
 
   /**
-   * An organization's own plan, for what acts for it with no person behind (a child's paired
-   * device, a family's sweep): the same shape as `of()`, from the organization's active grants
+   * An organization's own plan, for what acts for it with no person behind (a device paired to
+   * it, a sweep of its data): the same shape as `of()`, from the organization's active grants
    * alone. Never a member's own grants nor the instance admin's "no limits", which belong to a
    * person and would leak to whatever acts for the group; and never `of(null)`'s declared
    * defaults, which are no limit at all where nobody is asking. With no grant, or for a group
-   * that isn't there or is archived, the default plan: never more than a family of its own would
-   * have, and never an error, so a sweep over every family goes on past one that went.
+   * that isn't there or is archived, the default plan: never more than a group with no grant has,
+   * and never an error, so a sweep over every group goes on past one that went.
    */
   function ofOrganization(organizationId) {
     const subjects = organizationSubjects(organizationId);
@@ -399,8 +404,8 @@ export function createEntitlements({
    * The default plan with the given active grants on it, the most generous of each feature. The
    * plan shown is the highest one granted, and `ends` is when it lapses: among the active grants
    * of that plan, never if one has no end, else the latest end. Not the last grant's: a person with
-   * Pro for good who joins a family on a trial keeps Pro after the trial, and must not read "Pro
-   * until" its end (Settings, Focus's last-days notice).
+   * Pro for good who joins a group on a trial keeps Pro after the trial, and must not read "Pro
+   * until" its end (Settings, an app's notice of a trial's last days).
    */
   function entitledBy(grants) {
     return shownBy(grants).entitled;
@@ -490,15 +495,15 @@ export function createEntitlements({
    * same for everything, it comes down to this: nothing goes until those days
    * have passed since it ended, and then whatever is older than them.
    */
-  function cutoff(user, feature, { organizationId = null } = {}) {
+  function cutoff(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`cutoff: "${feature}" is not a limit`);
-    return cutoffFrom(limit(user, feature, { organizationId }), () => subjectsOf(user, organizationId), feature);
+    return cutoffFrom(limit(user, feature), () => subjectsOf(user), feature);
   }
 
   /**
    * `cutoff()` by an organization's own plan (`ofOrganization()`): the days count from the end of
    * the group's last grant that kept things longer —its trial, its subscription—, never a
-   * member's. What a family's sweep asks, with no adult behind it.
+   * member's. What a sweep for a group asks, with nobody behind it.
    */
   function cutoffOrganization(organizationId, feature) {
     if (known(feature).type !== 'limit') throw new Error(`cutoffOrganization: "${feature}" is not a limit`);
@@ -533,9 +538,9 @@ export function createEntitlements({
   }
 
   /** The next plan that allows more of a limit than theirs (`moreThan`), for a page to say so: null on the top one. */
-  function better(user, feature, { organizationId = null } = {}) {
+  function better(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`better: "${feature}" is not a limit`);
-    const entitled = of(user, { organizationId });
+    const entitled = of(user);
     return moreThan(entitled.plan.id, feature, entitled.features[feature]);
   }
 
@@ -547,8 +552,8 @@ export function createEntitlements({
    * Without a limit every use is allowed and still counted: the admin's Usage weighs whether the
    * limits fit by what everyone does, those without one too.
    */
-  function spend(user, feature, { organizationId = null, week = false } = {}) {
-    const entitled = of(user, { organizationId });
+  function spend(user, feature, { week = false } = {}) {
+    const entitled = of(user);
     const value = entitled.features[feature];
     const day = iso(clock()).slice(0, 10);
     const from = week ? weekStart(day) : day;
@@ -574,15 +579,15 @@ export function createEntitlements({
   }
 
   /** Spends one of today's uses of a daily limit, such as `mcp.calls_per_day` (`spend`). */
-  function countDaily(user, feature, { organizationId = null } = {}) {
+  function countDaily(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`countDaily: "${feature}" is not a limit`);
-    return spend(user, feature, { organizationId });
+    return spend(user, feature);
   }
 
   /** Spends one of this week's uses of a weekly limit, such as `mcp.calls_per_week` (`spend`). */
-  function countWeekly(user, feature, { organizationId = null } = {}) {
+  function countWeekly(user, feature) {
     if (known(feature).type !== 'limit') throw new Error(`countWeekly: "${feature}" is not a limit`);
-    return spend(user, feature, { organizationId, week: true });
+    return spend(user, feature, { week: true });
   }
 
   /**
@@ -630,9 +635,9 @@ export function createEntitlements({
    * limit, 402 `plan_limit` when `current` has reached it. The details let the
    * interface and the assistant say which plan and which limit.
    */
-  function require(user, feature, { current = 0, organizationId = null } = {}) {
+  function require(user, feature, { current = 0 } = {}) {
     const spec = known(feature);
-    const entitled = of(user, { organizationId });
+    const entitled = of(user);
     const value = entitled.features[feature];
     if (spec.type === 'flag' && value !== true) {
       throw new HttpError(402, 'plan_feature', { feature, plan: entitled.plan.id, plan_name: entitled.plan.name });
@@ -692,7 +697,8 @@ export function createEntitlements({
    * end and, unless `planId` is null (back to the default), a new one starts.
    * Grants from other sources (a subscription) are left alone.
    */
-  function setPlan(userId, planId, { endsAt = null, source = 'admin', note = null } = {}) {
+  function setPlan(userId, planId, { endsAt = null, note = null } = {}) {
+    const source = 'admin';
     return database.tx(() => {
       const now = iso(clock());
       database.run(`UPDATE entitlement_grants SET revoked_at = ? WHERE subject_type = 'user' AND subject_id = ?

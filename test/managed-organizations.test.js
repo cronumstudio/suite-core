@@ -44,7 +44,7 @@ function setup(t, options = {}) {
   const database = openDatabase({ dataDir: dir, name: 'test' });
   t.after(() => { database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   migrate(database, SUITE_MIGRATIONS, { scope: 'suite', log: () => {} });
-  // What an app keeps per member of a group (Focus's adult profiles).
+  // What an app keeps per member of a group (say, the profiles a family keeps of its adults).
   database.exec(`CREATE TABLE app_profiles (organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id INTEGER, PRIMARY KEY (organization_id, user_id))`);
   const accounts = createAccounts({ database });

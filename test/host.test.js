@@ -7,6 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './remote-provider.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -1015,13 +1016,13 @@ test('a module that manages a kind of group: the host declares it the same way, 
   t.after(() => { host?.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1' };
   const hostWith = (kinds) => ({ ...HOST, modules: { ...HOST.modules, organizations: true }, organizations: { kinds } });
-  const entry = (n) => ({ mount: 'focus', entry: fixture('plain', `?id=focus&uses=organizations&kinds=family&n=${n}`) });
+  const entry = (n) => ({ mount: 'fam', entry: fixture('plain', `?id=fam&uses=organizations&kinds=family&n=${n}`) });
   for (const [kinds, why] of [[{}, 'not declared'], [{ family: { managed: true } }, 'declared otherwise']]) {
     fresh += 1;
     await assert.rejects(
       createHost({ config: hostWith(kinds), modules: [entry(`${fresh}x`)], env, handleSignals: false, exitOnError: false, log: () => {} }),
       (err) => err instanceof SuiteConfigError
-        && err.errors.includes("focus: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
+        && err.errors.includes("fam: organizations.kinds.family must be declared the same way in the host's suite.config.js"),
       why,
     );
   }
@@ -1078,6 +1079,19 @@ test('a PLANS JSON names the features of any module; one that none declares stop
   assert.deepEqual(host.modules[1].suite.entitlements.describe().features, {});
 });
 
+test('a PLANS that names no catalog stops the host, with that one message', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const env = { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1', PLANS: 'no-such-catalog' };
+  const refused = await createHost({ config: HOST, modules: modules(), env, handleSignals: false, exitOnError: false, log: () => {} })
+    .then(() => null, (err) => err);
+  assert.ok(refused instanceof SuiteConfigError, String(refused));
+  // The host's own catalog is read first, so the message is the host's, before any module's.
+  assert.deepEqual(refused.errors, [
+    'The plan catalog (PLANS) has errors: PLANS "no-such-catalog" is no catalog of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON',
+  ]);
+});
+
 test('a module’s ofOrganization reads the group’s own plan, and an archived group has the default one', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
   fresh += 1;
@@ -1121,31 +1135,19 @@ test('a module’s manifest and paths, at its place in the host', () => {
   assert.deepEqual(mountManifest({}, 'next'), { start_url: '/next/', scope: '/next/' });
 });
 
-test('a host with a split view: the rail offers it, and only its own pages may frame the modules', async (t) => {
-  const { call } = await startHost(t, { split: '/split/' });
-  assert.equal((await call('GET', '/api/modules')).data.host.split, '/split/');
+test('framedModules: the host’s own pages may frame the modules (Work’s shell, a module without mount), and nobody frames the host’s', async (t) => {
+  const { call } = await startHost(t, { framedModules: true });
   const module = await call('GET', '/alpha/api/auth/config');
   assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'self'/);
   assert.equal(module.headers.get('x-frame-options'), 'SAMEORIGIN');
-  // The host's own pages are framed by nobody.
   const root = await call('GET', '/api/modules');
   assert.match(root.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal(root.headers.get('x-frame-options'), 'DENY');
 });
 
-test('framedModules without a split view: the host’s own pages may frame the modules (Work’s shell, a module without mount), and the rail offers no split view', async (t) => {
-  const { call } = await startHost(t, { framedModules: true });
-  assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
-  const module = await call('GET', '/alpha/api/auth/config');
-  assert.match(module.headers.get('content-security-policy'), /frame-ancestors 'self'/);
-  assert.equal(module.headers.get('x-frame-options'), 'SAMEORIGIN');
-  assert.match((await call('GET', '/api/modules')).headers.get('content-security-policy'), /frame-ancestors 'none'/);
-});
-
-test('a host without a split view: nobody may frame its modules, and the rail offers none', async (t) => {
+test('a host without framed modules: nobody may frame its modules, and the rail offers nothing of the host’s', async (t) => {
   const { call } = await startHost(t);
-  assert.equal((await call('GET', '/api/modules')).data.host.split, undefined);
-  assert.equal((await call('GET', '/api/modules')).data.host.aiInstruction, undefined, 'nor a prompt of the host’s');
+  assert.equal((await call('GET', '/api/modules')).data.host.aiInstruction, undefined, 'no prompt of the host’s');
   assert.equal((await call('GET', '/api/modules')).data.host.calendar, undefined, 'nor a calendar');
   assert.equal('calendar_shown' in (await call('GET', '/api/modules')).data, false, 'nor its switch');
   assert.equal((await call('GET', '/api/calendar?from=2026-11-01&to=2026-11-07')).status, 404, 'nor its route');
@@ -1155,15 +1157,15 @@ test('a host without a split view: nobody may frame its modules, and the rail of
 });
 
 test('a module’s pages made to be embedded may be framed by any site, and only those', async (t) => {
-  for (const split of [null, '/split/']) {
-    const { call } = await startHost(t, { split });
+  for (const framedModules of [false, true]) {
+    const { call } = await startHost(t, { framedModules });
     const shown = await call('GET', '/alpha/shown.html');
     assert.equal(shown.status, 200);
     assert.match(shown.headers.get('content-security-policy'), /frame-ancestors \*(;|$)/);
     assert.equal(shown.headers.get('x-frame-options'), null, 'which X-Frame-Options can’t say');
     assert.match(shown.headers.get('content-security-policy'), /script-src 'self'/, 'the rest of the policy, as always');
     const app = await call('GET', '/alpha/');
-    assert.match(app.headers.get('content-security-policy'), split ? /frame-ancestors 'self'/ : /frame-ancestors 'none'/);
+    assert.match(app.headers.get('content-security-policy'), framedModules ? /frame-ancestors 'self'/ : /frame-ancestors 'none'/);
     // The same path in a module that doesn't name it, or under the host's root, is framed by nobody new.
     for (const other of ['/beta/shown.html', '/shown.html', '/alpha/shown.html/']) {
       assert.doesNotMatch((await call('GET', other)).headers.get('content-security-policy'), /frame-ancestors \*/, other);
@@ -1440,20 +1442,6 @@ test('a host with one prompt for an assistant names its route for Settings, and 
       await assert.rejects(
         createHost({ config: HOST, modules: modules(), aiInstruction, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }, handleSignals: false, exitOnError: false, log: () => {} }),
         (err) => err instanceof SuiteConfigError && /aiInstruction: .* is not a route of the host/.test(err.errors.join('\n')),
-      );
-    }
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('a split view that isn’t a page of the host stops the start', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-host-'));
-  try {
-    for (const split of ['https://elsewhere.example/split/', '/split', '//evil/', 42]) {
-      await assert.rejects(
-        createHost({ config: HOST, modules: modules(), split, env: { DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password' }, handleSignals: false, exitOnError: false, log: () => {} }),
-        (err) => err instanceof SuiteConfigError && /split: .* is not a page of the host/.test(err.errors.join('\n')),
       );
     }
   } finally {
@@ -2006,6 +1994,24 @@ test('a module’s share email: signed by the host, the module over the heading,
   assert.match(html, /Invitación · Alpha/);
   assert.match(html, /src="http:\/\/127\.0\.0\.1\/alpha\/icons\/apple-touch-180\.png"/, 'the module’s icon, at its address');
   assert.match(text, /Ver y aceptar: http:\/\/127\.0\.0\.1\/alpha\//);
+});
+
+test('a module’s ownership: the push and email its suite has when a notice goes, and one brake for every module', async (t) => {
+  const { host } = await startHost(t);
+  const [alpha, beta] = host.modules;
+  const ana = host.suite.accounts.create({ username: 'ana', password: 'ana-password', displayName: 'Ana' });
+  const ben = host.suite.accounts.create({ username: 'ben', password: 'ben-password', email: 'ben@example.com' });
+  // What a module's tests put on its suite, after the host made it.
+  const told = [];
+  for (const m of [alpha, beta]) {
+    m.suite.push = { subscriptionsOf: (ids) => ids.map((id) => ({ user_id: id })), deliver: async (subs, payload) => { told.push([m.mount, 'push', payload.tag]); } };
+    m.suite.shareMail = Object.assign(async () => true, { gone: async (notice) => { told.push([m.mount, 'email', notice.to.id]); return true; } });
+  }
+  assert.equal(await alpha.suite.ownership.tellGone({ kind: 'list', name: 'Compra', actorId: ana.id, audience: [ben.id], id: 3 }), 1);
+  assert.deepEqual(told, [['alpha', 'push', 'gone-list-3'], ['alpha', 'email', ben.id]], 'its own suite’s push and email');
+  assert.equal(await beta.suite.ownership.tellGone({ kind: 'notebook', name: 'Ideas', actorId: ana.id, audience: [ben.id] }), 0,
+    'once a day from the same person, whichever module it comes from');
+  assert.equal(told.length, 2);
 });
 
 test('a request has a while to arrive, its answer as long as it needs (a live channel stays open)', async (t) => {

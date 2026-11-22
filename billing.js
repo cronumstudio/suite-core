@@ -39,10 +39,10 @@
  * of them; before, whichever was linked first took the other's purchases too. The same holds the
  * other way round: a customer linked to a group never takes a person's purchase.
  *
- * Another product's events. A provider account may sell more than one product (Cronum Work and
- * Tracker), and it sends every event to every app's webhook: this app hears of sales that aren't
- * its own, often for people it knows by the same identity. With `ignoreUnknownProducts`, an event
- * (not a refund) for a product this catalog doesn't have is `'foreign'`: decided before anything
+ * Another product's events. A provider account may sell more than one product, and it sends
+ * every event to every app's webhook: this app hears of sales that aren't its own, often for
+ * people it knows by the same identity. With `ignoreUnknownProducts`, an event (not a refund)
+ * for a product this catalog doesn't have is `'foreign'`: decided before anything
  * about who pays, so no customer is linked, nothing waits in `billing_pending` and only the
  * event's id, type and outcome are kept (`billing_events`). With `app`, the checkout says which
  * app sells (Paddle's `custom_data.app`), and an event that names another is foreign too. A
@@ -145,7 +145,7 @@
  * that nobody had stopped (its first webhook came after the group went) is stopped too.
  *
  * A person's own subscriptions, when they ask to delete their account (`stopRenewals`, with
- * `accounts.deleteAtProviders`): each stop is noted the same way (`stop:user:<id>:<ref>`:
+ * `accounts.endSubscriptions`): each stop is noted the same way (`stop:user:<id>:<ref>`:
  * `requested`, `already` or `failed`), so taking the account back renews only what this install
  * stopped, never a cancellation the person made themselves (`keepRenewals`).
  *
@@ -162,9 +162,9 @@ import crypto from 'node:crypto';
 import { HttpError, badRequest, forbidden, notFound, unauthorized, sendJson, readBody, readJson } from './http.js';
 import { ensureColumn } from './migrate.js';
 import { answeredOnce } from './idempotency.js';
+import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 
 export function billingSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS billing_customers (
@@ -257,7 +257,7 @@ export function verifySignature(secret, body, header, { toleranceSeconds = 300, 
 
 /**
  * A provider that speaks the suite's own events, signed with a shared secret:
- * what the private accounts service of the hosted suite sends to each app, and
+ * what a provider registered from outside can build on, and
  * what the tests and development use. Its checkout and portal are pages of
  * that service (`baseUrl`), which gets a signed link saying who and what.
  */
@@ -361,7 +361,7 @@ export function joinedEarly(dates, joined) {
  *     'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_…', founderPrice: 'pri_…' },
  *     'pro-lifetime': { plan: 'pro', kind: 'once' }, 'pro-pass': { plan: 'pro', kind: 'once', days: 30 },
  *     'family-yearly': { plan: 'family', kind: 'subscription', for: 'organization' },
- *     'focus-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } }
+ *     'group-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } }
  *   A founder's price is chosen here, for whoever `isFounder` says: the browser only names the product.
  *   `oldPrices`: prices it no longer sells that subscriptions may still renew on (Paddle reads them).
  *   `seats: false`, only for a group's: the plan with no cap on its members, whatever quantity the
@@ -499,7 +499,7 @@ export function createBilling({
    * hand it that person's customer, with its invoices and payment method. A
    * customer linked to nobody here is not linked then either
    * (`billing.customer_unvouched`): the same provider's account may sell another
-   * product (Tracker), whose buyers' customers no account here has.
+   * product, whose buyers' customers no account here has.
    */
   function linkCustomer(subject, customer, { takeOver = false, event = null } = {}) {
     if (!customer) return;
@@ -1173,7 +1173,7 @@ export function createBilling({
    * is ignored; one that names who they are at the identity provider (Paddle's, by the WorkOS id)
    * waits, as for anyone without an account here, and goes to an account opened again with that
    * login, who is still paying for it. Nothing is asked of the provider (that is
-   * `deleteAtProviders`), nor of the identity provider, whose login other apps share; a group's
+   * `accounts.endSubscriptions`), nor of the identity provider, whose login other apps share; a group's
    * subscription stays with the group. Runs inside the removal's transaction, before the account's
    * identities go. → what went: { grants, subscriptions, customers, pending }
    */

@@ -68,7 +68,160 @@ going from one module to the next in Cronum Work nothing moves:
    line, as tall in each, reading «Buscar» in the kit's faint colour; the module's own words
    («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
-   never in its words (they wouldn't fit), and goes while the field has the focus or text.
+   never in its words (they wouldn't fit), and goes while the field has the focus or text. It runs
+   the same way everywhere (`search: { onSearch, wait, min }`): 220 ms after the last key, from the
+   first letter, at once with Enter or when emptied; opening a collection from the sidebar empties
+   it (`shell.clearSearch()`).
+10. **Sharing reads the same in every module** (v0.301.0, audit of 6/11). An invitation waiting
+   for an answer is the kit's card (`invitationCard()`), first in the sidebar, above the views,
+   with «Rechazar» and «Aceptar»; on a phone, while one waits, ☰ carries a dot (`setMark()`). The
+   «…» says «Compartir» (`kit.share.action`) to whoever manages it and «Quién lo tiene»
+   (`kit.share.people`) to anyone else, who may leave it there. Leaving is «Salir» («¿Salir de
+   «X»?»), and «Has salido de «X»» after it (`kit.share.left`). Whoever has something is its
+   «Propietario» (`errors.owner_only`: «Solo el propietario puede hacer eso.»). Only the name of
+   whoever accepted is shown to the owner, never their email, and with WorkOS nobody's @username.
+   What the AI shares, unless told otherwise, gives what the dialog gives.
+11. **The sidebar's entries are the kit's** (`navItem()`, v0.302.0): a view with the kit's icon
+   and its count (every module counts its views), a collection with its own emoji (`emoji`, as wide
+   as a view's icon, so every label starts in line) or its colour, shared ones with the kit's one
+   mark (`shared`, «Compartido · de Ana» when it is someone else's), a long name told to a pointer
+   (`title`). A right-click or a long press on an entry opens the same menu as its «…» (`menu`
+   or `onMenu`), and on a group's head the group's menu; collections are put in order by dragging
+   them, and the order a drop makes is the kit's (`orderAfterDrop()`, drag.js). The collection
+   open shows its emoji loose before the head's title, with no box (`head({ icon })`), in every
+   module that has one.
+12. **The same keys in every module** (v0.302.0): «/» to the search, «n» for a new item (`createShell({ onNew })`:
+   a task, a note, a step), Escape to close what is open. Settings › About lists them, and words
+   that tell a shortcut with a letter say ⌘ on a Mac and Ctrl elsewhere (`modKey()`, keyboard.js).
+13. **A dialog looks the same in every module** (v0.303.0): the kit's header, body and footer,
+    with no line under the title nor over the buttons (Martin, 14/11); a module paints none of them
+    (`.kit-dialog__header`, `__body`, `__footer`) and passes its own nodes to `openDialog({ body,
+    footer })` when it draws them itself. Its fields are the kit's: `field()` for a label and its
+    control (a label 13/500, a 40 px control), `switchRow()` for a switch, `.kit-hint` for a line
+    under them; a module styles no `input` of its own outside its own controls. A collection's
+    settings are «Editar X» («Editar lista», «Editar libreta», «Editar proyecto»), its Name first, then
+    how it looks and what is the module's own; deleting it is never in that form, it is
+    the last item of the collection's «…», in red, to the trash with an Undo (rule 7).
+14. **An empty place, or one still loading, is the kit's and says what to do** (`blank()`, v0.304.0):
+    an icon in its box (the kit's, or the emoji a person chose for a Tasks list, `glyph`; a new
+    empty place takes the kit's icon, not an emoji), one size of title, a line and, where the first
+    thing to do there is to make something, one button that makes it («Nuevo proyecto» in Projects
+    with none, «Nueva tarea» in Tasks' My Day of an account with no tasks). One such button per
+    screen: a second place for the same button (Notes' panel beside its list) goes. Alone in a
+    view, `page: true`. While what goes there is on its way, `blank({ loading: true })`: the kit's
+    spinner and «Cargando…», never the empty message. A filter that leaves nothing out of things
+    that exist says so in a short sentence, never «add the first one».
+15. **An item's detail says how its save went and who made it** (`saveState()`, `stamps()`): its
+    labels are the kit's (`field()`, or `.kit-label` over a block of several controls), the state
+    of the last save sits by what was saved (Notes', Tasks', Projects'), and its foot says who
+    created it and who changed it last in the same words in every module (`kit.stamps.*`, as
+    `.kit-stamps`). The small capitals over a group (a section's, «Why», «Waiting on») are
+    `.kit-eyebrow` (`--kit-eyebrow-*`), never a module's own measure.
+16. **The add bar is the same card in Tasks and Projects** (`addBar()`, v0.304.0): a +, the field
+    and «Añadir», with the module's own tools between them; Projects keeps its gradient behind it,
+    over the Gantt. The notices rise above it, never onto it (`toast()` measures it).
+17. **The row open in the detail has a soft background** (`.kit-list-row[aria-current="true"]`,
+    `--kit-accent-soft`, v0.304.0), as Notes' had: Tasks, Notes and Projects (whose state stripe
+    stays). A long title wraps onto more lines, as Tasks' always did; it is never cut with «…».
+    From 960 px, Tasks' and Projects' item opens as a column on the list's right
+    (`createShell({ detail: 'column' })`, `setDetailOpen()`).
+18. **Without a signal every module says the same, at once** (`offlineBanner()`, v0.305.0): the
+   kit's banner under the header the moment the browser says the signal went, not once a request
+   has failed, with or without changes waiting: «Sin conexión. Se ve lo último que se cargó.» and
+   how many changes wait on the device; «Reintentar», when there is one, is never the primary
+   button. Back online, «Enviando N cambios…» while they go, and a notice once they arrived
+   (`kit.offline.sent`). The words are the kit's (`kit.offline.*`, `errors.offline`): no module
+   keeps a copy. What only the server can show (a trash) says «Necesita conexión» in its place
+   (`offlineNotice()`), and its dialog keeps its «Cerrar».
+19. **A collection's colour and icon come from the kit** (`colorPicker()`, `iconPicker()`,
+   `palette.js`; v0.306.0): the same twelve colours, by name, for a list, a notebook, a project
+   and their groups, and the same twenty icons in view with «Más…» for the rest. A colour or an
+   icon it has from before, that the palette no longer offers, is kept as it is and offered first.
+   A module leaves out (`except`) only the colours its states already mean (Projects: brown,
+   pink, plum, violet, indigo; Next: green). A state written in words (overdue, at risk, blocked,
+   stuck) is the kit's `--kit-danger`, `--kit-warn`, `--kit-ok` or `--kit-color-violet`, which
+   read on the page, a panel and their soft tint; a module's own vivid state colours stay for
+   bars, dots and borders.
+20. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
+   (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
+   things above its rows whenever it holds some, from the plan the server sends as `days`
+   (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
+   (`kit.deleteForever`) on a row, «Esto no se puede deshacer.» (`kit.cantUndo`) where it asks,
+   and «Vaciar papelera» (`kit.trash.emptyAction`) at the start of the dialog's foot, «Cerrar» plain
+   at its end. «Vaciar» is offered only for what the person may empty, and its question counts only
+   that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
+   Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
+   (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
+21. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): «Archivos» with
+   how many, photos as squares that open the kit's viewer (`photoViewer()`, a kit dialog with zoom,
+   so in Cronum Work it covers the screen and not just the window), a PDF as a row with its name and
+   size. They are added with the button, by dropping a file on the detail or pasting one into it;
+   several going up say so on the button and once at the end; the room left is said before
+   uploading. Taking one away goes to the trash with Undo (rule 7). Notes keeps its files in the
+   note and deletes them for good, with the question (`deleteDialog()`).
+22. **What floats over a module stays in its window** (`placeFixed(node, anchor)`, v0.308.0): a menu,
+   a quantity's editor, a dot's bubble, a drag's label. In Cronum Work a window keeps what is
+   `position: fixed` inside it (`contain: layout paint`), so a box placed by the screen's numbers
+   lands off its anchor or is cut off; `placeFixed` measures where its (0, 0) really is and keeps it
+   in its room (`fixedRoom()`).
+23. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` «14 mar» (with the
+   year when it isn't this one), `timeText()` the language's own short time («15:52», «3:52 PM»),
+   `shortStamp()` the time today and the date before, and `timeAgo()` «hace 3 días».
+24. **A sheet says the kit's measures by name** (v0.312.0, audit of 6/11): type, corners and room
+   are the look's scale (`--look-*`, one value each in the Cronum look and its own in Clean),
+   written `var(--look-body)`, never with a number beside it; a size that must not go under its
+   own in Cronum is `max(16px, var(--look-body))`, and one off the scale is written as it is with
+   a Clean rule for the look's. Corners are `--look-r-*` (`--kit-radius*` are their old names).
+   Sides are logical (`margin-inline-start`, `inset-inline-end`, `text-align: start`); physical
+   only where a drawing runs left to right (Projects' Gantt, Next's lines), which the module's
+   test names. A layout changes at 640 px (phone) and 960 px (a list and its detail side by side).
+   A module's own sheets are checked by `tools/css-rules.mjs` in its tests.
+25. **Texts say the same thing the same way in every module** (v0.311.0, audit of 6/11): Spanish is
+   the reference, in plain words, and every text is in the five languages. One word for one thing:
+   «Avisos» (not «notificaciones», but for the phone's own settings), «Vencidas» and «Fecha límite»,
+   a project «En marcha», «En pausa» or «Terminado» under «Estado», «entrar» for signing in,
+   «subtareas» in Tasks, a step «apuntado» and «hecho», a «dependencia» in Projects, «email» for
+   the address and «correo» for the message, «Nuevo X» and «Editar X». Quotes are the language's
+   own («…», “…”, « … », „…“), an apostrophe is ’, a way through menus reads «Ajustes › Perfil», and
+   English is American (color, canceled). A notice (`toast()`, `undoToast()`) has no full stop when
+   it is one sentence and has them when it is two («Plantilla borrada»; «Paso copiado. Pégalo en tu
+   IA para seguir.»); an error (`errors.*`) is a sentence with its full stop. What the kit says, a
+   module doesn't copy: the public page's words (`kit.public.*`), the push of something shared
+   (`sharePush()`, `kit.share.push.*`), a group's words (`kit.group.*`, `kit.moveUp`, `kit.dropBefore`…),
+   «Cargando…» and the rest. `appChecks(root, { kitWords: true,
+   kitOverrides: true, typography: true })` checks both, with `kitAllow` for a key that only looks
+   like the kit's or says what only the module has. A
+   dialog opened from a menu gives the focus back to the menu's «…» when it closes; the public
+   page's has «Activar» as its one primary button and «Cerrar» plain (`publicDialog()`).
+
+**Which icon for what** (`icons.js`): the same thing has the same icon in every module.
+
+| What | Icon |
+| --- | --- |
+| A view of everything (all notes, all projects, the overview) | `grid` |
+| Today, My day (with `now`) | `sun` |
+| What comes next | `clock` |
+| Important, starred | `star` |
+| Shared with me | `users` |
+| A new list, a new notebook | `list`, `book` |
+| A group | `folder` |
+| Edit, configure | `edit` |
+| Categories, tags | `tag` |
+| Notices | `bell` |
+| Share | `users` |
+| Public page | `globe` |
+| Earlier versions | `history` |
+| Print | `print` |
+| Leave something shared («Salir») | `logout` |
+| Delete, the trash | `trash` |
+| Close, take away | `x` |
+| Move up, move down | `chevron-up`, `chevron-down` |
+| Zoom in, zoom out | `zoom-in`, `zoom-out` |
+| Drawing tools (Notes) | `pen`, `marker`, `highlighter`, `eraser`, `stroke-eraser` (whole strokes) |
+| A branch, a finished path (Next) | `fork`, `flag` |
+
+An emoji goes only where the person chose it (a list's, a project's, a group's); no menu entry or
+button writes a character (✕, ↑, ‹, 🗑) in place of an icon.
 
 ## A page
 
@@ -117,27 +270,33 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `svg(tag, props, …children)`, `$`, `$$`, `append`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings; `style` and `dataset` may be objects, children may come in nested arrays |
-| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
+| `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `reportLanguage(user, lang, { send })` (the browser's resolved language into `prefs.lang_seen` while the person follows it, once per change), `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
 | `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
-| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank()`, `avatar()`, `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
-| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)` |
-| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes), `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash) |
+| `palette.js` | `KIT_COLORS` (twelve `{ name, hex, dark }`: the hex a module stores, the name's `--kit-color-<name>` token, lighter in the dark), `KIT_COLOR_NAMES`, `kitColor(nameOrHex)`, `suggestedColor(used, { as, except })` (the first free one, five apart around the wheel; `except`, names a module leaves out), `KIT_ICONS` (twenty in view), `KIT_MORE_ICONS` (behind «Más…»). No DOM: a server loads it too |
+| `pickers.js` | `colorPicker({ value, as: 'hex' \| 'name', label, none, paint, nameOf, except, onPick })` and `iconPicker({ value, label, typed, none, frequent, more, onPick })` → `{ node, value() }`: the palette as swatches named in words, the icons with «Más…»; what it has from before kept first |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `stamps({ author, created, editor, updated, completed, createdVia, updatedVia }, { format })` and `stampTime(value)` (who made an item and who changed it, in kit.stamps.* words), `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank({ iconName, glyph, title, text, action, note, page, loading })`, `addBar({ placeholder, label, tools, onAdd, className, id, input })`, `inkOn(color)` (white or the dark ink, whichever reads on a colour), `avatar(person | name, { color, size, title })` (a person's initials in the colour they chose, `avatar_color`), `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
+| `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`; `createPlace({ hash, active, reload, own })` → `{ place, placeIn, placeOut, route, navigate, onRoute, lateCode }`, a module's place.js: the window's ctx in Work, the page's address on its own (its hash with `hash`; else its address after its base, which only a replace writes), `place.embedded`, `root`, `mounted`, `services`, `active` (`active(said)` reads what the shell says), `signal`, `retitle()`, `lateCode()`, `reload({ fresh })`, and the module's `own` members |
+| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes, `emoji`, `shared`, `marks`, `title`, `under`, `countTitle` and `menu`/`onMenu`), `sharedMark({ owner })`, `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash), `setMark(n)` (a dot on ☰ while `n` invitations wait in the drawer) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted; the screen itself is `signin-form.js`, which `signIn` loads when it draws it (0.285.0): a page with a session never evaluates it |
-| `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()` |
+| `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()`; `summaryOf(parts)` (what a copy holds, its parts joined as every module joins them) |
 | `signal.js` | `watchSignal({ ask, answered, onBack, active, again, firstMs, maxMs, url, patienceMs })`: the one question «is there a signal again?» every module asks while it has none (`/version`, from 3 s up to 30 s apart): `lost()`, `check()` → whether the server answered, `found()`, `stop()` |
 | `settings-queue.js` | Settings without a signal: `connection` (whether the server answers), `save()` (a preference sent, or kept for later), `flushSettings()` (what was kept, sent once the server answers: the kit's frame calls it when it starts), `forgetSettings()` |
 | `connect.js` | The suite's own page at `/devices/connect` (with `devices.connectPage`, device-pages.js): an account allows a phone, signing in in place first with local accounts; `showConnect()`, `connectRequestOf()`, `cancelAddress()`. Not for an app to import: the suite serves it |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing; `sharedPage()`, the same page alone. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
-| `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does |
-| `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`; the module's sheet after it draws the rest |
+| `share.js` | `shareDialog({ base, name, me, people, words })`: who has something, inviting by email and by one's people, changing and taking back, leaving; through sharing.js' routes or the app's own functions. An app with roles of its own passes `permissions` (and `fixed`, `confirmRemove`); whoever `load` answers `manage: true` for shares as its owner does. Offline it opens with what `load` knows, says it needs a connection, and leaves nothing that changes it on |
+| `invitation.js` | `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline })`, `invitationCards(list)`: an invitation waiting for an answer, first in the sidebar (rule 10); `shell.setMark(n)` marks ☰ meanwhile |
+| `public-page.js` | `publicDialog({ base, name, url, words, onChange, read, turnOn, turnOff, embedHeight, parent })`: a public page's dialog for its owner (reads it without turning it on; its link, the code to embed it on Pro, turning it off), in the kit's words (`kit.public.*`) and the module's for what it shows (`words`); `embedCode(url, name, { height })`. `public-page.css` is the page's own frame (shared.html): its ground and column, the bar with the way to start one's own (on a phone, the icon and a button that may shrink: nothing past the screen), the footer, `.sp-embedded`, `.sp-refused`, `.sp-gone`, `.sp-not-here`; the module's sheet after it draws the rest |
+| `public-frame.js` | `startPublicPage({ key, draw, icon, words, title, failed, refusedAs, openClass, reread })`: a module's public page started (shared.html, js/shared-page.js): it reads `api/public/<token>` (with `embed=1` when framed), and draws the bar over what `draw` gives and the foot with Cronum's brand under it, «Nothing to see here» for a page that isn't there, a frame its owner's plan doesn't allow as the kit's card (or as the gone page says it), and with `failed` a page that couldn't load with its retry; embedded, without the bar and the foot, its links outside the frame. `reread` reads it again while it is in sight. `embeddedPage()`: `embed=1` in the address, or framed. Not in the worker's copy: the page is in no app's shell |
 | `people.js` | `peopleChips(people, { onChange })`: the people one already shares with, as chips to pick under a share dialog's email; `shareWithEach(targets, shareOne)`: every share, then one notice |
 | `shared.js` | `sharedSection({ load, kinds, setPermission, remove, leave, accept, open })`: Settings › Sharing. An app with roles of its own passes `permissions`, as to the share dialog (or a function of the item, when they differ from one to another) |
 | `plan.js` | What Settings' plan section sells (`plan: { billing: true }`); `offerPlan(err, { open })` for a 402 anywhere; `billingReturn({ onPlan, open })` back from the checkout; `offerFounder({ user, busy })` for a host's shell, as it starts; `isPlanError`, `offerFor`, `isLive`, `productText`, `PLAN_EVENT`; `billingReturn`, `lastDay` and `PLAN_EVENT` live in `plan-return.js`, all a frame's start needs (shell.js), so plan.js comes only with Settings (0.285.0) |
 | `update.js` | `watchUpdates({ onUpdate })`, `applyUpdate()`, `tidyAddress()`; worker.js (with push.js) comes only when a check asks for the host's worker (0.285.0) |
-| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses |
+| `app-start.js` | What every module's page does as it starts: `applyAppTheme(app, theme, place)` (on its own page `<html data-theme>` and `<app>.theme`; in a window of Cronum Work, told to the shell, `ifOther` only when it differs), `followSystemTheme(app, { theme, signal })`, `savedTheme(app)`, `THEMES`; `watchAppVersion({ app, show })`, the notice of a new version; `askedSettings({ ready, open })` → `{ ask, open, fromAddress }`, Settings at the section another module asked for, once the module is ready; `markCroppedCanvas()`, an iPhone's Home Screen app drawn short of the screen (`data-canvas="cropped"`); `rgbOf(color, { transparent })` and `PAINT_ATTRIBUTES`, for a status bar in a page's ground |
+| `live.js` | `connectLive({ onChange, onResync, onAccount, onState })`; `liveSource({ url, names, onEvent, onState, ready })`: the channel's machine (its EventSource, last id, waits and hello), which Cronum Work's one channel for every module reuses; `paintLive(node, state)`, the live dot in words |
 | `time-zone.js` | `reportTimeZone(user, { send })`: the browser's zone into `prefs.tz`, once per change; `browserTimeZone()` |
-| `local.js` | `openLocal(appId, stores)`: IndexedDB stores of key → value; `memoryLocal()` |
+| `days.js` | `dayKey(date)`: the day a moment falls on on this device's clock, `YYYY-MM-DD` (today is `dayKey(new Date())`, not UTC's day); `addDays(day, n)` and `daysBetween(a, b)`, counted in UTC as the server's, so a summer time change never shifts a day. No DOM and no imports: a module's offline model and Work's calendar run it in Node |
+| `local.js` | `openLocal(appId, stores, { patience })`: IndexedDB stores of key → value; `memoryLocal()`; for a start that draws from the copy, `deviceLocal(appId, stores)`, `inTime(promise)` and `LOCAL_PATIENCE_MS`; whose the copy is, `createDeviceCopy({ local, stores, account, owner, outbox })` (`local.deviceCopy()`), `drawableFor(id, host)` and `sameAccount(a, b)` (Offline, below) |
 | `outbox.js` | `createOutbox({ local, owner, … })`: changes made offline, sent once each and only with their owner's session; a busy server (429, 408, 425) keeps them and is tried again after its `Retry-After` (v0.250.0); `keepOnly(id)`; `sendWhileAway({ local, owner, send, onCreated, skip })`, what an app left queued sent while it isn't on the page, only what goes cleanly (v0.250.0); `tempId()`, `isTempId()` |
 | `markdown.js` | `renderMarkdown(source, { resolveImage })`, `parseMarkdown`, `titleOf`, `plainText`, `safeHref`, `safeImage` |
 | `sw-core.js` | `suiteWorker({ version, shell, optional, push, skip, modules })` for the app's service worker (a classic script), from its scope: `/`, or a module's path in a host; `modules` for a host's one worker |
@@ -145,11 +304,11 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 | `base.js` | `BASE` and `at(path)`: where the app is served from, `/` on its own and `/tasks/` as a module of a host, read from the kit's own address; the kit's requests go through it |
 | `qr.js` | `qrSvg(text, { label })` |
 | `push.js` | `pushSupport()`, `devicePushSubscription(publicKey, { ask })`: notices on a device the app keeps, with no account, posted to the app's own route; `ensureSubscription({ key, post, lang })`: notices on for the person signed in, the one way Settings and an app's own button (Tasks') turn them on |
-| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
+| `drag.js` | `makeDraggable(container, { items, check, onDrop, … })`: picking something up from a list and dropping it on a place; `menuOnPress(node, open)`: a right-click or a long press opens a menu; `orderAfterDrop(ids, moved, target, zone)`; `redrawInPlace(container, draw)`: drawing a list again whole without it moving |
 | `swipe.js` | `rowSwipe(row, { content, left, right, ignore })`: a finger across a row, to the trash to the left and the module's quick toggle to the right (v0.248.0); `keepSwipe(row)`, a row with nothing to do that keeps the finger; `trashAction(run)`; `swipeAction`, `swipeStretch`, `SWIPE_IGNORE` |
 | `celebrate.js` | `celebrate(origin, { root })` when something is done: confetti from an element or a `{ x, y }` (in the open dialog it is in, else `root`, else the body) and a "ding"; `playStep()`, the soft note of a part done; `celebratePrefs()`, `setCelebratePref(key, on)`: `animation` and `sound`, on this device (`suite.celebrate`, else Tasks' `tasks.celebrate`), chosen in Settings › Language and theme |
 | `keyboard.js` | `fitToKeyboard({ reveal })`: the frame, Settings, dialogs and notices fitted above a phone's keyboard; `focusOnTap(area, { focus, skip })`: a tap that starts typing without the view sliding up; `watchKeyboard(onChange)`: told when a keyboard makes the page itself shorter; `rideKeyboard(dialog, field)`: a sheet that goes up and down with the keyboard in the iPhone app (formDialog's `typing`) |
-| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app; `hostShellAddress(host)` (in the app, a browser's tab or the host's installed app, a module's page alone goes to the shell, unless `?alone`), `markShellWindow()`, `aloneAddress(path)` |
+| `native.js` | The bridge to the suite's app on a phone (v0.106.0): `inApp()`, `nativeInfo()`, `can(capability)`; `setBadge()`, `setReminders()`, `nativePurchase()`, `openExternal()`, `nativeSignOut()`, `haptic()`, `openAppSettings()`, `nativeReady()`, `postNative()`; `onNative(type, handler)`, `lastNative(type)`; `hostShellAddress(host)` (v0.230.0). Nothing outside the app; `hostShellAddress(host)` (in the app, a browser's tab or the host's installed app, a module's page alone goes to the shell, unless `?alone`), `markShellWindow()`, `aloneAddress(path)`; `openAddress(url, { hash })`, the shell's `/?open=` address of a page |
 
 ### Components in the sheet alone
 
@@ -160,21 +319,34 @@ Some of the kit's components are CSS with no script: an app writes the classes o
 | `kit-btn` (`--primary`, `--quiet`, `--danger`, `--danger-quiet`, `--small`, `--block`), `kit-icon-btn` (`--small`, 34 px in a row), `kit-link` | Buttons |
 | `kit-field` (`> label`, or `> .kit-field__label` for a group), `kit-input`, `kit-hint`, `kit-error`, `kit-check` | Fields, as `field()` makes them |
 | `kit-chip` (`--tint` with `--kit-chip`, `--large`; a `button` with `aria-pressed`) | Something said of an item, or a filter to press |
-| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`) | A colour to choose |
+| `kit-swatches` > `kit-swatch` (`--kit-swatch`; `aria-pressed`, `aria-checked` or `--on`; `--kept`), `kit-swatch-none` | A colour to choose, as `colorPicker()` makes it; no colour |
+| `kit-icons` > `kit-icons__grid` > `kit-icon-pick` (`aria-pressed`), `kit-icons__more`, `kit-icons__typed` | An icon to choose, as `iconPicker()` makes it |
 | `kit-round-check` (`--done` or `aria-pressed`; `--kit-tick-lift` for another size) | A task's round check |
 | `kit-group-title` | The heading of a group in a list |
 | `kit-avatar` (`--tiny` 20, `--small` 26, `--large` 34 px) | A person, as `avatar()` makes it |
 | `kit-segmented` | One choice among a few, as `segmented()` makes it |
-| `kit-blank` (`--page`), `kit-empty` | Nothing here yet, as `blank()` makes it; a view's whole page |
+| `kit-eyebrow`, `kit-label`, `kit-stamps` | The small capitals over a group (`--kit-eyebrow-size`, `-weight`, `-spacing`); a field's label without `field()`; who made an item and who changed it |
+| `kit-blank` (`--page`, `--loading`), `kit-empty` | Nothing here yet, or still on its way, as `blank()` makes it; a view's whole page |
+| `kit-add-bar` | The add bar at a list's foot, as `addBar()` makes it |
+| `kit-list-row` (`[aria-current="true"]`) | A row of a list whose item opens in the detail: open, its soft background |
 
 Their colours are the kit's variables, and an app names no other in its own sheet for what the kit
 has: `--kit-accent`, `--kit-on-accent`, `--kit-accent-soft`, `--kit-bg`, `--kit-side`,
 `--kit-panel`, `--kit-hover`, `--kit-text`, `--kit-muted`, `--kit-faint`, `--kit-border`,
-`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-shadow`,
-`--kit-radius` (10 px), `--kit-radius-small` (8 px), `--kit-radius-large`. An app keeps names of
-its own only for its domain (a list's colour, a project's state). Layouts change at the brand's
-widths, `--cr-bp-phone` (640 px) and `--cr-bp-tablet` (860 px): `@media` and `@container` read no
-variable, so a rule writes the number.
+`--kit-border-strong`, `--kit-danger`, `--kit-warn`, `--kit-ok`, `--kit-color-<name>`, `--kit-shadow`.
+Its sizes are the look's scale (rule 24): type `--look-large-title` (21 px in the Cronum look),
+`--look-title1` (24), `--look-title2` (22), `--look-title3` (19), `--look-headline`, `--look-body`
+and `--look-base` (15), `--look-callout` and `--look-subhead` (14), `--look-footnote` (13),
+`--look-caption` (12), `--look-caption2` (11); corners `--look-r-xs` (4), `-sm` (8), `-md` (10),
+`-lg` (12), `-xl` (16), which `--kit-radius-small`, `--kit-radius` and `--kit-radius-large` still
+name; room `--look-gutter` (16), `--look-row-y` (11), `--look-row-gap` (10), `--look-head-y` (10),
+`--look-item-y` (9), `--look-bar-y` (10), `--look-section` (20). The Clean look has its own
+(kit.css). An app keeps names of its own only for its domain (a list's colour, a project's state).
+Layouts change at the brand's widths, `--cr-bp-phone` (640 px: under it, one column and the
+sidebar a drawer) and `--cr-bp-tablet` (960 px: from it, a list and its detail side by side, as
+`createShell({ detail: 'column' })` does): `@media` and `@container` read no variable, so a rule
+writes the number. A component's own `@container` (a board, a line) changes where its content
+needs.
 
 ## Starting an app
 
@@ -186,7 +358,8 @@ import { createShell, navItem, navSection } from '/suite/shell.js';
 import { signIn, signOut, confirmEmailFromLink } from '/suite/signin.js';
 import { openSettings } from '/suite/settings.js';
 import { connectLive } from '/suite/live.js';
-import { watchUpdates, applyUpdate, tidyAddress } from '/suite/update.js';
+import { applyUpdate, tidyAddress } from '/suite/update.js';
+import { watchAppVersion } from '/suite/app-start.js';
 import { openLocal } from '/suite/local.js';
 import { createOutbox } from '/suite/outbox.js';
 
@@ -207,20 +380,13 @@ const shell = createShell({
   panes: 'split', app,
   create: { label: t('notes.new'), onClick: newNote },
   foot: { create: { items: () => [newNotebookItem, newGroupItem] }, trash: { href: '#/trash' } },
-  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; shell.setUser(u); },
+  onSettings: () => openSettings({ app, user, config, live, updates, applyUpdate, onUser: (u) => { user = u; },
     onSignOut: () => signOut({ local }), applyTheme, setLanguage, sections: [/* the app's own */] }),
-  onSignOut: () => signOut({ local }),
 });
-shell.setUser(user);
 shell.nav.append(navItem({ label: t('notes.all'), iconName: 'notes', current: true }), navSection(t('notes.notebooks')));
 
 const live = connectLive({ onChange: reload, onResync: reloadAll, onAccount: refreshUser, onState: shell.setLive });
-const updates = watchUpdates({
-  onUpdate: () => shell.showBanner('update', {
-    kind: 'accent', iconName: 'refresh', text: t('kit.update.availableNamed', { app: app.name }),
-    action: { label: t('kit.update.apply'), onClick: applyUpdate }, onClose: () => updates.dismiss(),
-  }),
-});
+const updates = watchAppVersion({ app, show: (id, options) => shell.showBanner(id, options) });
 const outbox = createOutbox({ local, onCount: (n) => …, onConflict: keepConflictCopy, onDropped: tell });
 ```
 
@@ -246,9 +412,7 @@ the focus goes to the current entry. With `panes: 'single'` there is one view in
 `shell.list`. There is no button for the person at the sidebar's foot (v0.224.0): on its own, the
 app's icon and name at the sidebar's head are a button, with Settings' icon in place of an arrow,
 that opens Settings (`onSettings`), where the account is and Sign out closes the profile.
-Only with `accountItems`, or without `onSettings`, it opens a menu instead: the app's entries,
-Settings, Administration (for admins, at `/admin`) and Sign out. `setUser()` keeps who is signed
-in for that menu.
+`onSignOut` and `shell.setUser()` are still accepted, and do nothing.
 As a module of a host (a page under `/<mount>/`, Cronum Work), from
 640 px a rail at the sidebar's start has the host's mark (not a link, v0.104.0), the modules the person uses (one too) and
 Settings at its foot, and the app's icon is only its mark. On a phone the drawer has no rail: the
@@ -259,14 +423,20 @@ kept on the device (`host.modules`): the rail is drawn with the frame, and again
 answers. From one module to another one page fades into the next (`@view-transition` in kit.css,
 200 ms, the rail standing still), in browsers that
 have view transitions and not for whoever asks for less motion; the host names each module page's code in its answer (§21.4 of the architecture).
-`setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id.
+`setLive(state)` paints the dot, `showBanner(id, …)` / `hideBanner(id)` keep one banner per id. Given
+as a function that writes its options, a banner shown again with the same words stays as it is, and
+`keptBanners()` gives those still on screen for a frame drawn again in a new language to show anew.
 
-**The module's search** (`search: { label, onInput(text), onSubmit?(text) }`) is the sidebar's
+**The module's search** (`search: { label, onSearch?(text), wait?, min?, onInput?(text), onSubmit?(text) }`) is the sidebar's
 first line, the same in every module (rule 9, v0.249.0). Its field reads the kit's «Buscar»
 (`kit.side.search`) in `--kit-faint`, in either theme and look, and `label`, the module's own words,
 is its `aria-label`: as the words in it they were cut short. `placeholder` would replace the word;
 no module of the suite gives one. Its line height is its own (1.45), so the page's doesn't make it
-taller in one module than in another. Escape empties it; Enter in a phone's drawer closes the
+taller in one module than in another. `onSearch` is told the search to run: `wait` ms (220)
+after the last key, once the text has `min` letters (1; shorter is told as ''), and at once with
+Enter or Escape or when emptied; `onInput` is still told every key. `shell.clearSearch()` empties
+the field without telling anyone, for a module that opens a collection from the sidebar. Escape
+empties it; Enter in a phone's drawer closes the
 drawer, so the results show. «/» goes to it, and its key (`kbd.kit-side__search-key`, hidden from a
 screen reader) says so at the field's end only where a keyboard is likely: a pointer that hovers and
 is fine, and the sidebar beside the views; never while the field has the focus or text. On the
@@ -314,14 +484,15 @@ brings it over the views as a drawer, as on a phone. An app that lays out its ow
 960 px (Tasks, Projects) gives their `[data-folded]` version too; on a phone nothing of this
 applies, whatever was chosen on a computer.
 
-**A view's head** (`shell.head({ pane, title, lead, actions, below })`) is the same in every
+**A view's head** (`shell.head({ pane, title, lead, icon, actions, below })`) is the same in every
 app: the view's title and, at its end, the view's «…» (`actions: moreButton(items)`), and,
 wherever the sidebar isn't beside the views (a phone, or folded away), ☰ at its start; over a
 phone's detail (`pane: 'detail'`), ← instead. Nothing in it creates (v0.247.0): that is the
 floating button. It returns `{ element, setTitle }`; the app puts `element`
 at the top of its view (it sticks there while the view scrolls) and makes a new one when it draws
 the view again. A pane showing a head takes the bar's place: one line less, and the same layout in
-every app and on any screen. `lead` goes before the title (a list's icon, a note's notebook),
+every app and on any screen. `icon`, the collection's own emoji, goes loose before the title, at
+the title's size and with no box (`.kit-head__icon`; `setIcon(value)` changes it). `lead` goes before it (a note's notebook),
 `below` under its line, inside the head (a search, chips, a toolbar). An app that shows no head
 in a pane keeps the bar there, as before.
 
@@ -456,7 +627,7 @@ sign-in (two-step verification, sessions), the AI (MCP address, connected apps, 
 notifications (`push: true`), plan (`plan: true`; with `{ billing: true }` it also sells, below), the app's own `sections`, data (when the app
 declares it), Administration and About— over the app. The profile is saved with `PATCH /api/me`,
 which is the app's route (Next's is the model: `display_name`, `email`, `theme`, `prefs.lang`);
-everything else is the suite's. `aboutExtra()` adds a block (what the app is), and `standing` its
+everything else is the suite's. `aboutExtra` adds a block (what the app is: `{ text, tips }`, keys the kit draws, or a function that draws it), and `standing` its
 instruction for an assistant, in Your AI. Your data ends with what goes for good: erasing what one has in the
 app (with `data`) and deleting the account (when the install offers it, `deletion_days`), each
 confirmed by typing a word and, with a password here, the password and the code; `shareNote` says
@@ -472,8 +643,8 @@ The module open draws its own sections; another's are named from the host's `/ap
 (`createModule().settings`, host.js `moduleSettings`) in the person's language, from that module's
 catalog, and choosing one goes there with `?settings=<id>`. A module opens its Settings on that
 section once it has started: `const asked = settingsAsked(); if (asked) settings(asked);`. In a
-frame of the split view, the view opens it in the frame that shows that module
-(`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
+frame of a host's page (Work's shell, for a module it can't mount), that page opens it in that
+module's window (`kit:settings-goto`, `SETTINGS_GOTO_EVENT`), or the window goes there. An app on its own sees no
 change. A host with a daily summary and push (`app.host.day`, v0.231.0, architecture §21.3.2) has
 its section in the host's group, «Daily summary» (`id: 'day'`): the morning's and the evening's
 notice, each a switch, a time in steps of five minutes and a link to its page (in Work's shell, a
@@ -620,7 +791,7 @@ it) or the app injected, before the page loaded,
 `inApp()`, `nativeInfo()` (`{ v, platform, version, capabilities }`, frozen, or null) and
 `can(capability)` say so; the capabilities are `push`, `reminders`, `badge`, `purchase`,
 `biometrics` and `share`. Known from the user agent alone, the app can do nothing. In a frame of
-a host's split view the bridge is the top window's.
+a host's page the bridge is the top window's.
 
 ```js
 import { can, setBadge, setReminders, onNative } from '../suite/native.js';
@@ -713,6 +884,19 @@ that ended, then someone else on the same browser) leaves the queue unsent (`rep
 Nothing reads the whole queue to count it or to take the next change (`local.count`, `local.first`;
 a provisional id is swapped with `local.rewrite`, one pass in one transaction): hundreds of changes
 queued offline cost no read to add and one record each to send.
+
+A module that draws itself from its copy before the server answers opens it with
+`deviceLocal(appId, stores)`: IndexedDB with `patience: LOCAL_PATIENCE_MS` (1.5 s), or memory where
+the browser has none. IndexedDB can hang (an upgrade another tab blocks, a browser's bug): past the
+patience, what waits for the database to open gives up (`local_store_slow`) and the start goes on
+as if the device kept nothing; `inTime(promise)` does the same for one read (null past it). Whose
+the copy is follows one set of rules in every module: `createDeviceCopy({ local, stores, account,
+owner, outbox })`, or `local.deviceCopy({ … })`. `kept()` is the account the copy is of. `claim(user)`
+once the server says who is signed in: someone else's changes waiting go, and everything with them;
+someone else's copy goes, and the changes stay. `forget()` when a session is gone, and
+`forget({ outbox: true })` on signing out. In Work's shell, before the server answers,
+`drawableFor(id, host)` says whether the copy kept for `id` may be drawn while the shell's account
+is `host` (a window's `services.user()`): never someone else's.
 
 ### Drag and drop
 
@@ -820,7 +1004,9 @@ sidebar in the same drag: its places are all of them, and `check` says which is 
   needs holding (`handle` is the same, but the only way to pick it up).
 - `onHold(item)`: a finger that held a row and let go without moving it didn't drag it, it pressed
   long, and `onHold` does what a long press does there (its menu). So the whole row can be what
-  picks up, with no grip to look for, and the long press keeps its job.
+  picks up, with no grip to look for, and the long press keeps its job. Without `onHold` the row
+  is told (a `kit:hold` event): a sidebar's entry made with `navItem({ menu })`, or any node given
+  to `menuOnPress(node, open)`, opens its menu then, so a module needs nothing of its own.
 - `drawer: 'tabs'` (or `(item) → 'tabs' | 'open'`): on a phone the drawer doesn't open as it is
   picked up, because there is somewhere to put it in the list. A tab shows at the start edge; held
   there, the drawer opens. With the drawer open, a tab at the end edge, beside it, closes it again,
@@ -942,8 +1128,8 @@ every module's worker the device still has, carrying their push subscriptions ov
 server told: the new address kept, the old ones forgotten). Where the browser won't subscribe
 without a tap, `noticesToRenew()` is true and Settings › Notifications asks to turn them on again.
 `watchUpdates()` then compares the host's /version with the host's /js/app-version.js: one notice
-for the whole app, named after the host (`theirs.name`), and none in a frame of the split view,
-whose page shows it once.
+for the whole app, named after the host (`theirs.name`), and none in a frame of a host's page,
+which shows it once.
 
 ### Notices on a device with no account
 

@@ -3,6 +3,546 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.317.0 — 2026-11-20
+
+- **Breaking for installs: the two catalogs besides `cronum-work` are named by how their plans are
+  held** (`plans.js`). `cronum-per-group`: Free and Pro, which belong to a group: granted to an
+  organization (bought by its owner or an admin, or a trial, a grant with an end) and reaching
+  every member. `cronum-per-seat`: Free, Pro for one person, and `org`, an organization's plan
+  whose quantity is its seats (`organizations.seatRoles`), now shown as Team, which the suite's
+  catalogs translate. Their plan ids, keys and values don't change, so the grants already kept
+  match as before. An install whose `PLANS` gives a catalog by an earlier name doesn't start until
+  it gives the new one: there is no alias, as with the variables renamed in 0.28.0. An app that
+  names one of them changes `PLANS` in the same deployment that moves its submodule up.
+  `PLANS=cronum-work` and its installs are as they were.
+- **A `PLANS` that names no catalog says that alone** (`entitlements.js`): `PLANS "…" is no catalog
+  of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON`, without the second
+  message about the plans' shape it brought when the app had no plans of its own. The start stops
+  as before, in an app and in a host.
+- **`app.accent`** (`config.js`, `brand.js`, `oauth-page.js`): the accent's measured steps for the
+  pages the suite draws itself, `{ light, on, dark, onDark }`, each `#RRGGBB`. Next to `app.color`
+  they are written on the page's `<html>` as `--app-accent`, `--app-on`, `--app-accent-dark` and
+  `--app-on-dark`, so an app that tokens.css doesn't list wears the same accent on the admin panel,
+  affiliates, the connect page and the not-found page as on its own pages. Left out, those pages
+  are exactly as before; a misspelt key, a colour that isn't `#RRGGBB` or an accent without
+  `app.color` stops the start.
+- **tokens.css lists the suite's own apps** (Tasks, Projects, Next, Notes and Cronum Work, inside
+  Work's windows too): the `--cr-product-*` colours and the `:root[data-app]` accents are theirs
+  only. Any other app sets the five `--app*` variables under `:root[data-app="<its id>"]` in its
+  own sheet and gives `app.accent` for the suite's pages; one that read an accent or a
+  `--cr-product-*` colour this file no longer has moves it into its own sheet.
+- **`tools/i18n.mjs`**: `BRAND_WORDS` holds the brand, the suite's own apps and the protocols. An
+  app passes its own name in `allow`, which `app` now takes as `--allow <word>` (once per word), or
+  marks the line that writes it `i18n-exempt`; otherwise a name the list doesn't have is flagged
+  where the app's pages write it.
+- **Comments and tests say what each mechanism does**: a group's own plan, seats by role, a device
+  that belongs to the app, the phone's connect page, one row per group. The tests' apps are `demo`,
+  `acme` and `fam`, and the seat role in the examples is `agent`, also in the start message of
+  `organizations.seatRoles`. New tests: the catalogs' and their plans' names are fixed, since
+  installs and grants hold them; an app or a host whose `PLANS` names no catalog stops with that
+  one message; `app.accent` on each page the suite draws; `--allow`.
+
+## 0.316.0 — 2026-11-20
+
+Offers by email kept by the sharing engine for every module, with one rule that never tells the owner whose an
+address is; grouped notices written once; and a module's public page started by the kit.
+
+### Sharing
+- **`createAddressOffers({ db, table, kinds, … })`** writes a module's offers by email once: kept under the address
+  whether an account has it or not, listed to the owner by the address (whole to whoever typed it, masked to anyone
+  else) under the offer's negative id, changed and taken back by that row with the account waiting behind it, and
+  claimed by whoever signs up with the address once it is confirmed (a read first, a write only when something
+  waits).
+- **A kind with `addressOffers`** lets the engine do this itself: the same notices for the owner either way, the
+  offers in `list()` and `sharesOf(…, { viewer })`, `PATCH`/`DELETE …/-<id>` (and `setPermission`/`remove` with a
+  negative id), `accept()` claiming first, and `claimAddressOffers(userId)`.
+- **One rule for every kind**: an offer under an address goes only when the invitation it brought is accepted or
+  declined, or its owner takes it back. Nothing else the account does moves it (answering an offer made by name,
+  leaving, a permission given by name), so the owner's list never tells whose an address is. Kinds without
+  `addressOffers`, and every earlier signature, are unchanged.
+- **`share-mail.js shareNotices({ suite, get, texts, url, kinds })`**: createSharing's `notify` as every module wrote
+  it: the email, the email to an address without an account, and the push in the kit's words, tagged by the thing.
+  Each module's own parts are options (mail kind, tag, address, no emoji for strangers).
+
+### Grouped notices
+- **`notice-groups.js createNoticeGroups({ send, delayMs, failed })`**: notices grouped by key for a few seconds (25 s
+  by default, `NOTICE_DELAY_MS`) and sent as one once the key goes quiet; each change restarts the wait, `flush(key)`
+  sends one now and `flushAll()` sends what waits when a module stops. A send the timer started that fails goes to
+  `failed` (by default the log) instead of becoming an unhandled rejection.
+
+### The public page
+- **`startPublicPage({ key, draw, icon, words, title, failed, refusedAs, openClass, reread })`** (`web/public-frame.js`,
+  new): a module's public page started by the kit. It reads the page by its token and draws the bar, the foot with
+  Cronum's brand, «Nothing to see here», a frame the owner's plan doesn't allow, and the embedded page; the module's
+  `draw(data, { page, embedded })` gives only its content. Options cover where modules differ (a page that couldn't
+  load with its retry, the refused look, rereading while in sight). It is a file of its own, not in the worker's copy,
+  so a tab whose old worker still has the old `public-page.js` gets it from the network.
+- **One rule for "embedded"**: `embed=1` in the address, or framed (`embeddedPage`).
+- `public-page.css`: the brand under a refused frame is one rule for both looks, and the refused look "as the gone
+  page says it" is the kit's. `test/public-page-dom.js` runs a module's public page in the fake DOM.
+
+## 0.315.0 — 2026-11-20
+
+- **A module turned on or off without a signal leaves or joins the rail at once** (`web/settings.js`,
+  `web/shell.js`): Settings › Modules kept the change for later and said so, but the rail kept the
+  module until the signal came back, while the theme was painted at once. `modulesChanged(answer)`
+  sends the modules as they are now in the `kit-modules` event (`detail.answer`, the shape of GET
+  `/api/modules`: the server's, or this device's own while the change waits), for the switches, the
+  order and the rail's buttons alike, and a module's rail draws from it before it asks the host.
+  Cronum Work's shell reads the same answer.
+- **Settings › Notifications lists the phones with the app** (`push.js`, `native-push.js`, `api.js`,
+  `sessions.js`, `web/settings.js`): with `push.native` the test notice reached a phone while the
+  list said no device had notices on. `GET /api/push/devices` now gives the browsers and then each
+  working phone with a token (`phone: true`, its device's `id`, the `name` the app gave it, its
+  `platform`, when the token came; the phone this request comes from, inside the app, `current`).
+  Each phone has «Remove» (`DELETE /api/push/phones/:id`, a person's own only): its token and the
+  reminders it said it shows go, nothing more reaches it, and it stays signed in; the app asks for
+  notices again when it is opened there with them allowed, as a browser turned on again does. Inside
+  the app its own phone says «This device» and has no «Remove»: there the phone's settings decide.
+  `createPush` adds `phones()` and `removePhone()`, `createNativePush` `phonesOf()` and
+  `forgetPhone()`, `createSessions` `deviceOf(token)`, `registerPushApi` takes `deviceOf`; new
+  catalog key `kit.notifications.phoneApp`.
+- **Closing a phone app's session signs the phone out** (`api.js`, `sessions.js`, `app.js`): in Settings
+  › Where you're signed in, «Sign out» on the session a phone's app opened (devices.webSessions) only
+  closed that session; the app opened another at once with its device token, and the phone went on
+  getting notices. `DELETE /api/me/sessions/:key` now revokes the device behind such a session
+  (`devices.revoke`: its other sessions, its notices' token and the reminders it shows go, and the app
+  asks to sign in again), noted in the audit as `device.revoke`. A browser's session closes as before.
+  `registerProfileApi` takes `devices`; `createSessions` adds `deviceOfKey(userId, key)`.
+- **In a host, Settings › Notifications names the whole app** (`web/settings.js`): «Tasks can notify
+  you on this device» became «Cronum Work can…», as every notice comes from the host's one worker.
+- **«Replace» and «Erase my data» wait for the password too** (`web/settings.js`): the red button lit
+  up once the word was typed, with the password still empty; the server refused it
+  (`wrong_password`) and nothing went, but the button said otherwise. Where the person signs in with
+  a password (`has_password` here, `method: "password"` at WorkOS) it waits for one.
+- **Back to a view, each window in its place** (`web/windows.js`): from «one big and two stacked» to
+  2×2 and back, the two stacked windows traded places, because the windows shown were read column by
+  column while a shape is filled row by row. `applyColumns()` reads them by rows, and takes
+  `places`, each shape's windows the last time it showed, which `writeLayout()` keeps beside its
+  bars' shares and `readPlaces(storage, shape)` reads: each module still offered goes back to its
+  place, the focused window stays (in a place nobody has back, else the last one), and the rest fill
+  as before. `createWindows().columns()` passes them.
+
+## 0.314.0 — 2026-11-20
+
+What every module wrote again, written once in the kit; what the kit still carried and nobody used; and
+a payout's date on the person's own day.
+
+### Pieces the modules share now
+- **`createPlace({ hash, active, reload, own, base })`** (`web/mount.js`): a module's place in Cronum Work's
+  window or on its own page, the contract each `place.js` wrote by hand. Where modules read the shell
+  differently, an option (`active`, an opt-in `reload`); what is only the module's goes in `own`.
+- **`web/app-start.js`**: what a module's page does as it starts: `applyAppTheme` (with `ifOther`) and
+  `followSystemTheme`, `savedTheme`, `watchAppVersion`, `askedSettings`, `markCroppedCanvas` (as it was), and
+  for Cronum Work's shell `rgbOf` and `PAINT_ATTRIBUTES`. In the worker's copy of the kit.
+- **`web/days.js`**: `dayKey(date)`, the day a moment falls on on this device's clock (`YYYY-MM-DD`; today is
+  `dayKey(new Date())`, not UTC's day), and `addDays(day, n)` and `daysBetween(a, b)`, counted in UTC as the
+  server does. No DOM and no imports, so an offline model can use it. The kit's stamps and usage view count
+  their days with it.
+- **`i18n.js reportLanguage(user, lang, { send })`**: the browser's language into `prefs.lang_seen`, once per
+  change. **`live.js paintLive`**, **`native.js openAddress(url, { hash })`** (the one builder of `/?open=`
+  but the worker's), and **`links.js mountOf`** reads a base with `mount.js ownerOf`, as the shell now does.
+- **The frame's `showBanner`** also takes a function; the same words leave a banner as it is, and
+  `keptBanners()` lets a frame drawn again in another language show it again. Options as an object work as
+  before.
+- **Settings**: `aboutExtra` takes `{ text, tips }`, catalog keys the kit draws as every module drew them (a
+  function still works), and **`summaryOf(parts)`** joins what a copy holds by Intl's list of units («2
+  proyectos y 8 tareas»), leaving out the empty ones.
+
+### One's people wait for an answer, in every module
+`createSharing`'s `peopleOf` counts whoever offered the person something only once the person accepted it:
+an offer not answered makes nobody known to anybody. The `inviters` option goes (a module that still passes
+it changes nothing); `knownTo` is as it was.
+
+### What nobody used goes
+- **createShell has no account menu**: the app's icon and the rail's Settings open Settings, as they did in
+  every app. `accountItems` is ignored; `onSignOut` and `shell.setUser()` are still accepted and do nothing;
+  `kit.account.menu` and `kit.account.admin` go.
+- **The split view's last pieces**: createHost's `split` option (ignored if given), the rail's split button
+  (`SPLIT_LAYOUTS`, `.kit-rail__split`), the icons `layout-2`…`layout-4` and `kit.split.*`. `layout-1` and
+  `framedModules` stay; the comments and docs say "a frame of a host's page" where they said the split view.
+- **Six texts nothing read**: `admin.actions.mcp_token_create`, `admin.actions.mcp_token_revoke`,
+  `kit.update.available`, `kit.plan.until`, `errors.device_not_allowed`, `$meta.locale`.
+- `web/oauth.css` drops `--yolk-600`, `--cream` and `--ink`.
+- A notice that names no address opens the app at its path, not at `?app`, which means nothing any more.
+
+### Fixes
+- **Admin › Affiliates**: a payout's date starts on the person's day, not UTC's (from midnight to one or two in
+  the morning in Madrid it said the day before).
+
+### Tools and tests
+- **`tools/i18n.mjs unused`** lists a catalog's keys that no code reads, naming each prefix the code builds keys
+  from (`unusedKeys()` is exported). A module's keys are read by its own code and by the kit: pass both.
+- **`tools/dup-check.mjs`**: the code two modules or more both wrote. Every run of 8 significant lines
+  (comments, blank lines, imports and lone brackets left out, spaces collapsed) that two modules have counts once,
+  and the runs are joined into blocks. `duplicates(roots)` is for a host's test to keep that count from growing;
+  the command takes `name=folder` pairs and `--max`, and fails over it.
+- Two tests that failed now and then give the same answer every run: the offers compared in inherit-and-offers
+  keep a clock of their own, and the 413 test no longer races the server's close with bytes still unread.
+- `docs/web-kit.md` says what `local.js` gives a module that draws from its copy (`deviceLocal`, the patience,
+  `inTime`, `createDeviceCopy`, `drawableFor`), and lists `days.js` and `app-start.js`.
+
+## 0.312.0 — 2026-11-20
+
+- **The look's sizes, one scale said by name** (audit of 6/11: dup-css-13, phase 1 of 2: the kit
+  and the four modules; Work's own sheets are phase 2). `kit.css` `:root` gives every `--look-*`
+  its Cronum value, a short scale: type 21 / 24 / 22 / 19 / 15 / 15 / 14 / 14 / 13 / 12 / 11 px
+  (`large-title` to `caption2`, `base` 15), corners `--look-r-xs` 4, `-sm` 8, `-md` 10, `-lg` 12,
+  `-xl` 16, room `--look-gutter` 16, `-row-y` 11, `-row-gap` 10, `-head-y` 10, `-item-y` 9,
+  `-bar-y` 10, `-section` 20. The kit's 199 `var(--look-x, n)` lose their number: a size within a
+  pixel of the scale takes it (12.5 px footnotes are 13, 13.5 px subheads 14…), one that must not go
+  under its own is `max(16px, var(--look-body))` (a field a phone would zoom into, an emoji, the
+  note's 26 px title), and the few off the scale are written as they are with a Clean rule for the
+  look's (`.kit-md h2`/`h3`, the phone's sheet corners, `.kit-main > h2`, `.kit-avatar--tiny`).
+  The Clean look's values are not touched, and what it shows is the same.
+- **One family of corners**: `--kit-radius`, `--kit-radius-small` and `--kit-radius-large` are now
+  `--look-r-md`, `-sm` and `-xl` (the same 10/8/16 px in Cronum, 12/10/18 in Clean); the kit's rules
+  say `--look-r-*`, the old names stay for sheets that still use them.
+- **`tools/css-rules.mjs`** (new): `lookFallbacks(css)`, `physicalSides(css, { allow })` and
+  `layoutWidths(css, { containers })`, the kit's rules for a sheet, for a module's tests to read its
+  own with. `web-kit-css.test.js` fails on a look variable with a number beside it, on a physical
+  side in the kit's sheets that doesn't say why (the drag's ghost, the round check's tick, a
+  window's drop place), and on a layout width other than 640 and 960 but the sign-in's 760.
+- **Breakpoints, as the kit does them** (dup-css-16): `--cr-bp-tablet` is 960 px (it said 860, and
+  the list and its detail have always gone side by side from 960); tokens.css no longer says a
+  script reads them; web-kit.md names the two widths and when a component's `@container` may differ.
+- **A module's page stays put under its frame, said once** (dup-css-18): `html` and `body` are fixed
+  to the screen, without overscroll and with `touch-action: manipulation`, when a `.kit-app` is the
+  body's (a module on its own page); Tasks, Projects and Next drop their copies. A public page and
+  Cronum Work's page are left as they were.
+- **The public page's hero, numbers and sections** (dup-css-9): `public-page.css` draws the hero
+  (mark, name, who shares it, badge), the stats and the sections' titles, over `--sp-color` (the
+  list's or the project's colour); Tasks, Projects and Next keep only what is theirs. One measure:
+  24 px under the hero (Tasks 24, Projects 8, Next 28), 32 between sections (30 or 34), 22 above
+  the stats (22 or 26).
+- `web/icons.js` `stroke-eraser`: Notes' eraser that takes whole strokes, drawn in Notes until now
+  (ux-menus-12).
+- **docs/web-kit.md**: rules 14 and 16 (both about `blank()`) are one, rule 14; 17–24 are 16–23. A
+  new rule 24: a sheet says the kit's measures by name (the look's scale, `--look-r-*`, logical
+  sides, 640 and 960). The kit's comments that named a rule by an old number name the new one.
+
+## 0.311.0 — 2026-11-20
+
+- **Texts say the same thing the same way in every module** (audit of 6/11: ux-textos-5, -9, -11,
+  -14, -16, -17, -18, -20, -21, ux-acciones-20, ux-compartir-14, ux-compartir-21, ui-dialogos-16).
+  Only additions in the code: what was exported behaves as before. Rule 25 in docs/web-kit.md.
+  - Catalogs, in the five languages: «Avisos» (`kit.notifications.offTitle`, `.turnOn`); «donde
+    entras» for where one signs in; a step «apuntado» and «hecho» (`kit.day.eveningHint`,
+    `kit.plan.benefits.retention*`, `kit.links.done`); «email» for the address and «correo» for the
+    message (`kit.share.email`, `kit.profile.email.provider`, `errors.email_not_found`); the
+    language's own quotes, ’ for an apostrophe and › on a way through menus; American English
+    (color, canceled, recognize); `mail.deletion.body` «Hello {name},»; `kit.notifications.renew`
+    no longer says «service worker»; `kit.retry` «Try again», as the kit's sentences say it.
+  - A notice has no full stop when it is one sentence and has them when it is two: the kit's own
+    toasts (`kit.share.left`, `kit.plan.*`, `kit.links.*`, `admin.*`…). Errors keep theirs.
+  - `kit.public.action`, `kit.public.on`, and the shared page's `kit.public.goneTitle`,
+    `.cantEmbed`, `.openPage`, `.startFree`, which the four modules wrote each.
+  - The words of a group and of a drop in the sidebar, which Tasks, Notes, Projects and Next wrote
+    each: `kit.group.new`, `.edit`, `.delete`, `.none`, `kit.moveUp`, `kit.moveDown`, `kit.dropBefore`,
+    `kit.dropAfter`.
+  - `share-mail.js` `sharePush({ t, kind, actor, name, role })` → `{ title, body }`: the push of
+    something shared, worded once (`kit.share.push.title`, `kit.share.push.<kind>`), for the
+    modules' own deliveries, which keep their tag and where a tap goes.
+  - `web/public-page.js`: «Cerrar» is plain; «Activar» is the dialog's one primary button.
+  - `web/ui.js`: a dialog opened from a menu's entry gives the focus back to the menu's button
+    once it closes, where the browser left it on the body (the entry went with the menu).
+  - `tools/i18n.mjs` `typography(dir)` (straight quotes and apostrophes, → on a way through menus;
+    `typography [dir]` on the command line, `--typography` with `app`), `kitDuplicates(dir, langs,
+    { allow, overrides })` (with `overrides`, an app's `kit.*` key saying it otherwise), and
+    `appChecks(root, { kitOverrides, kitAllow, typography })` to ask for them (`typography: { allow }`
+    leaves out keys that must read as another place has them, such as an assistant's instructions).
+
+## 0.310.0 — 2026-11-20
+
+What the modules each wrote on their own, written once here, and two fixes that came with it: an
+import no longer overwrites another module's preferences, and no page waits for ever on a hung
+IndexedDB.
+
+### The person's time zone
+- **A tool runs in the time zone of the person it acts for**, as each module did on its own:
+  createApp runs each of the app's MCP tools inside `inZoneOf`, and a host does the same for each
+  module's (`hostMcp`). The host's own tools read the day as before: hostMcp says `zoned: true`.
+- **`zonedRoutes: true`** (a createApp option, and `createModule().zonedRoutes`, which the host passes
+  on): the app's own routes run in the zone of whoever asks. The suite's routes, and modules that
+  don't ask, answer as before. A handler's `answeredOnce`/`keyedByRoute` stays.
+
+### Ownership
+- **`suite.ownership` is the one every module uses**: `createOwnership({ suite: () => suite })` reads
+  the suite's `push`, `shareMail` and `goneBrake` each time a notice goes, so a module's suite in a
+  host, or a test's stand-ins, are what it uses. Its words are the app's `hooks.texts`. Its failures
+  are logged with the suite's log.
+
+### Sharing
+- **`directoryClosed(suite)`**: whether an install's people are strangers to one another (in a host,
+  with an identity provider, or with sign-up open to others). One rule for every module.
+- **`createSharing({ inviters: 'accepted' })`**: whoever offered someone something joins their people
+  (the share dialog's chips) once they accept it. The default is `'offered'`, as before. Naming them
+  by id is unchanged.
+
+### Copies
+- **`users.prefs` may be the app's preferences**, as createApp takes them: a copy then changes only
+  the app's own keys of the one `users.prefs` row (`users.remap` translates their ids). An existing
+  account keeps every other key (another module's, the host's) and its language and zone; an
+  account the import makes starts from the copy's row. A function there works as before.
+- **`planLimit: { feature, count }`** makes someone's own import past the plan answer 402
+  `plan_limit`. Any app with a table of files also gets its plan's storage (`storage.mb`) checked,
+  first, then the app's `check`.
+- **`public_token` and `public_since` never travel**; copies made before still come in, with the page
+  off. `importedPrefs()` exposes what an import writes in the preferences, for apps' tests.
+
+### The device's copy (web kit)
+- **A patience for IndexedDB** (`web/local.js`): `openLocal(app, stores, { patience })`. Past it,
+  what waits for a database that hasn't opened gives up (`local_store_slow`) and isn't done; until
+  that open answers, whatever comes next gives up at once; once it opens, all as before.
+  `LOCAL_PATIENCE_MS` (1500), `deviceLocal(app, stores)` and `inTime(promise, ms)`. Without
+  `patience`, nothing changes.
+- **`update(reads, decide)`** on both stores: records read and the stores changed in one transaction,
+  done once the database opens even when its caller stopped waiting, before anything asked after it.
+- **Whose the copy is**: `createDeviceCopy({ local, stores, account, owner, outbox })` (also
+  `store.deviceCopy()`), with `kept`, `account`, `outboxOwner`, `read`, `claim` and `forget`: the
+  rules Notes, Next and Projects each wrote their own way. `drawableFor(id, host)`: the copy only for
+  whoever Cronum Work's shell says is signed in; also `sameAccount(a, b)`.
+
+### Small helpers written once
+- `db.js`: `inBatches(ids, query, { unique })` asks many ids 500 to a statement, and `personId(id)`
+  binds what is no id as 0.
+- `http.js`: `idParam(ctx, name)`, the id a route names; the field checks `color`, `dateOnly` (on
+  `isoDate`) and `intInRange`, each answering the codes its caller gives; `isObject`, instead of
+  seven copies. `isoDate` reads a year under 100 as that year when `minYear` allows it; with its
+  default years nothing changes.
+- `public-page.js`: `publicPageUrl(baseUrl, token)`, a public page's address.
+
+## 0.309.0 — 2026-11-20
+
+What nothing calls any more goes, and a few helpers are written once. Nothing a person, a page or
+an AI client sees changes.
+
+- **The MCP**: `userFromToken` and `verifyToken` take no `audience` of another address, and the
+  accounts' `resourceMetadata` and `authorizationServerMetadata` go: they were for the apps' old
+  connectors (gone in 0.148.0). What `/mcp` and `/.well-known/oauth-*` answer is the same.
+- **Out everywhere** (the admin's "sign out everywhere", a new password, a reset) always goes through
+  `revokeEverything` (revoke.js): the second, partial way of `registerAdminApi` and
+  `registerWorkosSecurityApi` for a caller without it goes, with `registerAdminApi`'s `tokens`,
+  `oauth`, `push` and `idp` and `registerWorkosSecurityApi`'s `revokeAtProvider`. createApp always
+  passed it.
+- **Gone, nothing called them**: `POST /api/devices/push/test` (the phone's test notice is Web Push's
+  `POST /api/push/test`, which reaches the phones too) and `nativePush.targetOfDevice`;
+  `registerProfileApi`'s `alsoAt`, createApp's `profile` and the host's `parts.profile` (a module
+  that still passes `profile` is not refused: it is ignored); uploads.js `isImage`.
+- **Options no product passes**: createSuite's `oauthPage` hook (the consent screen is always the
+  suite's page); createEntitlements' `isUnlimited`; the `organizationId` option of `cutoff`,
+  `better`, `countDaily`, `countWeekly` and `require` (`of()` keeps it); `setPlan`'s `source`;
+  `accounts.deleteAtProviders` (an install that still passes it is not refused: the key is ignored,
+  and `endSubscriptions` no longer falls back on it).
+- **Billing**: the built-in `remote` provider goes, with `BILLING_SECRET` and `BILLING_URL`: no
+  install named it. `signedProvider` stays; the tests register the same signed provider themselves
+  (`test/remote-provider.js`).
+- **Written once**: `requireUser` and `requireAdmin` (http.js), and `iso` (time.js), which every
+  file that needed them had its own copy of.
+
+## 0.308.0 — 2026-11-20
+
+- **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,
+  ux-acciones-17, ux-acciones-18, ui-dialogos-8). Only additions: what was exported behaves as before.
+  - `web/ui.js` `placeFixed(node, anchor, { at, gap, margin, width, minWidth, above, center })` and
+    `fixedRoom(node)`: what `menu()` did to stay inside a window of Cronum Work (whose
+    `contain: layout paint` makes `position: fixed` start at the window's corner and cuts off what
+    leaves it), for any box that floats: Tasks' quantity editor, Projects' drag label, Next's bubble.
+    `menu()` uses it, unchanged.
+  - `web/ui.js` `highlight(text, query)` (`<mark class="kit-mark">`, accents and case aside),
+    `searchTitle()` («Resultados»), `searchSection(title, rows, { list })` (a heading with how many)
+    and `searchResults({ query, sections, hint })`, with the kit's blank and the search's icon when
+    nothing is found: one results screen, each module drawing its own rows. `kit.search.*`.
+  - `web/files.js` (new, in the service worker's kit copy): `attachments({ files, editable, mayRemove,
+    fileUrl, upload, onUploaded, remove, restore, max, maxBytes, dropTarget, accept })`, an item's
+    «Archivos»: photos as thumbnails, a PDF as a row with its name and size, added with the button,
+    by dropping a file on the detail or pasting one, one notice for several, the room left said
+    first, and taking one away to the trash with Undo. `notYours(file)` keeps the ✕ on someone
+    else's file and says whom to ask; `maxBytes` may be a function, asked when the files go up (a
+    plan's limit read late). `photoViewer({ photos, start, fileUrl, parent })`, a
+    kit dialog with Tasks' zoom (`makeZoomable`), so in Cronum Work it covers the screen.
+    `kit.files.*`, `kit.photo.*`; `.kit-files*`, `.kit-file*`, `.kit-viewer*` in kit.css.
+  - `web/i18n.js` `shortDate(value)` («14 mar», with the year when not this one; a YYYY-MM-DD is the
+    local day it names), `timeText(value)` (Intl's short time: one way per language),
+    `shortStamp(value, { time })` (the time today, the date before) and `timeAgo(value, { short })`.
+  - `docs/web-kit.md`: rule 9 adds the results screen; new rules 22 (files), 23 (what floats) and
+    24 (dates).
+
+## 0.307.0 — 2026-11-20
+
+- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 21; audit of
+  6/11: ux-textos-3, ux-textos-8, ui-dialogos-4, ux-acciones-13). Tasks, Notes and Projects each said
+  their trash their own way: «Recuperar» and «Restaurar», «Borrar del todo» and «Borrar para siempre»,
+  «permanently» and «for good», four ways of saying it can't be undone, two Englishes for how long it
+  keeps things, and an emoji in some titles. The kit now has the words, in the five languages:
+  `kit.restore`, `kit.deleteForever` («Borrar para siempre» / «Delete for good»), `kit.cantUndo`
+  («Esto no se puede deshacer.»), and `kit.trash.*`: `title` (no emoji), `empty`, `keepDays`,
+  `keepForever`, `emptyAction`, `emptyAsk`, `emptyConfirm`, and the notices `moved` («"X" a la
+  papelera»), `restored` («"X" ha vuelto»), `deleted` («"X" se ha borrado para siempre») and
+  `emptied` («N elementos borrados para siempre»). New `trashKeeps(days)` says how long a trash keeps
+  what is in it, from the plan's days its server sends, or until it is emptied (`null`). Additive: the
+  modules move to them and delete their own copies.
+- **Erasing a module's data says it can't be undone in the same words** (`kit.data.eraseText`): «…
+  todo lo que tienes en {app}. Esto no se puede deshacer.» in place of «sin vuelta atrás», in the five
+  languages.
+
+## 0.306.0 — 2026-11-20
+
+- **One palette and one set of icons for every module** (`web/palette.js`, `web/pickers.js`,
+  `kit.css`, `i18n`, `docs/web-kit.md` rule 20; audit of 6/11, ui-dialogos-9). Tasks offered 13
+  colours, Notes 12, Projects 10 and Next 8 by name, in other orders and other blues; Tasks showed
+  164 emojis at once, Projects 20, Next 16. Now `KIT_COLORS`: twelve colours by name (blue, cyan,
+  teal, green, olive, brown, pink, plum, violet, indigo, steel, slate), each with the hex a module
+  stores (white reads on it, 4.5:1; it shows on the dark page, 3:1) and a lighter step for the dark,
+  the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as, except })`
+  proposes the first free one, five apart around the wheel. `KIT_ICONS` are twenty in view and
+  `KIT_MORE_ICONS` the rest of Tasks' 164 (none lost). `colorPicker()` and `iconPicker()` offer them,
+  each colour named in words for a screen reader (`kit.colors.*`), «Más…» unfolding the icons
+  (`kit.icons.*`), with what a collection has from before kept, offered first and chosen; options for
+  a field to type any emoji (`typed`), for no colour or no icon (`none`), for colours a module leaves
+  out (`except`: Projects', too close to its accent and its states) and for names instead of
+  hexes (`as: 'name'`). New keys in the five languages; nothing that exists changes.
+- **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`; audit of 6/11, dup-css-3):
+  `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,
+  `#BA3429`, from `#1F8A57`, `#A86200`, `#C8372D`), so that each reads 4.5:1 on the page, a panel
+  and its soft tint (the badges'); before, «ok» gave 4.10:1 on the page and «warn» 4.26:1 on its
+  tint. The palette's violet (`--kit-color-violet`, Projects' «blocked» in words) is the same: a
+  step deeper than Projects' bars (`#6e55c2`), it reads 4.5:1 there too. The test now measures
+  those pairs in light and dark. Modules write their states in words with these tokens, keeping
+  their own vivid colours for bars and borders.
+
+## 0.305.0 — 2026-11-20
+
+- **One banner without a signal, the same in every module** (`web/ui.js` `offlineBanner`,
+  `docs/web-kit.md` rule 19; audit of 6/11, ui-dialogos-12, ux-acciones-14). It listens to the
+  browser's `offline` and `online` itself, so the banner shows the moment the signal goes, changes
+  waiting or not (Notes showed none without them, Tasks only once its probe failed). Offline it
+  says what is shown is the last thing loaded and how many changes wait, with a discreet
+  «Reintentar» (`kit.retry`, never primary) when the module passes `retry`; back online, while they
+  go, how many are being sent (`kit.offline.pending`); `sent(n)` says they arrived
+  (`kit.offline.sent`), or, with `announce`, the piece says it itself once none waits (`announce`
+  as a function: and they can go, so none waiting before then isn't taken for sent), less those
+  the module says were refused (`dropped()`). It paints in the shell's banner row, or through the module's own
+  `show`/`hide`, and again in a new language. New texts in the five languages: `kit.retry`,
+  `kit.offline.pending`, `kit.offline.sent` and `kit.offline.droppedWhat` (the dropped change named,
+  as Next says it). Nothing changes for a module that doesn't use it.
+- **«Necesita conexión» as a piece** (`web/ui.js` `offlineNotice`; ui-dialogos-13): what only the
+  server can show says so in its place, as Settings already did (it uses the piece now); Tasks' and
+  Projects' trash use it without a signal.
+
+## 0.304.0 — 2026-11-20
+
+- **One empty and one loading state in every module** (`web/ui.js`, `web/kit.css`, `i18n`,
+  `docs/web-kit.md` rule 16; audit of 6/11, ux-acciones-6, ux-acciones-11). `blank()` takes
+  `glyph` (a text in the icon's box: a Tasks list's emoji), `page` (alone in a view, its title an h2),
+  `loading` (the kit's spinner and «Cargando…», new key `kit.loading`), `note`, an `action` with
+  `href` or `primary: false`, and no `title` for a sentence alone. `.kit-blank strong` and
+  `.kit-blank h2` are one size now (`--look-headline`): a page's empty view was 19 px, a list's 15.
+  Without the new options `blank()` draws what it drew.
+- **The add bar is the kit's** (`addBar()`, `.kit-add-bar`, new key `kit.add`; rule 17; ux-menus-15,
+  ui-medidas-11): Tasks' card (a +, the field without a frame, «Añadir», the module's own tools between
+  them), for Tasks and Projects.
+- **Notices rise above the add bar** (`toast()`, `.kit-toasts`; ui-dialogos-14): each time one shows,
+  the kit measures the bars in sight under the notices' place and sets `--kit-toast-floor`, also with
+  the keyboard up. With no bar they sit where they always did.
+- **The row open in the detail** (`.kit-list-row[aria-current="true"]`, rule 18; dup-css-5, ui-medidas-12):
+  a soft background in the accent, as Notes' had, for Tasks, Notes and Projects.
+- **The detail as a column of its own** (`createShell({ detail: 'column' })`, `shell.setDetailOpen()`,
+  `data-detail-open`; dup-css-11): from 960 px the list takes the whole width while nothing is open and
+  the item opens as a 340–400 px column on its right, folded or not. Tasks and Projects each had a copy
+  of these rules; the default (`'beside'`) is the frame as before.
+- **`inkOn(color)`** (ui-medidas-16): white where it reads 4.5:1 on a colour, otherwise the dark ink
+  (`INK`), for a button in a list's own colour.
+
+## 0.303.0 — 2026-11-20
+
+- **Dialogs look the same in every module** (`web/kit.css`, `docs/web-kit.md` rule 13; audit of 6/11,
+  dup-css-1, ui-dialogos-10): the kit's header, body and footer, with no line under the title nor over
+  the buttons (Martin, 14/11), are the only ones; the modules drop their repaints. The two title rules
+  (`__header h2`, `__titles h2`) are one. Rule 10 also says how a collection's settings read («Editar X»,
+  Name first) and that deleting it is in its «…», never in the form.
+- **The small capitals over a group, one measure** (`.kit-eyebrow`, `--kit-eyebrow-size`, `-weight`,
+  `-spacing`; dup-css-14): the sidebar's sections, Settings' groups and Share's headings take them, the
+  same as before in both looks (Clean's spacing is its variable now, not three rules); the modules' own
+  labels use them.
+- **Kit rules that lived in one module** (dup-css-17): no tap flash on a phone and no selection by a long
+  press on the frame's controls (Tasks' alone until now), a field's text at 16 px on a touch screen so the
+  iPhone doesn't zoom (Notes' alone), and an icon button that is on (`aria-pressed`) in the accent's soft
+  colour (Next's alone).
+- **`.kit-label`**: a field's label (13/500) where there is no `field()` around it, a block of an item's
+  detail over several controls (ui-medidas-13).
+- **Who made an item and who changed it, in shared words** (`stamps()`, `stampTime()` in `web/ui.js`,
+  `kit.stamps.*` in the five languages, `.kit-stamps`; ux-acciones-15): «Creada por Ana · hoy a las
+  15:52», «Modificada por Luis · …», as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
+  has the button that does the first thing) and 12 (an item's detail: the kit's labels, `saveState()`,
+  its stamps) in `docs/web-kit.md`.
+- **A field's label over a group** (`field(…, { groupLabel: true })`, a palette of colours or icons): its
+  span takes `.kit-field__label`, the 13/500 of every field's label, as Projects and Next added by hand.
+
+## 0.302.0 — 2026-11-20
+
+- **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
+  `web/kit.css`, `docs/web-kit.md` rule 11; audit of 6/11, ux-menus-4, ux-menus-13,
+  ux-compartir-13, ui-dialogos-6, ui-medidas-15, ui-medidas-17). `navItem()` takes `emoji` (a
+  collection's own, in a box as wide as a view's icon, so every label starts in line), `shared`
+  (the kit's one mark, `sharedMark({ owner })`, «Compartido · de {name}» in words), `marks`, `title`,
+  `style`, `className`, `under` (a node under the name, in its column: a project's progress),
+  `countTitle`, and `menu` or `onMenu`: a right-click or a long press opens the same menu as
+  the entry's «…» (`menuOnPress(node, open)` in drag.js, which a drag that holds the entry answers
+  with a `kit:hold` event when it has no `onHold`). A group's head opens its menu with a right-click
+  or a long press too (`menuOnPress(head, open, { held: group })`: a group is picked up whole by its
+  head). `orderAfterDrop()` is the kit's (drag.js), as three modules had it. Entries and group heads
+  have their own line height (1.45): 36 px in every module, 36.5 in Notes before. A colour is as
+  wide as a view's icon (17 px with its margins), so every label starts in line, and the mark after
+  a group's name is the same one.
+- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 12; ux-acciones-16): under
+  the same conditions as «/». Settings › About lists the keys (`kit.about.keys`), and `modKey()`
+  (keyboard.js) gives ⌘ or Ctrl for words that tell a shortcut.
+- **The search runs the same way everywhere** (`search: { onSearch, wait, min }`; ux-menus-5): 220 ms
+  after the last key, from the first letter, at once with Enter, Escape or when emptied;
+  `shell.clearSearch()` empties it. A field the module wrote itself away from the results (Notes,
+  Next) searches the same words again once typed. `onInput` and `onSubmit` are unchanged.
+- **The open collection's emoji in the head** (`head({ icon })`, `.kit-head__icon`; ux-menus-7,
+  ui-medidas-8, Martin's decision 7): loose before the title, at its size, with no box; `setIcon()`.
+  `.kit-icon-btn[aria-pressed="true"]` is the kit's (Notes and Next had it each).
+- **In Work's shell, its ☰ folds the sidebar where the sidebar sits beside the views** (ux-menus-10):
+  from 640 to 768 px Work shows its ☰, and as a drawer there it did nothing.
+- **Icons** (`web/icons.js`; ux-menus-3, ux-menus-12): `chevron-up`, `eraser`, `flag`, `fork`,
+  `highlighter`, `history`, `marker`, `pen`, `print`, `zoom-in`, `zoom-out`; web-kit.md has a table
+  of which icon for what.
+
+## 0.301.0 — 2026-11-20
+
+Audit of 6/11, sharing: what sharing looks like and says, the same in every module (Martin's choices
+of 14/11).
+
+- **An invitation is the kit's card, first in the sidebar, and ☰ says one waits** (`web/invitation.js`,
+  `web/shell.js`, `web/kit.css`; ux-compartir-5, ux-menus-14, dup-css-10).
+  `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline, offline })`
+  and `invitationCards(list, { offline })`: who offers what, what accepting gives («Solo lectura»,
+  «Podrás editarlo», or the app's own line), «Rechazar» and «Aceptar» as wide as each other, both off
+  while an answer is on its way. Without a signal both stay off, with `kit.offline.actions` above the
+  cards, as the modules' own cards have done since 0.296. `.kit-invite` in kit.css; texts
+  `kit.invite.*`. `shell.setMark(n)` puts a dot on every ☰ of the frame while `n` invitations wait, and
+  says so to a screen reader. The four modules drop their own cards.
+- **The share dialog without a network** (`web/share.js`; ui-dialogos-13): it opens with what `load`
+  knows (Tasks has it on the device), one line says it needs a connection (`kit.offline.actions`), and
+  Invite, the permissions and taking back are off until the network is back (they turn on by themselves).
+- **A person's colour** (`web/ui.js`, `sharing.js`; ux-compartir-19, ux-acciones-19):
+  `avatar(person | name, { color, size, title })` takes a person and paints the colour they chose
+  (`avatar_color`, `#rrggbb` only); `avatar(name)` is as before. The engine's `personOf` (and so the
+  share dialog's rows, Settings › Sharing and the invitations) carries `avatar_color` where the users
+  table has the column. The share dialog's default avatar and Settings › Sharing use it.
+- **Settings › Sharing in the dialog's order** (`web/shared.js`; ux-compartir-8): «Puede editar» before
+  «Solo lectura»; `kit.shared.canView` says «Solo lectura», as the invitations do.
+- **One set of words for sharing** (`i18n`; ux-compartir-6, -11, -15, -16, ux-textos-12):
+  `kit.share.left` («Has salido de «X».») says it after leaving; `kit.share.action` «Compartir» for the
+  «…»; taking back is «Quitar el acceso a X» («¿Quitar el acceso a X?»), without the thing's gender, in
+  the dialog and in Settings; `errors.owner_only` «Solo el propietario puede hacer eso.»;
+  `kit.data.shareNote` with `{ things }` says what happens to what one shares when one's data goes, by
+  the rule `pickHeir` keeps (whoever can edit first, then whoever has had it longest).
+- **Rule 10 of «Same in every module»** (`docs/web-kit.md`): sharing reads the same in every module.
+
 ## 0.300.0 — 2026-11-19
 
 - **Settings › Sharing without a signal** (`web/shared.js`, after the stale-invitations fix of Next

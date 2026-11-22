@@ -18,6 +18,7 @@
 import { hmac, randomToken } from './crypto.js';
 import { ensureColumn } from './migrate.js';
 import { parseCookies, serializeCookie, appendHeader, clientIp } from './http.js';
+import { iso } from './time.js';
 
 /** Example values and old defaults of the suite's apps: never used as a secret. */
 export const KNOWN_EXAMPLE_SECRETS = Object.freeze([
@@ -26,7 +27,6 @@ export const KNOWN_EXAMPLE_SECRETS = Object.freeze([
 ]);
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 
 /**
  * The session secret of this install: SESSION_SECRET when it is a real one;
@@ -253,6 +253,23 @@ export function createSessions({
   /** The public key of a token's session (keyOf), or null: what a push subscription keeps of it. */
   const keyFor = (token) => (typeof token === 'string' && token ? keyOf(hashOf(token)) : null);
 
+  /**
+   * The device a token's session was opened from (a phone's app, devices.webSessions; migration
+   * 23), or null: Settings › Notifications marks that phone as this device.
+   */
+  function deviceOf(token) {
+    if (typeof token !== 'string' || !token || token.length > 200) return null;
+    const id = database.get('SELECT * FROM sessions WHERE token_hash = ?', hashOf(token))?.device_id;
+    return id == null ? null : Number(id);
+  }
+
+  /** The device one of a person's sessions was opened from, by its public key (keyOf), or null. */
+  function deviceOfKey(userId, key) {
+    if (typeof key !== 'string' || key.length !== 16) return null;
+    const id = database.get('SELECT * FROM sessions WHERE user_id = ? AND substr(token_hash, 1, 16) = ?', userId, key)?.device_id;
+    return id == null ? null : Number(id);
+  }
+
   /** Closes one session of a person by its public key. */
   function revoke(userId, key) {
     if (typeof key !== 'string' || key.length !== 16) return false;
@@ -270,7 +287,8 @@ export function createSessions({
   const sign = (value) => hmac(secret, `sign|${value}`);
 
   return {
-    cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign, keyFor,
+    cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign, keyFor, deviceOf,
+    deviceOfKey,
     setCookie, clearCookie,
     /**
      * Hears `(userId)` whenever sessions of that person are closed here: signing out, one closed

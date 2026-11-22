@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { DatabaseSync } from 'node:sqlite';
-import { createSharing, auditShare } from '../sharing.js';
+import { createSharing, auditShare, directoryClosed } from '../sharing.js';
 import { createShareBrake, OFFERS_PER_HOUR } from '../share-brake.js';
 import { createRouter, HttpError, notFound, forbidden } from '../http.js';
 
@@ -385,6 +385,25 @@ test('who has it, and one\'s people of every kind', () => {
   assert.equal(codeOf(() => sharing.setPermission('board', 1, 10, 4, 'view')), '404 not_found');
 });
 
+test('whoever offered something joins one’s people once it is accepted, in every module', () => {
+  const { sharing } = setup();
+  sharing.share('board', 2, 20, { email: 'ana@example.com' });
+  assert.deepEqual(sharing.peopleOf(1), [], 'an offer not answered makes nobody known');
+  assert.deepEqual([...sharing.knownTo(1)], [2], 'named by id, as by default');
+  assert.equal(sharing.share('board', 1, 10, { user_id: 2 }).invited, true);
+  sharing.accept('board', 1, 20);
+  assert.deepEqual(sharing.peopleOf(1), [{ id: 2, name: 'Ben' }], 'once accepted');
+});
+
+test('the directory is closed in a host, with an identity provider or with sign-up open to others', () => {
+  const local = { config: { accounts: { signup: 'admin' } }, idp: null };
+  assert.equal(directoryClosed(local), false, 'local accounts the administrator makes: one household');
+  assert.equal(directoryClosed({ config: {} }), false, 'sign-up is the administrator’s unless said');
+  assert.equal(directoryClosed({ ...local, config: { ...local.config, host: { id: 'work', mount: 'tasks' } } }), true, 'a module of a host');
+  assert.equal(directoryClosed({ ...local, idp: { handle() {} } }), true, 'WorkOS, OIDC');
+  for (const signup of ['invite', 'open']) assert.equal(directoryClosed({ config: { accounts: { signup } } }), true, signup);
+});
+
 test('what waits for someone, newest first, of the kinds that say how', () => {
   const { db, sharing } = setup();
   sharing.share('board', 1, 10, { email: 'cris@example.com' });
@@ -504,6 +523,26 @@ test('the routes keep each kind\'s paths and answers', async () => {
   assert.deepEqual((await call(router, 'DELETE', '/api/lists/30/share/3', { user: { id: 3 } })).data, { ok: true });
 });
 
+test('a person carries the colour they chose where accounts keep one, and nothing more where they don’t', () => {
+  const plain = createSharing({ db: memoryUsers(false), kinds: {} });
+  assert.deepEqual(plain.personOf(1), { id: 1, name: 'Ana' });
+  const colours = createSharing({ db: memoryUsers(true), kinds: {} });
+  assert.deepEqual(colours.personOf(1), { id: 1, name: 'Ana', avatar_color: '#aa3355' });
+  assert.deepEqual(colours.personOf(2), { id: 2, name: 'ben' }, 'no colour chosen: none, and the username for a name');
+  assert.deepEqual(colours.personOf(1, { email: true }), { id: 1, name: 'Ana', avatar_color: '#aa3355', email: 'ana@example.com' });
+});
+
+function memoryUsers(withColour) {
+  const database = new DatabaseSync(':memory:');
+  database.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, display_name TEXT, email TEXT${withColour ? ', avatar_color TEXT' : ''})`);
+  database.prepare('INSERT INTO users (id, username, display_name, email) VALUES (1, ?, ?, ?), (2, ?, NULL, NULL)').run('ana', 'Ana', 'ana@example.com', 'ben');
+  if (withColour) database.prepare("UPDATE users SET avatar_color = '#aa3355' WHERE id = 1").run();
+  return {
+    get: (sql, ...params) => database.prepare(sql).get(...params),
+    all: (sql, ...params) => database.prepare(sql).all(...params),
+    run: (sql, ...params) => database.prepare(sql).run(...params),
+  };
+}
 test('every step of sharing is in the audit log, from a route with its request, never a name or an email (authz-8)', async () => {
   const lines = [];
   const all = [];

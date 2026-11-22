@@ -1,25 +1,25 @@
 /**
  * Organizations: groups of people who share data, roles and a subscription —
- * a household in Tasks or Focus, a school in Tracker, a team in Projects.
+ * a household in Tasks, a team in Projects.
  *
  * Optional per app (`modules.organizations`). The suite keeps who belongs to
  * which group and with what role, and the invitations; which records belong to
  * a group instead of a person is decided in the app's own tables.
  *
  * Roles: `owner`, `admin` and `member`, in that order of power, plus the app's
- * own (Tracker's drivers), which rank as members. A group never loses its
- * last owner. A grant with a quantity on an organization is its seats: when
+ * own (a help desk's `agent`, say), which rank as members. A group never loses
+ * its last owner. A grant with a quantity on an organization is its seats: when
  * `seatsOf` says how many, joining beyond them is refused. Every member takes a
- * seat, unless the app names the roles that do (`seatRoles`: Tracker pays per
- * driver, and its admins and viewers are free); then only those roles count,
+ * seat, unless the app names the roles that do (`seatRoles`: a help desk that
+ * pays per agent, with its admins and viewers free); then only those roles count,
  * and a role change into one of them needs a free seat as joining does.
  *
  * Kinds an app manages (`kinds`, suite.config.js `organizations.kinds`): a kind
- * can be the app's own to manage (`managed`: Focus's families), and then the
- * suite's generic routes (/api/orgs) refuse to create one, to join one by an
- * invitation, and to leave or remove its members, answering 403
- * `organization_managed`: the app's own routes do it, through these same
- * functions, with its own rules. A kind may cap how many of its groups one
+ * can be the app's own to manage (`managed`: say, families whose members the
+ * app adds itself), and then the suite's generic routes (/api/orgs) refuse to
+ * create one, to join one by an invitation, and to leave or remove its members,
+ * answering 403 `organization_managed`: the app's own routes do it, through
+ * these same functions, with its own rules. A kind may cap how many of its groups one
  * person is in (`maxPerUser`, 409 `organization_limit`), enforced here
  * whoever calls. And a group of a kind that says so (`onEmpty: 'delete'`, the
  * default of a managed kind) is deleted when its last member goes, instead of
@@ -34,10 +34,10 @@
  * of group a copy carries, a list, where these are the rules of each kind.
  */
 import { randomToken, sha256 } from './crypto.js';
-import { HttpError, badRequest, notFound, forbidden, conflict } from './http.js';
+import { HttpError, badRequest, notFound, forbidden, conflict, isObject } from './http.js';
+import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
-const iso = (ms) => new Date(ms).toISOString();
 /**
  * How long an expired invitation is kept after it expires: whoever opens its link a few days
  * late still hears that it expired and to ask for a new one (410 `invitation_expired`), not that
@@ -61,7 +61,6 @@ export const KIND_NAME = /^[a-z][a-z0-9_-]{0,39}$/;
  */
 export const MEMBER_REASONS = Object.freeze(['left', 'removed', 'account_deleted', 'handed_over']);
 const PLAIN_KIND = Object.freeze({ managed: false, maxPerUser: null, onEmpty: 'archive' });
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
  * The kinds of suite.config.js `organizations.kinds`, checked and filled in:
@@ -272,8 +271,8 @@ export function createOrganizations({
     const current = roleOf(organizationId, userId);
     if (!current) throw notFound('member_not_found');
     if (current === 'owner' && role !== 'owner' && owners(organizationId) <= 1) throw conflict('last_owner');
-    // A viewer made a driver takes a seat as one who joins as a driver does. With every member in a
-    // seat (no seatRoles) a role change takes none: the person already had theirs.
+    // A member moved into a seat role takes a seat, as one who joins in it does. With every member
+    // in a seat (no seatRoles) a role change takes none: the person already had theirs.
     if (!takesSeat(current) && takesSeat(role)) checkSeat(organizationId);
     database.run('UPDATE memberships SET role = ? WHERE organization_id = ? AND user_id = ?', role, organizationId, userId);
   }
@@ -426,8 +425,9 @@ export function createOrganizations({
 
   /*
    * A membership has one role, so whoever becomes owner leaves the one they had: with `seatRoles`,
-   * a driver made owner would stop driving and free a seat. Those whose seat doesn't change come
-   * first; a driver inherits only when nobody else is left, and the group keeps an owner.
+   * someone in a seat role made owner would leave it and free a seat. Those whose seat doesn't
+   * change come first; someone in a seat role inherits only when nobody else is left, and the
+   * group keeps an owner.
    */
   const seatShifting = roles.filter((r) => takesSeat(r) !== takesSeat('owner'));
   const heirOrder = seatShifting.length

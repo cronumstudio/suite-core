@@ -31,6 +31,7 @@ import { OAUTH_PREFIXES } from './oauth.js';
 import { appLinksFrom } from './app-links.js';
 import { organizationKinds } from './organizations.js';
 import { DEFAULT_LIMITS } from './rate-limit.js';
+import { isObject } from './http.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -86,6 +87,9 @@ const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
 /** suite.config.js `devices`: how an app on a phone connects (devices.js, device-pages.js). */
 const DEVICE_KEYS = new Set(['prefix', 'redirectUris', 'idleDays', 'connectPage', 'webSessions']);
 
+/** suite.config.js `app.accent`: the accent's steps, as tokens.css names them (brand.js appStyle). */
+const ACCENT_KEYS = Object.freeze(['light', 'on', 'dark', 'onDark']);
+
 /**
  * Variables renamed when the apps moved to one set of names (CONVENTIONS.md). They are not read:
  * finding one stops the start and names its replacement. HOST_PORT only matters to docker compose,
@@ -95,7 +99,6 @@ const OLD_NAMES = Object.freeze({
   RECARGA_EN_CALIENTE: 'HOT_RELOAD', PORT_HOST: 'HOST_PORT', PUERTO: 'HOST_PORT', PUBLIC_URL: 'BASE_URL',
 });
 
-const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 const wholeNumber = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 
 /**
@@ -122,6 +125,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     languages: Array.isArray(a.languages) && a.languages.length ? [...a.languages] : ['en'],
     // The product's colour and icon: the accent and the picture of the OAuth consent screen.
     color: a.color ?? null,
+    // The accent's measured steps, { light, on, dark, onDark }, for the pages the suite draws
+    // itself (brand.js appStyle): an app that tokens.css doesn't list wears them there too.
+    accent: a.accent == null ? null : (isObject(a.accent) ? { ...a.accent } : a.accent),
     icon: a.icon ?? '/icons/favicon.svg',
     // How its emails are signed (mail-layout.js): its icon as a PNG at its own address (mail
     // clients don't show SVG), a lighter colour for dark mode, a line under its name, and what
@@ -140,6 +146,16 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   if (unknownLanguages.length) errors.push(`app.languages: ${unknownLanguages.join(', ')} not among ${LANGUAGES.join(', ')}`);
   if (app.languages[0] !== 'en') errors.push('app.languages: English goes first, it is the fallback');
   if (app.color !== null && !/^#[0-9a-fA-F]{6}$/.test(String(app.color))) errors.push('app.color: a colour as #RRGGBB, e.g. #3A4660');
+  if (app.accent !== null) {
+    if (!isObject(app.accent)) errors.push('app.accent: an object ({ light, on, dark, onDark }), each a colour as #RRGGBB');
+    else {
+      for (const [key, value] of Object.entries(app.accent)) {
+        if (!ACCENT_KEYS.includes(key)) errors.push(`app.accent.${key} is not a setting (${ACCENT_KEYS.join(', ')})`);
+        else if (value != null && !/^#[0-9a-fA-F]{6}$/.test(String(value))) errors.push(`app.accent.${key}: a colour as #RRGGBB`);
+      }
+      if (app.color === null) errors.push('app.accent needs app.color: the pages the suite draws write them together');
+    }
+  }
   // The consent screen's CSP only loads images from the app itself.
   if (!/^\/(?!\/)[^\s"'<>\\]*$/.test(String(app.icon))) errors.push('app.icon: a path on the app itself, starting with /');
   if (a.mail !== undefined && !isObject(a.mail)) errors.push('app.mail: an object ({ icon, colorOnDark, signature, about })');
@@ -175,18 +191,14 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     roles: Array.isArray(ac.roles) ? [...ac.roles] : ['admin', 'user'],
     // Someone deleting their own account: how long it waits, disabled, before it goes for good.
     deletionDays: ac.deletionDays ?? 30,
-    // When it goes, whether the person also goes at the identity provider (WorkOS) and their
-    // subscriptions end: only where this install is all the person has there (Cronum Work), never
-    // where other apps sign in with the same provider's accounts or share a subscription.
-    deleteAtProviders: ac.deleteAtProviders ?? false,
     // Whether the admin here may set someone's password and take their second step off at the
     // identity provider (WorkOS, workos-security.js): only the install that owns the identities
     // (Cronum Work), since a WorkOS user is the same in every product that signs in with it.
     adminIdentity: ac.adminIdentity ?? false,
-    // Only the subscriptions: they stop renewing at the request and end when the account goes, while
-    // the person stays at the identity provider (an install that bills alone, with apps that share
-    // its logins). Left out, as deleteAtProviders.
-    endSubscriptions: ac.endSubscriptions ?? ac.deleteAtProviders ?? false,
+    // The subscriptions the person pays: they stop renewing at the request and end when the account
+    // goes (an install that bills alone, with apps that share its logins). Never where a subscription
+    // is shared with other apps.
+    endSubscriptions: ac.endSubscriptions ?? false,
     // The WorkOS users are shared with other apps, each noting itself on them (`app_<id>` in their
     // metadata): an account deleted here takes its WorkOS user too when the person uses no other
     // app, or chooses so; the admin's deletion only when the admin chooses so (account-deletion.js).
@@ -197,11 +209,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   if (!wholeNumber(accounts.minPasswordLength, 6, 128)) errors.push('accounts.minPasswordLength: a whole number from 6 to 128');
   if (!wholeNumber(accounts.deletionDays, 0, 365)) errors.push('accounts.deletionDays: a whole number of days from 0 to 365');
-  if (typeof accounts.deleteAtProviders !== 'boolean') errors.push('accounts.deleteAtProviders: true or false');
   if (typeof accounts.adminIdentity !== 'boolean') errors.push('accounts.adminIdentity: true or false');
   if (typeof accounts.endSubscriptions !== 'boolean') errors.push('accounts.endSubscriptions: true or false');
   if (typeof accounts.sharedIdentity !== 'boolean') errors.push('accounts.sharedIdentity: true or false');
-  if (accounts.sharedIdentity && accounts.deleteAtProviders) errors.push('accounts.sharedIdentity and deleteAtProviders: one or the other, the second always deletes the login');
   if (!accounts.roles.includes('admin')) errors.push('accounts.roles must include "admin"');
 
   const se = isObject(p.sessions) ? p.sessions : {};
@@ -218,7 +228,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   const organizations = {
     roles: Array.isArray(og.roles) ? [...og.roles] : ['owner', 'admin', 'member'],
     invitationDays: og.invitationDays ?? 7,
-    // The roles that take a seat a subscription pays for (Tracker's drivers); null, every member.
+    // The roles that take a seat a subscription pays for (a help desk's agents, say); null, every member.
     seatRoles: Array.isArray(og.seatRoles) ? [...og.seatRoles] : (og.seatRoles ?? null),
     // The kinds the app manages, caps per person, or deletes when empty (organizations.js); none, as before.
     kinds: {},
@@ -235,7 +245,7 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   }
   if (organizations.seatRoles !== null && !(Array.isArray(organizations.seatRoles) && organizations.seatRoles.length
     && organizations.seatRoles.every((r) => organizations.roles.includes(r)))) {
-    errors.push("organizations.seatRoles: some of organizations.roles, such as ['driver'], or left out for every member");
+    errors.push("organizations.seatRoles: some of organizations.roles, such as ['agent'], or left out for every member");
   }
 
   const tk = isObject(p.tokens) ? p.tokens : {};
@@ -352,8 +362,8 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // a person gave to another app of the suite. A warning and not an error: an install that
     // starts requiring it must first have its Resource Indicator set in WorkOS.
     // With the login shared by the suite's products (accounts.sharedIdentity: one WorkOS
-    // environment for Work, Focus, Tracker…), that is not an install that might not have it yet but
-    // the very case it is for: a token someone gave a client for another product would open this
+    // environment for several apps), that is not an install that might not have it yet but the
+    // very case it is for: a token someone gave a client for another app would open this
     // MCP, and make them an account here. It doesn't start without it (audit sc-mcp-2); the
     // variable workos.js reads, as production sets it.
     if (modules.mcp && accounts.sharedIdentity && !String(env.WORKOS_MCP_AUDIENCE || '').trim()) {

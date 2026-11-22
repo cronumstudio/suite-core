@@ -43,9 +43,11 @@
  *   app's own preferences of the copy, and keeps who it is (username, email,
  *   role) and what is the whole account's: its language, time zone and theme. Passwords, second steps, sessions, API tokens,
  *   OAuth grants and push subscriptions never travel: they are made again.
+ *   The preferences are one row for every module of a host: an app that says
+ *   which are its own (`users.prefs`) changes only those.
  * · **Organizations** (an app that declares `organizations`, or a table that
  *   points at them). A table can belong to a group instead of a person (a
- *   family's routines, a fleet's vehicles). Someone's copy takes the groups
+ *   household's lists, a team's projects). Someone's copy takes the groups
  *   they are in, with their own membership and the group's rows; the whole
  *   install's takes every group, membership, waiting invitation, and the
  *   groups' plans and payments. What is someone's alone, which "replace" and
@@ -56,8 +58,8 @@
  *   another module's copy of the same export run made (recorded in
  *   `app_meta`); a copy of another run of an install already here is refused.
  * · **Columns that never travel** (`omit`): a device's key hash, a push
- *   subscription. Left out of every copy, and filled on import with the
- *   column's default.
+ *   subscription, and without saying so a public page's link. Left out of
+ *   every copy, and filled on import with the column's default.
  * · **The file isn't trusted.** It could come from anyone: only the columns
  *   this install has, only plain values, references only inside the file,
  *   attachments only when their first bytes say image or PDF (as on upload),
@@ -70,7 +72,7 @@ import { pipeline } from 'node:stream/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { randomToken } from './crypto.js';
 import {
-  HttpError, badRequest, notFound, conflict, forbidden, unauthorized, readJson, sendJson, int,
+  HttpError, badRequest, notFound, conflict, forbidden, unauthorized, readJson, sendJson, int, isObject,
 } from './http.js';
 import { createZipWriter, openZip } from './zip.js';
 import { detectType, storedName } from './uploads.js';
@@ -114,7 +116,6 @@ const MAX_TEXT = 100_000;
 const PENDING_MS = DAY;
 const TOKEN = /^[\w-]{16,64}$/;
 
-const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const quote = (name) => `"${String(name).replaceAll('"', '""')}"`;
 /**
  * Preferences of the whole account, not of a module: whichever module's copy comes in, an account
@@ -163,8 +164,10 @@ export function dataImportsSchema(d) {
  *                     file: { path: 'path', folder: 'user_id', feature: 'attachments' } },
  *     },
  *     users: { columns: ['avatar_color'], limits: { avatar_color: /^#[0-9a-f]{6}$/i },
- *              prefs(prefs, { ids, current, created }) { … } },
- *     check({ user, counts, replaced, organizations }) { … },   // limits of the plan, for someone's own import
+ *              prefs: PREFS,           // the app's preferences, as createApp takes them (prefs.js)
+ *              remap(prefs, { ids, current, created }) { … } },   // the ids its own keys hold
+ *     planLimit: { feature: 'lists.max', count: (userId) => … },   // for someone's own import
+ *     check({ user, counts, replaced, organizations }) { … },   // the app's other limits, for someone's own import
  *     handOver(userId) { … },        // before someone's own data is erased or replaced: what others share passes on
  *     shared(userId) { … },          // what handOver would pass on, by name: said before "replace"
  *     after({ ids, rows, mode, user }) { … },  // every row in, inside the transaction: what only the app reads
@@ -173,6 +176,25 @@ export function dataImportsSchema(d) {
  * `after` is for what no reference can say, a text that names another row's id: `ids(table, old)` is
  * the id here of the row the copy called `old` (null if it didn't come), and `rows(table)` the ids
  * here of the rows this import brought.
+ *
+ * **Preferences.** `users.prefs` is one row for every module of a host, and the host keeps keys of
+ * its own there too: a module's copy carries the whole row. `users.prefs: PREFS`, the app's
+ * preferences, names the app's own keys (those of its `defaults`; never `lang`, `lang_seen` or
+ * `tz`, the whole account's): of the copy's row only those come in, as they are or as
+ * `remap(prefs, { ids, current, created })` gives them (translating the ids of the app's rows they
+ * hold: `ids` as in `after`; `current`, the row here, null for an account the import makes). Every
+ * other key stays as the account has it here: importing one module's copy after another's left the
+ * first one's ids as the second copy had them, untranslated. An account the import makes starts
+ * from the copy's row. `users.prefs` may instead be a function of the copy's row, as before: what
+ * it gives is the row, the account's language and zone kept (ACCOUNT_PREFS). Without either, the
+ * preferences don't travel.
+ *
+ * **The plan.** Someone's own import can't take them past their plan, with the rows already in and
+ * before anything is committed: past the storage it allows (`storage.mb`, the copy's files
+ * counted: an app with a table of files, where the suite's storage counts them), then past what
+ * the app's `check` refuses, then past the most `planLimit.feature` allows, as `count(userId)`
+ * counts it: 402 `plan_limit`, with the feature, the limit, what they have and the plan, as the
+ * app's screens answer it.
  *
  * `clean(values, { mode, organizations })` may change a row as it comes in. With organizations,
  * `organizations` is { created, mapped }: Sets of the ids here of the groups this import made and
@@ -198,7 +220,7 @@ export function dataImportsSchema(d) {
  * how whose rows they are is told.
  *
  * **A group's tables.** A reference to `organizations` makes a table a group's
- * (`focus_families: { refs: { organization_id: 'organizations' } }`), and the
+ * (`fam_families: { refs: { organization_id: 'organizations' } }`), and the
  * tables that point at it are the group's too. Organizations then travel in
  * copies, which `organizations` tunes (every key may be left out):
  *
@@ -222,10 +244,10 @@ export function dataImportsSchema(d) {
  * for them. Without either, nothing of organizations travels, as before.
  *
  * **One row per group** (`onePerOrganization: true`, on a table whose NOT NULL
- * reference to organizations is UNIQUE: Focus' families): when the group a row
- * goes into has its row already —someone's copy put into their own family, a
- * family a whole install's copy brought before— the copy's row isn't written
- * again: it is that row, and what points at it comes into it.
+ * reference to organizations is UNIQUE, such as one row per family): when the
+ * group a row goes into has its row already —someone's copy put into their own
+ * family, a family a whole install's copy brought before— the copy's row isn't
+ * written again: it is that row, and what points at it comes into it.
  *
  * **Columns that never travel**: `omit: ['token_hash', 'push_endpoint']` leaves
  * them out of every copy, and an import writes the column's default (or NULL).
@@ -235,8 +257,13 @@ export function dataImportsSchema(d) {
  * column's own default, never a NULL written over it. A column omitted must
  * allow NULL or have a default of either kind, and is never a reference, a
  * file's or the key. A column the app fills itself and never points at by a
- * declared reference (Focus' `owner_user_id`, the family's oldest owner) can be
- * omitted with a function that finds it here.
+ * declared reference (say, an `owner_user_id` the app keeps as the group's
+ * oldest owner) can be omitted with a function that finds it here.
+ *
+ * A public page's link (`public_token` and `public_since`, public-page.js) is
+ * omitted from every table that has it without saying so: the token is the
+ * page's one key, a copy is a file anyone may hold, and the same token twice in
+ * one install would clash. What comes back from a copy has its page off.
  *
  * `organizationRoles` are the install's roles of organizations, from
  * createPortability (null: modules.organizations is off); left out, as tests
@@ -321,7 +348,7 @@ export function describeData(database, declaration = {}, { organizationRoles } =
       types: new Map(info.map((c) => [c.name, affinityOf(c.type)])),
       clean: typeof spec.clean === 'function' ? spec.clean : null,
       limits: limitsOf(spec.limits, columns, name, errors),
-      omit: omitOf(spec.omit, { columns, key, refs, file }, name, errors),
+      omit: omitOf(withPublicLink(spec.omit, columns), { columns, key, refs, file }, name, errors),
     });
   });
   for (const table of tables) {
@@ -341,6 +368,8 @@ export function describeData(database, declaration = {}, { organizationRoles } =
     }
   }
   const userLimits = limitsOf(declaration.users?.limits, new Map(appColumns.map((c) => [c, true])), 'users', errors);
+  const { prefs, ownPrefs, remap } = prefsOf(declaration.users, errors);
+  const planLimit = planLimitOf(declaration.planLimit, errors);
   const formerly = new Map();
   for (const table of tables) {
     for (const old of table.was) {
@@ -356,10 +385,104 @@ export function describeData(database, declaration = {}, { organizationRoles } =
     userColumns: [...USER_COLUMNS.filter((c) => inUsers.has(c)), ...appColumns],
     appColumns,
     userLimits,
-    prefs: typeof declaration.users?.prefs === 'function' ? declaration.users.prefs : null,
+    prefs,
+    ownPrefs,
+    remap,
+    planLimit,
     check: typeof declaration.check === 'function' ? declaration.check : null,
     organizations,
   };
+}
+
+/**
+ * A declaration's `users.prefs` and `users.remap`, checked: `prefs`, a function of the copy's row
+ * (as before); or `ownPrefs`, the keys of the app's own preferences (a Set), with `remap`.
+ */
+function prefsOf(users, errors) {
+  const given = users?.prefs;
+  const remap = users?.remap ?? null;
+  if (remap !== null && typeof remap !== 'function') errors.push('users.remap: a function of the copy\'s preferences');
+  if (given == null) {
+    if (remap) errors.push('users.remap: with users.prefs, the app\'s preferences (prefs.js)');
+    return { prefs: null, ownPrefs: null, remap: null };
+  }
+  if (typeof given === 'function') {
+    if (remap) errors.push('users.remap: with users.prefs, the app\'s preferences (prefs.js), not a function');
+    return { prefs: given, ownPrefs: null, remap: null };
+  }
+  const ownPrefs = ownPrefsOf(given);
+  if (!ownPrefs) {
+    errors.push('users.prefs: the app\'s preferences (prefs.js, { defaults, … } as createApp takes them), or a function of the copy\'s');
+    return { prefs: null, ownPrefs: null, remap: null };
+  }
+  return { prefs: null, ownPrefs, remap: typeof remap === 'function' ? remap : null };
+}
+
+/**
+ * The keys of `users.prefs` an app's preferences (prefs.js) say are its own: those of its
+ * `defaults`, of each part's in a combined hook; never ACCOUNT_PREFS. Null when it isn't one.
+ */
+function ownPrefsOf(hook) {
+  const parts = isObject(hook) && Array.isArray(hook.parts) ? hook.parts : [hook];
+  if (!parts.every((part) => isObject(part) && (part.defaults == null || isObject(part.defaults)))) return null;
+  const keys = new Set(parts.flatMap((part) => Object.keys(part.defaults || {})));
+  for (const key of ACCOUNT_PREFS) keys.delete(key);
+  return keys;
+}
+
+/**
+ * What an import writes in an account's users.prefs (describeData, "Preferences"), as JSON text, or
+ * null when the preferences don't travel. `model` is describeData's; `copy` the copy's row and
+ * `current` the row here (JSON text, or already read), `created` whether the import made the account,
+ * `ids` as in `after`. With the app's preferences declared: the row here (for an account the import
+ * makes, the copy's) with the app's own keys of the copy on top, as `remap` gives them. With a
+ * function: what it gives, the account's language and zone kept.
+ */
+export function importedPrefs(model, { copy, current = null, created = false, ids = () => null }) {
+  const parse = (value) => {
+    if (value !== null && typeof value === 'object') return value;
+    try { return JSON.parse(value || '{}'); } catch { return {}; }
+  };
+  if (model.ownPrefs) {
+    // Of the one row, only the app's own keys change: the rest is another module's, the host's or
+    // the whole account's, as it is here.
+    const read = (value) => { const parsed = parse(value); return isObject(parsed) ? parsed : {}; };
+    const theirs = read(copy);
+    const here = created ? null : read(current);
+    const made = model.remap ? model.remap(theirs, { ids, current: here, created }) : theirs;
+    const own = typeof made === 'string' ? read(made) : isObject(made) ? made : {};
+    const prefs = { ...(here ?? theirs) };
+    for (const key of model.ownPrefs) if (Object.hasOwn(own, key)) prefs[key] = own[key];
+    return JSON.stringify(prefs);
+  }
+  if (!model.prefs) return null;
+  const here = created ? null : parse(current);
+  const made = model.prefs(parse(copy), { ids, current: here, created });
+  const text = typeof made === 'string' ? made : JSON.stringify(made ?? {});
+  return created ? text : JSON.stringify(keepAccountPrefs(parse(text), here));
+}
+
+/** A declaration's `planLimit`, checked: { feature, count }, or null. */
+function planLimitOf(spec, errors) {
+  if (spec == null) return null;
+  if (!isObject(spec) || typeof spec.feature !== 'string' || !spec.feature || typeof spec.count !== 'function') {
+    errors.push("planLimit: { feature: 'lists.max', count: (userId) => how many they have }");
+    return null;
+  }
+  return { feature: spec.feature, count: spec.count };
+}
+
+/** The columns of a public page's link (public-page.js): never in a copy (see describeData). */
+const PUBLIC_LINK = ['public_token', 'public_since'];
+
+/** A table's `omit` with the columns of a public page's link it has, which no copy carries. */
+function withPublicLink(spec, columns) {
+  const missing = PUBLIC_LINK.filter((column) => columns.has(column));
+  if (!missing.length) return spec;
+  if (spec == null) return missing;
+  if (Array.isArray(spec)) return [...spec, ...missing.filter((column) => !spec.includes(column))];
+  if (isObject(spec)) return { ...Object.fromEntries(missing.map((column) => [column, undefined])), ...spec };
+  return spec;
 }
 
 /**
@@ -698,7 +821,10 @@ export function withImportCeiling(limits = {}, mb = null) {
  * @param {object} options
  * @param {object} options.database, options.accounts         the suite's
  * @param {object} [options.uploads]      where attachments live (modules.uploads)
- * @param {object} [options.entitlements] to leave attachments out of an import a plan doesn't allow
+ * @param {object} [options.entitlements] to leave attachments out of an import a plan doesn't allow,
+ *   and for the plan's limits of someone's own import (describeData, "The plan")
+ * @param {Function} [options.storage]    () → the suite's storage (storage.js), asked when an import
+ *   is checked: it may be made after this (createSuite's countStorage)
  * @param {object} [options.live]         to tell open tabs to reload after an import
  * @param {object} [options.audit]
  * @param {object} options.app            { id, name, version }
@@ -713,12 +839,29 @@ export function withImportCeiling(limits = {}, mb = null) {
  *   declaration carries organizations
  */
 export function createPortability({
-  database, accounts, uploads = null, entitlements = null, live = null, audit = null, app, roles = ['admin', 'user'],
+  database, accounts, uploads = null, entitlements = null, storage = null, live = null, audit = null, app, roles = ['admin', 'user'],
   baseUrl = null, authProvider = 'local', dataDir, declaration, log = console.log, clock = () => Date.now(),
   limits = {}, migrationScope = 'app', onErased = null, organizations = null,
 }) {
   const model = describeData(database, declaration, { organizationRoles: organizations ? organizations.roles : null });
   const groups = model.organizations;
+
+  /**
+   * Someone's own import within their plan (describeData, "The plan"), with the rows already in:
+   * the storage, the app's `check` (`context` is what it gets), then `planLimit`.
+   */
+  function checkPlan(user, context) {
+    if (model.tables.some((table) => table.file)) (typeof storage === 'function' ? storage() : storage)?.check(user);
+    model.check?.(context);
+    if (!model.planLimit || !entitlements) return;
+    const { feature, count } = model.planLimit;
+    const limit = entitlements.limit(user, feature);
+    if (limit == null) return;
+    const current = count(user.id);
+    if (current <= limit) return;
+    const { plan } = entitlements.of(user);
+    throw new HttpError(402, 'plan_limit', { feature, limit, current, plan: plan.id, plan_name: plan.name });
+  }
   const importsDir = path.join(dataDir, 'imports');
   // Ceilings by who brings the copy in: anyone with an account ('account'), or the
   // administrator and the command line ('install'). Someone's own data is a few MB;
@@ -2154,12 +2297,12 @@ export function createPortability({
           // An empty one keeps what the account has: the app's columns may not allow it.
           for (const column of model.appColumns) if (source[column] != null) sets[column] = source[column];
           // Preferences hold ids of the app's rows: only the app knows where, so without its hook they stay.
-          if (model.prefs && model.userColumns.includes('prefs')) {
-            const parse = (text) => { try { return JSON.parse(text || '{}'); } catch { return {}; } };
-            const current = isNew ? null : parse(database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs);
-            const made = model.prefs(parse(source.prefs), { ids, current, created: isNew });
-            sets.prefs = typeof made === 'string' ? made : JSON.stringify(made ?? {});
-            if (!isNew) sets.prefs = JSON.stringify(keepAccountPrefs(parse(sets.prefs), current));
+          if (model.userColumns.includes('prefs')) {
+            const prefs = importedPrefs(model, {
+              copy: source.prefs, created: isNew, ids,
+              current: isNew ? null : database.get('SELECT prefs FROM users WHERE id = ?', userId)?.prefs,
+            });
+            if (prefs !== null) sets.prefs = prefs;
           }
           const columns = Object.keys(sets);
           if (columns.length) {
@@ -2244,8 +2387,8 @@ export function createPortability({
           throw conflict('import_already_applied', { at: alreadyApplied(manifest, target) });
         }
         // The plan's limits, with the rows already in: the app counts what the person has now.
-        if (model.check && mode === 'account') {
-          model.check({ user, counts: imported, replaced, ...(groups ? { organizations: { created: orgsCreated, mapped: orgsMapped } } : {}) });
+        if (mode === 'account') {
+          checkPlan(user, { user, counts: imported, replaced, ...(groups ? { organizations: { created: orgsCreated, mapped: orgsMapped } } : {}) });
         }
         const leftOut = {};
         for (const [name, rows] of archive.tables) {

@@ -131,8 +131,8 @@ names are the same in every app:
 | `HOT_RELOAD` | Restart when `server/` changes (development, with the code mounted into the container) |
 | `PUID`, `PGID` | Owner of the data folder when the container cannot write to it |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push; generated when empty |
-| `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install: a JSON, or one of the catalogs in suite-core's `plans.js` by name (`cronum-work` for Cronum Work) |
-| `BILLING_PROVIDER`, `STRIPE_*`, `EARLY_ACCESS_UNTIL` | Billing (`stripe`, `remote`, or one registered from outside the repository, with variables of its own); off when empty. `EARLY_ACCESS_UNTIL` is the first day after the early access (2027-01-01 keeps 31 December in it): who joined before it gets the founder's price |
+| `PLANS`, `DEFAULT_PLAN` | Override the plan catalog of `suite.config.js` for one install: a JSON, or one of the catalogs in suite-core's `plans.js` by name (`cronum-work` for Cronum Work; `cronum-per-group` or `cronum-per-seat` for an app sold on its own) |
+| `BILLING_PROVIDER`, `STRIPE_*`, `EARLY_ACCESS_UNTIL` | Billing (`stripe`, or one registered from outside the repository, with variables of its own); off when empty. `EARLY_ACCESS_UNTIL` is the first day after the early access (2027-01-01 keeps 31 December in it): who joined before it gets the founder's price |
 | `FOUNDER_OFFER_UNTIL` | With `EARLY_ACCESS_UNTIL`: from this date nobody gets the founder's price; until it, founders are told so once the early access is over |
 | `FOUNDER_JOIN_UNTIL` | With `EARLY_ACCESS_UNTIL`: accounts made before this date, past the end of the early access, are founders too |
 | `EARLY_ACCESS_PLAN` | The plan everyone has until `EARLY_ACCESS_UNTIL` (nothing is sold meanwhile); the default plan from then on |

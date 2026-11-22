@@ -119,6 +119,7 @@ test('field with an app’s options: its classes and hint tag, a <span> over a g
   const grouped = field('Colour', palette, null, look);
   assert.equal(grouped.children[0].tagName, 'SPAN');
   assert.equal(grouped.children[0].textContent, 'Colour');
+  assert.equal(grouped.children[0].getAttribute('class'), 'kit-field__label', 'with the measure of a field’s label');
   assert.equal(palette.hasAttribute('id'), false);
   assert.equal(grouped.children.length, 2, 'no hint without one');
 

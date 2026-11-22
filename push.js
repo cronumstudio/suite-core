@@ -18,8 +18,8 @@
  * What each notice says, and to whom, is the app's (Tasks batches other
  * people's changes to a shared list); the suite sends it.
  *
- * A device can also belong to the app rather than to a person: a child's
- * tablet paired to a profile with no account (Focus), a kiosk. Those
+ * A device can also belong to the app rather than to a person: a tablet
+ * paired to a profile with no account, a kiosk. Those
  * subscriptions live in the app's own table, next to the rest of what it
  * knows of the device; the suite checks one before the app keeps it
  * (checkSubscription) and sends to it (sendToSubscription), with the same
@@ -551,8 +551,17 @@ export function createPush({
     FROM push_subscriptions WHERE user_id = ? ORDER BY created_at`, userId);
 
   /**
+   * With `push.native`, a person's phones with the app, which every send reaches too
+   * (subscriptionsOf): native-push.js phonesOf, for Settings beside the browsers. Without it, none.
+   */
+  const phones = (userId) => (native ? native.phonesOf(userId) : []);
+
+  /** One of a person's phones off their notices, by its device's id (Settings' «Remove»). → whether it had any. */
+  const removePhone = (userId, deviceId) => Boolean(native?.forgetPhone(userId, deviceId));
+
+  /**
    * Sends one notice to a subscription the app keeps itself, for a device
-   * with no account behind it (Focus' paired tablets): the browser's
+   * with no account behind it (a tablet the app paired, say): the browser's
    * `subscription.toJSON()` as checkSubscription() returned it (the flat
    * `{ endpoint, p256dh, auth }` of a row is taken too). The same encryption,
    * VAPID signature, time limit and options as a person's (`ttl` in seconds,
@@ -576,6 +585,6 @@ export function createPush({
   return {
     publicKey: vapid.publicKey,
     send, deliver, subscriptionsOf, peopleWithDevices, subscribe, unsubscribe, devices, removeDevice, forgetSession, purgeSessions,
-    checkSubscription, sendToSubscription,
+    phones, removePhone, checkSubscription, sendToSubscription,
   };
 }

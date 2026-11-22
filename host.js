@@ -34,6 +34,10 @@
  * `modules.devices`, `POST /api/devices/actions { module: '<mount>', action, id, ... }`
  * with the device's token reaches it, as that person.
  *
+ * A module's MCP tools run in the time zone of the person they act for, as on
+ * its own (time.js), and its routes too when it says so (`zonedRoutes: true`):
+ * today is theirs.
+ *
  * One process, one database (DATA_DIR/<host id>.db), one session cookie, one
  * table of accounts, one sign-in and one admin panel, all of them the host's,
  * from its own configuration. Each module keeps what is its own: its tables
@@ -91,6 +95,7 @@ import { combinePrefs } from './prefs.js';
 import { FOUNDER_NOTICE_PREFS } from './billing.js';
 import { usageOf, peaksOf, registerUsageApi, registerOwnUsageApi } from './usage.js';
 import { deviceActionOf, deviceActionsProblem } from './devices.js';
+import { inZoneOf } from './time.js';
 import {
   fingerprint, combine, moduleShell, hostShell, pageShell, shellHashes, workerScript, hostedPush, moduleReminderPush, catalogsOverEnglish,
 } from './host-worker.js';
@@ -429,7 +434,9 @@ function suiteErrorSentence(code, extra = {}) {
  *
  * What a tool throws reads as its module says (its `describeError`), else as
  * the suite's catalog says (`errors.<code>` in English): the host's own tools
- * too, so `field_invalid` is never all an assistant gets.
+ * too, so `field_invalid` is never all an assistant gets. A module's tool runs
+ * in the time zone of the person it acts for (time.js); the host's own read
+ * the day as they always have (the calendar's with `todayFor(user)`).
  * · `record(principal, tool)`: after each call that changed something.
  * · `maxResultChars`: the most text an answer carries (mcp.js capResult).
  * · `calendar` (calendar.js createCalendar): `<host>_calendar`, what has a
@@ -464,11 +471,12 @@ export function hostMcp({
       ...(feature ? { feature } : {}),
       ...(namesInText ? { description: say(tool.description), inputSchema: schemaSaying(tool.inputSchema, say) } : {}),
       // A module's errors read as that module says, for the assistant to pass on; with
-      // `namesInText`, its answers name its tools as the host does.
+      // `namesInText`, its answers name its tools as the host does. It runs in the time zone of
+      // the person it acts for (time.js), as on its own: their today.
       handler: async (principal, args) => {
         let result;
         try {
-          result = await tool.handler(principal, args);
+          result = await inZoneOf(principal, () => tool.handler(principal, args));
         } catch (error) {
           const text = m.parts.mcp.describeError?.(error);
           if (!text) throw error;
@@ -628,6 +636,9 @@ export function hostMcp({
   };
   return {
     instructions, instructionsLeftOut, tools, prompts, allows, visible,
+    // Its modules' tools run in the person's zone already, and its own read the day their own way:
+    // createApp leaves them as they are.
+    zoned: true,
     describeError: describeErrorWith({ errorSentence: suiteErrorSentence }),
     ...(kept.size ? { onDemand: (principal, tool) => kept.has(tool.name) && !allTools(principal), door: hostId } : {}),
     ...(record ? { recordChange: record } : {}),
@@ -675,12 +686,9 @@ function moduleListErrors(modules) {
  * @param {string} [options.publicDir]  the host's own files at the root; without an index.html there, / goes to
  *   the first module
  * @param {Function} [options.routes]   (router) => { … }: the host's own routes at /api/
- * @param {string} [options.split]      the host's page that shows several modules at once (`/split/`,
- *   in its publicDir), each in a frame: the rail offers it, and the modules' pages may then be
- *   framed by the host's own pages (never by another site's)
  * @param {boolean} [options.framedModules]  the modules' pages may be framed by the host's own pages
- *   (never by another site's) without a split view: a page holding several modules that opens one
- *   in a frame when it can't mount it (Cronum Work's shell). `split` implies it.
+ *   (never by another site's): a page holding several modules that opens one in a frame when it
+ *   can't mount it (Cronum Work's shell)
  * @param {string} [options.calendar]   the host's page that shows what has a date in each module
  *   (`/calendar/`, in its publicDir; calendar.js): the rail offers it, `GET /api/calendar` answers
  *   it at the root and the host's MCP adds `<id>_calendar`, from the modules' `createModule().calendar`
@@ -747,7 +755,7 @@ function moduleListErrors(modules) {
  *   or throw a SuiteConfigError (tests)
  */
 export async function createHost({
-  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, split = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
+  config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
   aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null, doors = [], moduleHints = null,
 }) {
@@ -781,11 +789,7 @@ export async function createHost({
   };
 
   const listErrors = moduleListErrors(modules);
-  // The split view is a page of the host's own: a path of this site, never an address elsewhere.
-  if (split !== null && !(typeof split === 'string' && /^\/[a-z0-9-]+\/$/.test(split))) {
-    listErrors.push(`split: "${split}" is not a page of the host (such as /split/)`);
-  }
-  // So is the calendar.
+  // The calendar is a page of the host's own: a path of this site, never an address elsewhere.
   if (calendar !== null && !(typeof calendar === 'string' && /^\/[a-z0-9-]+\/$/.test(calendar))) {
     listErrors.push(`calendar: "${calendar}" is not a page of the host (such as /calendar/)`);
   }
@@ -795,8 +799,8 @@ export async function createHost({
   // And the daily summary's, a page of its own.
   if (day !== null && !(typeof day === 'string' && /^\/[a-z0-9-]+\/$/.test(day))) {
     listErrors.push(`day: "${day}" is not a page of the host (such as /today/)`);
-  } else if (day !== null && (day === calendar || day === split)) {
-    listErrors.push(`day: ${day} is the host's ${day === calendar ? 'calendar' : 'split view'} already`);
+  } else if (day !== null && day === calendar) {
+    listErrors.push(`day: ${day} is the host's calendar already`);
   }
   // The prompt is one of the host's own routes, under /api/.
   if (aiInstruction !== null && !(typeof aiInstruction === 'string' && /^\/api\/[a-z0-9-]+$/.test(aiInstruction))) {
@@ -811,7 +815,7 @@ export async function createHost({
   for (const [i, page] of pageList.entries()) {
     const at = page?.at;
     if (!(typeof at === 'string' && /^\/[a-z0-9-]+\/$/.test(at))) listErrors.push(`pages[${i}].at: "${at}" is not a path of the host (such as /w/)`);
-    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || split === at || calendar === at || day === at) {
+    else if (RESERVED.has(at.slice(1, -1)) || (Array.isArray(modules) && modules.some((spec) => spec?.mount === at.slice(1, -1))) || calendar === at || day === at) {
       listErrors.push(`pages[${i}].at: ${at} is the host's already, or a module's`);
     } else if (pageList.findIndex((other) => other?.at === at) !== i) listErrors.push(`pages[${i}].at: ${at} twice`);
     if (!page?.dir || typeof page.dir !== 'string') listErrors.push(`pages[${i}].dir: the folder of its files is needed`);
@@ -886,7 +890,7 @@ export async function createHost({
    * The suite a module gets: the host's, with what is the module's own in place
    * of it. Its migrations run here, after the suite's: its first one finds the
    * suite's tables (users with the suite's columns) already there. The host's
-   * consent screen and mail are the host's: a module's oauthPage hook is not used.
+   * consent screen and mail are the host's.
    */
   function join(entry, options, from) {
     if (from !== HERE) {
@@ -906,8 +910,8 @@ export async function createHost({
     for (const name of SHARED_MODULES) {
       if (resolved.modules[name] && !config.modules[name]) errors.push(`${entry.mount}: it uses modules.${name}, which the host has off`);
     }
-    // A phone connects to a product, with its own prefix and return addresses: an app on its own
-    // (Tracker), or a host as a whole from its own suite.config.js (Cronum Work), never one module.
+    // A phone connects to a product, with its own prefix and return addresses: an app on its own,
+    // or a host as a whole from its own suite.config.js (Cronum Work), never one module.
     if (resolved.modules.devices) errors.push(`${entry.mount}: modules.devices is for an app on its own, not a module of a host`);
     // The groups are one set for every module, with the host's kinds: a kind a module manages that the
     // host doesn't declare the same way would leave the generic routes open to it without a word.
@@ -1008,6 +1012,8 @@ export async function createHost({
       : null;
     const portabilityFor = (declaration, { version: v = null, limits = {} } = {}) => createPortability({
       database: suite.database, accounts: suite.accounts, uploads, entitlements, live, audit: suite.audit,
+      // The person's storage across every module, as the module's own uploads check it.
+      storage: () => entry.view?.storage,
       app: { id: app.id, name: app.name, version: v }, roles: config.accounts.roles,
       baseUrl: moduleInstall.baseUrl, authProvider: install.authProvider, dataDir: install.dataDir, declaration, log,
       limits: withImportCeiling(limits, install.importMaxMb),
@@ -1059,9 +1065,10 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
-      // Whose something is, in the module's words, with the host's one brake on deletion notices.
+      // Whose something is, in the module's words, with the host's one brake on deletion notices:
+      // its email, its push and that brake as the module's suite has them when a notice goes.
       ownership: createOwnership({
-        db: suite.database, shareMail: moduleShareMail, push: modulePush, brake: suite.goneBrake, log,
+        db: suite.database, suite: () => entry.view, log,
         texts: (user) => moduleTexts(null, user).t,
       }),
       organizations: resolved.modules.organizations ? suite.organizations : null,
@@ -1134,7 +1141,9 @@ export async function createHost({
     if (actionsProblem) stop([`${entry.mount}: ${actionsProblem}`]);
     entry.app = createApp({
       suite: entry.view, publicDir: parts.publicDir ?? null, routes: parts.routes ?? null,
-      serializeUser: parts.serializeUser ?? null, profile: parts.profile ?? {}, version: parts.version ?? '0.0.0',
+      // Its routes in the zone of whoever asks, when it says so, as on its own.
+      zonedRoutes: parts.zonedRoutes === true,
+      serializeUser: parts.serializeUser ?? null, version: parts.version ?? '0.0.0',
       // Its preferences (prefs.js): its /api/me keeps its own keys of the one row, and leaves the others'.
       prefs: parts.prefs ?? null,
       // Its page answers its own path alone; any other there is a 404 page (audit prod-9): no module
@@ -1142,9 +1151,9 @@ export async function createHost({
       // deeper one drew nothing, its files asked for under it. One that has some names them.
       clientRoutes: parts.clientRoutes ?? ['/'],
       portable: parts.portable ?? null, handleSignals: false, log,
-      // In the split view (or a page of the host's that frames a module, framedModules) each module
-      // is a frame of the host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
-      frames: split || framedModules ? 'self' : 'none', embeds: parts.embeds ?? [],
+      // In a page of the host's that frames a module (framedModules) each module is a frame of the
+      // host's page; the pages it makes to be embedded, of any site's (app.js `embeds`).
+      frames: framedModules ? 'self' : 'none', embeds: parts.embeds ?? [],
       // Its AI connector is the host's /mcp, which serves every module's tools: Settings in the
       // module offers it whenever that answers, though the module itself has none.
       offersMcp: () => hostOffersMcp,
@@ -1225,7 +1234,7 @@ export async function createHost({
     const dayShown = Boolean(day) && (!user || (suite.database.get('SELECT shown FROM host_day WHERE user_id = ?', user.id)?.shown ?? 1) === 1);
     return {
       host: {
-        name: config.app.name, icon: config.app.icon, ...(split ? { split } : {}), ...(calendarShown ? { calendar } : {}),
+        name: config.app.name, icon: config.app.icon, ...(calendarShown ? { calendar } : {}),
         // The host's app opens on a page of its own (`pages[].root`, Work's one-document shell): a
         // module's page installed as an app is then that module on its own, never the host's app.
         ...(pageList.some((p) => p?.root) ? { shell: true } : {}),
@@ -1776,7 +1785,7 @@ export async function createHost({
     }
     // A page of any module, or of the host, opened with `?codigo=<CODE>`: the code's cookie (affiliates.js).
     suite.affiliates?.refFromQuery(req, res, url);
-    // An app's old address: its connector as it was, everything else to its module here.
+    // An app's old address: its /mcp names this one's, everything else goes to its module here.
     const legacyDomain = legacyDomains?.match(req);
     if (legacyDomain) return legacyDomains.handle(req, res, url, legacyDomain);
     // Back from the provider's sign-in to the phone's connect page, before `/` goes anywhere else:

@@ -1,8 +1,7 @@
 /**
  * The page where a signed-in account allows a phone: /devices/connect, served by
  * the suite with `devices.connectPage` (device-pages.js), outside any app's
- * frame, in the sign-in's layout and the account's language. Ported from
- * Tracker's own page, which Tracker keeps.
+ * frame, in the sign-in's layout and the account's language.
  *
  * The native app opened it in the system browser with a PKCE challenge, a
  * state, its return address and the phone's name and platform; the server
@@ -21,8 +20,8 @@
  * - The bare page, or a request the core refuses (an address it doesn't know, a
  *   field it doesn't take), says the link can't connect a device, and to start
  *   again from the app.
- * - An account the app keeps out (403 `device_not_allowed`) is told so; a
- *   session that ended meanwhile reloads the page, which signs in again.
+ * - A refusal (a 403) says itself; a session that ended meanwhile reloads the
+ *   page, which signs in again.
  * - "Use another account", beside the account signed in: the browser may still
  *   hold the session of an earlier connect, and the app has no other way to
  *   switch. It ends that session (`POST /api/auth/logout`, never the provider's
@@ -193,8 +192,8 @@ export function showConnect({
       } catch (err) {
         if (err instanceof SessionExpired) return reload();
         if (err instanceof ApiError && BAD_REQUEST.has(err.code)) return invalid();
-        // A 403 (device_not_allowed) says itself, as any other refusal does; only a refusal that
-        // may pass on a second try (the network, too many at once) leaves the buttons on.
+        // A 403 says itself, as any other refusal does; only a refusal that may pass on a second
+        // try (the network, too many at once) leaves the buttons on.
         status.textContent = errorMessage(err);
         if (!(err instanceof ApiError && err.status === 403)) enable(true);
         // Kept out as this account, another may still be let in.

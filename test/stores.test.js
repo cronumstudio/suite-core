@@ -9,6 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './remote-provider.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -41,11 +42,11 @@ const WEB = 'web-provider';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const WEB_PRODUCTS = {
   'pro-web-yearly': { plan: 'pro', kind: 'subscription' },
-  'fleet-monthly': { plan: 'fleet', kind: 'subscription', for: 'organization' },
+  'team-monthly': { plan: 'team', kind: 'subscription', for: 'organization' },
 };
 const PLANS = {
   free: { name: 'Free', features: { 'capture.native': false, 'viewers.max': 0 } },
-  fleet: { name: 'Fleet', features: { 'capture.native': false, 'viewers.max': 0 } },
+  team: { name: 'Team', features: { 'capture.native': false, 'viewers.max': 0 } },
   pro: { name: 'Pro', features: { 'capture.native': true, 'viewers.max': 30 } },
 };
 const FEATURES = { 'capture.native': { type: 'flag', default: false }, 'viewers.max': { type: 'limit', default: 0 } };
@@ -438,8 +439,8 @@ test('a person with a live store subscription buys no second one on the web (oth
   await s.deliver({ type: 'purchased', customer: ada, product: MONTHLY });
   assert.equal(await checkout(web, { type: 'user', id: s.ada.id }), '409 already_subscribed', 'it would charge twice');
   assert.equal(await checkout(s.web, { type: 'user', id: s.ada.id }), 'ok', 'without otherProviders, as before');
-  const fleet = s.organizations.create({ name: 'Fleet A', ownerId: s.ada.id });
-  assert.equal(await checkout(web, { type: 'organization', id: fleet.id }, 'fleet-monthly'), 'ok', 'a group\'s is another subscription');
+  const team = s.organizations.create({ name: 'Team A', ownerId: s.ada.id });
+  assert.equal(await checkout(web, { type: 'organization', id: team.id }, 'team-monthly'), 'ok', 'a group\'s is another subscription');
   s.clock.now = now + 31 * DAY;
   assert.deepEqual((await s.deliver({ type: 'expired', customer: ada, product: MONTHLY })).body.outcomes, ['revoked']);
   assert.equal(await checkout(web, { type: 'user', id: s.ada.id }), 'ok', 'ended in the store: the web sells again');
@@ -543,11 +544,11 @@ test('the overview: what each source holds and how to manage it, a group\'s plan
   const ada = await s.customerOf(s.ada);
   s.api.customer(ada).subscriptions[MONTHLY] = subscription({ purchased: now, expires: now + 30 * DAY });
   await s.deliver({ type: 'purchased', customer: ada, product: MONTHLY });
-  const fleet = s.organizations.create({ name: 'Fleet A', ownerId: s.ada.id });
-  s.organizations.addMember(fleet.id, s.bob.id);
+  const team = s.organizations.create({ name: 'Team A', ownerId: s.ada.id });
+  s.organizations.addMember(team.id, s.bob.id);
   s.web.apply({
-    id: 'web_1', type: 'subscription', ref: 'sub_fleet', subject: { type: 'organization', id: fleet.id }, customer: 'ctm_fleet',
-    product: 'fleet-monthly', status: 'active', periodEnd: iso(now + 30 * DAY), quantity: 3,
+    id: 'web_1', type: 'subscription', ref: 'sub_team', subject: { type: 'organization', id: team.id }, customer: 'ctm_team',
+    product: 'team-monthly', status: 'active', periodEnd: iso(now + 30 * DAY), quantity: 3,
   });
   s.entitlements.setPlan(s.bob.id, 'pro', { endsAt: iso(now + 10 * DAY) });
 
@@ -557,19 +558,19 @@ test('the overview: what each source holds and how to manage it, a group\'s plan
     plan: { id: 'pro', name: 'Pro', ends: iso(now + 33 * DAY) },
     sources: [
       {
-        kind: 'web', provider: WEB, organization_id: fleet.id, product: 'fleet-monthly', plan: 'fleet', plan_name: 'Fleet',
-        status: 'active', period_end: iso(now + 30 * DAY), ending: null, manage: { via: 'portal', organization_id: fleet.id },
+        kind: 'web', provider: WEB, organization_id: team.id, product: 'team-monthly', plan: 'team', plan_name: 'Team',
+        status: 'active', period_end: iso(now + 30 * DAY), ending: null, manage: { via: 'portal', organization_id: team.id },
       },
       {
         kind: 'store', provider: PROVIDER, product: 'pro-monthly', plan: 'pro', plan_name: 'Pro', status: 'active',
         period_end: iso(now + 30 * DAY), ending: false, store: 'app_store', sandbox: false,
         manage: { via: 'store', store: 'app_store', url: MANAGE_URLS.app_store },
       },
-      { kind: 'organization', organization_id: fleet.id, name: 'Fleet A', plan: 'fleet', plan_name: 'Fleet', ends: iso(now + 33 * DAY) },
+      { kind: 'organization', organization_id: team.id, name: 'Team A', plan: 'team', plan_name: 'Team', ends: iso(now + 33 * DAY) },
     ],
   });
   const text = JSON.stringify(mine);
-  assert.equal(text.includes(ada) || text.includes('sub_fleet') || text.includes('ctm_') || /:[0-9a-f]{16}/.test(text), false);
+  assert.equal(text.includes(ada) || text.includes('sub_team') || text.includes('ctm_') || /:[0-9a-f]{16}/.test(text), false);
   const bobs = (await s.call('GET', '/api/billing/overview', { as: s.bob.id })).body;
   assert.deepEqual(bobs.sources.map((source) => source.kind), ['organization', 'admin'], 'a member doesn\'t manage the group\'s');
   assert.deepEqual(bobs.sources[1], { kind: 'admin', plan: 'pro', plan_name: 'Pro', ends: iso(now + 10 * DAY) });
@@ -582,12 +583,12 @@ test('the admin\'s payments: the person\'s and their groups\', live or over, new
   const customer = await s.customerOf(s.ada);
   s.api.customer(customer).subscriptions[MONTHLY] = subscription({ purchased: now, expires: now + 30 * DAY });
   await s.deliver({ type: 'purchased', customer, product: MONTHLY });
-  const fleet = s.organizations.create({ name: 'Fleet A', ownerId: s.ada.id });
-  s.organizations.addMember(fleet.id, s.bob.id);
+  const team = s.organizations.create({ name: 'Team A', ownerId: s.ada.id });
+  s.organizations.addMember(team.id, s.bob.id);
   const web = (id, fields) => s.web.apply({ id, occurredAt: iso(s.clock.now), type: 'subscription', product: 'pro-web-yearly', ...fields });
   s.clock.now += 1000;
   web('web_1', {
-    ref: 'sub_fleet', subject: { type: 'organization', id: fleet.id }, customer: 'ctm_fleet', product: 'fleet-monthly',
+    ref: 'sub_team', subject: { type: 'organization', id: team.id }, customer: 'ctm_team', product: 'team-monthly',
     status: 'active', periodEnd: iso(now + 30 * DAY), quantity: 3,
   });
   // One of her own on the web, over: a refund often comes after the end. Its provider's link for it isn't https.
@@ -604,12 +605,12 @@ test('the admin\'s payments: the person\'s and their groups\', live or over, new
   const { payments } = (await s.call('GET', path(s.ada), { as: root.id })).body;
   assert.deepEqual(payments.map((p) => [p.kind, p.provider, p.product, p.status, p.live, p.organization_name ?? null, p.dashboard_url]), [
     ['web', WEB, 'pro-web-yearly', 'canceled', false, null, null],
-    ['web', WEB, 'fleet-monthly', 'active', true, 'Fleet A', 'https://dashboard.web.example/subscriptions/sub_fleet'],
+    ['web', WEB, 'team-monthly', 'active', true, 'Team A', 'https://dashboard.web.example/subscriptions/sub_team'],
     ['store', PROVIDER, 'pro-monthly', 'active', true, null, `${DASHBOARD}${customer}`],
   ]);
   const [over, group, store] = payments;
   assert.equal(over.ref, 'old_ada', 'the ref, to search for when there is no link');
-  assert.deepEqual([group.organization_id, group.plan, group.plan_name, group.period_end, group.ending], [fleet.id, 'fleet', 'Fleet', iso(now + 30 * DAY), null]);
+  assert.deepEqual([group.organization_id, group.plan, group.plan_name, group.period_end, group.ending], [team.id, 'team', 'Team', iso(now + 30 * DAY), null]);
   assert.deepEqual([store.plan_name, store.store, store.sandbox, store.ending], ['Pro', 'app_store', false, false]);
 
   // A member of the group doesn't pay for it; someone who never paid has nothing.
@@ -626,10 +627,10 @@ test('an account that goes: each instance forgets its links, subscriptions and g
     id: 'web_1', type: 'subscription', ref: 'sub_ada', subject: { type: 'user', id: s.ada.id }, customer: 'ctm_ada',
     product: 'pro-web-yearly', status: 'active', periodEnd: iso(now + 365 * DAY),
   });
-  const fleet = s.organizations.create({ name: 'Fleet A', ownerId: s.ada.id });
+  const team = s.organizations.create({ name: 'Team A', ownerId: s.ada.id });
   s.web.apply({
-    id: 'web_2', type: 'subscription', ref: 'sub_fleet', subject: { type: 'organization', id: fleet.id }, customer: 'ctm_fleet',
-    product: 'fleet-monthly', status: 'active', periodEnd: iso(now + 30 * DAY),
+    id: 'web_2', type: 'subscription', ref: 'sub_team', subject: { type: 'organization', id: team.id }, customer: 'ctm_team',
+    product: 'team-monthly', status: 'active', periodEnd: iso(now + 30 * DAY),
   });
   s.entitlements.setPlan(s.ada.id, 'pro');
   assert.deepEqual(s.stores.forget(s.ada.id), { grants: 1, subscriptions: 1, customers: 1, pending: 0 });

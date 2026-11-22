@@ -7,6 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './remote-provider.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -256,7 +257,7 @@ test('another product\'s events: foreign before anything about who pays, with on
   assert.equal(sale('e1', { product: 'gold' }), 'foreign', 'a product this catalog doesn\'t have');
   assert.equal(sale('e2', { product: undefined }), 'foreign', 'or none');
   assert.equal(sale('e3', { product: 'constructor' }), 'foreign', 'only the catalog\'s own keys');
-  assert.equal(sale('e4', { app: 'tracker' }), 'foreign', 'sold by another app');
+  assert.equal(sale('e4', { app: 'acme' }), 'foreign', 'sold by another app');
   assert.equal(sale('e5', { foreign: true }), 'foreign', 'the provider says so');
   assert.equal(billing.apply({ id: 'e6', type: 'purchase', ref: 'order_6', customer: 'cus_e6', product: 'gold' }), 'foreign');
   assert.equal(billing.customerOf({ type: 'user', id: ada.id }), null, 'no customer linked');
@@ -279,7 +280,7 @@ test('another product\'s events: foreign before anything about who pays, with on
   assert.equal(plain.apply({ id: 'p1', type: 'subscription', ref: 'sub_p1', subject: { type: 'user', id: ada.id }, customer: 'cus_p1', product: 'gold' }), 'ignored');
   assert.equal(plain.customerOf({ type: 'user', id: ada.id }), 'cus_p1');
   assert.equal(plain.apply({ id: 'p2', type: 'subscription', ref: 'sub_p2', subject: { type: 'user', id: ada.id }, product: 'pro-monthly',
-    status: 'active', periodEnd: '2026-06-01T10:00:00Z', app: 'tracker', foreign: false }), 'granted', 'an app is only compared where the install has one');
+    status: 'active', periodEnd: '2026-06-01T10:00:00Z', app: 'acme', foreign: false }), 'granted', 'an app is only compared where the install has one');
 });
 
 test('what waited for someone since before the guard was on is foreign when they arrive: nothing linked, nothing granted', (t) => {
@@ -291,7 +292,7 @@ test('what waited for someone since before the guard was on is foreign when they
     id, type: 'subscription', ref, identity: { provider: 'workos', subject: 'user_01JBEA0000000000000000000B' }, customer: 'cus_bea',
     product, status: 'active', periodEnd: '2026-06-01T10:00:00Z',
   });
-  assert.equal(before.apply(event('w1', 'tracker-org-monthly', 'sub_other')), 'pending');
+  assert.equal(before.apply(event('w1', 'acme-team-monthly', 'sub_other')), 'pending');
   assert.equal(before.apply(event('w2', 'pro-monthly', 'sub_own')), 'pending');
 
   const bea = accounts.create({ username: 'bea' });
@@ -368,7 +369,7 @@ test('the guard\'s options are checked; the checkout tells the provider which ap
 
 /* ------------------------- a family's plan: no seats ------------------------ */
 
-/** A family's products (Focus's): one Pro for the family, however many adults it has. */
+/** A family's products: one Pro for the family, however many adults it has. */
 const FAMILY = {
   'family-pro': { plan: 'family', kind: 'subscription', for: 'organization', seats: false },
   'family-pass': { plan: 'family', kind: 'once', days: 30, for: 'organization', seats: false },
@@ -474,14 +475,14 @@ test('seats: false: a one-off purchase has no quantity either; a family that bou
   assert.equal(entitlements.ofOrganization(other.id).plan.id, 'family');
 });
 
-test('seats: false next to seatRoles: no seats to take, so drivers join freely; a product with seats caps only the drivers', (t) => {
+test('seats: false next to seatRoles: no seats to take, so agents join freely; a product with seats caps only the agents', (t) => {
   const { database, clock, entitlements, accounts, ada } = setup(t);
   const organizations = createOrganizations({
-    database, roles: ['owner', 'admin', 'member', 'driver'], seatRoles: ['driver'], seatsOf: entitlements.seatsOf, clock: () => clock.now,
+    database, roles: ['owner', 'admin', 'member', 'agent'], seatRoles: ['agent'], seatsOf: entitlements.seatsOf, clock: () => clock.now,
   });
   const billing = createBilling({
     database, entitlements, provider: signedProvider({ secret: SECRET }), clock: () => clock.now, log: () => {},
-    products: { ...FAMILY, 'fleet-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } },
+    products: { ...FAMILY, 'team-yearly': { plan: 'family', kind: 'subscription', for: 'organization' } },
   });
   const [bob, eve, dan, kim, lee] = ['bob', 'eve', 'dan', 'kim', 'lee'].map((username) => accounts.create({ username }));
   const buy = (organization, product) => billing.apply({
@@ -491,25 +492,25 @@ test('seats: false next to seatRoles: no seats to take, so drivers join freely; 
 
   const family = organizations.create({ name: 'Family', ownerId: ada.id });
   assert.equal(buy(family, 'family-pro'), 'granted');
-  for (const person of [bob, eve, dan]) assert.equal(code(() => organizations.addMember(family.id, person.id, 'driver')), 'ok');
+  for (const person of [bob, eve, dan]) assert.equal(code(() => organizations.addMember(family.id, person.id, 'agent')), 'ok');
   const { token } = organizations.invite(family.id, { role: 'member' });
   organizations.accept(token, kim.id);
-  assert.equal(code(() => organizations.setRole(family.id, kim.id, 'driver')), 'ok', 'moved into a seat role: there are no seats to take');
+  assert.equal(code(() => organizations.setRole(family.id, kim.id, 'agent')), 'ok', 'moved into a seat role: there are no seats to take');
   assert.equal(organizations.seatsTaken(family.id), 4);
 
-  // A product with seats: only the drivers count against them, as seatRoles says.
-  const fleet = organizations.create({ name: 'Fleet', ownerId: ada.id });
-  assert.equal(buy(fleet, 'fleet-yearly'), 'granted');
-  assert.equal(entitlements.seatsOf(fleet.id), 1);
-  assert.equal(code(() => organizations.addMember(fleet.id, bob.id, 'driver')), 'ok');
-  assert.equal(code(() => organizations.addMember(fleet.id, eve.id, 'driver')), '402 seats_full');
-  assert.equal(code(() => organizations.addMember(fleet.id, eve.id, 'admin')), 'ok', 'an admin takes no seat');
-  assert.equal(code(() => organizations.setRole(fleet.id, eve.id, 'driver')), '402 seats_full');
+  // A product with seats: only the agents count against them, as seatRoles says.
+  const desk = organizations.create({ name: 'Help desk', ownerId: ada.id });
+  assert.equal(buy(desk, 'team-yearly'), 'granted');
+  assert.equal(entitlements.seatsOf(desk.id), 1);
+  assert.equal(code(() => organizations.addMember(desk.id, bob.id, 'agent')), 'ok');
+  assert.equal(code(() => organizations.addMember(desk.id, eve.id, 'agent')), '402 seats_full');
+  assert.equal(code(() => organizations.addMember(desk.id, eve.id, 'admin')), 'ok', 'an admin takes no seat');
+  assert.equal(code(() => organizations.setRole(desk.id, eve.id, 'agent')), '402 seats_full');
 
   // A grant without a quantity sets no seats, like an admin's gift: one with a quantity still caps the group.
   const gift = entitlements.grant({ subjectType: 'organization', subjectId: family.id, plan: 'family', quantity: 4, source: 'admin' });
   assert.equal(entitlements.seatsOf(family.id), 4);
-  assert.equal(code(() => organizations.addMember(family.id, lee.id, 'driver')), '402 seats_full');
+  assert.equal(code(() => organizations.addMember(family.id, lee.id, 'agent')), '402 seats_full');
   entitlements.revoke({ id: gift });
   assert.equal(entitlements.seatsOf(family.id), null);
 });
@@ -535,7 +536,7 @@ test('seats is checked on start: only for a group\'s product, true or false, nev
 
   // config.js says it too, before any provider: what a family bought must not depend on the install.
   const product = (given) => ({
-    app: { id: 'focus', name: 'Focus', languages: ['en'] }, modules: { organizations: true, billing: true },
+    app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { organizations: true, billing: true },
     plans: { free: { name: 'Free', features: {} }, family: { name: 'Family', features: {} } }, products: given,
   });
   const errorsOf = (given, env = {}) => resolveConfig(product(given), { DATA_DIR: os.tmpdir(), ...env }).errors;
@@ -557,10 +558,10 @@ test('createSuite: a family bought through the webhook has no seats, and its own
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-family-'));
   const suite = createSuite({
     config: {
-      app: { id: 'focus', name: 'Focus', languages: ['en'] }, modules: { organizations: true, billing: true },
+      app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { organizations: true, billing: true },
       features: { 'routines.max': { type: 'limit', default: null }, live: { type: 'flag', default: true } },
       plans: { free: { name: 'Free', features: { 'routines.max': 5, live: false } }, pro: { name: 'Pro', features: {} } },
-      products: { 'focus-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } },
+      products: { 'group-pro-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false } },
     },
     env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', BILLING_PROVIDER: 'remote', BILLING_SECRET: SECRET },
     log: () => {}, exitOnError: false,
@@ -570,7 +571,7 @@ test('createSuite: a family bought through the webhook has no seats, and its own
   const home = suite.organizations.create({ name: 'Andersen', kind: 'family', ownerId: ada.id });
   suite.organizations.addMember(home.id, bob.id, 'admin');
   assert.equal(suite.billing.apply({
-    id: 'evt_1', type: 'subscription', ref: 'sub_1', subject: { type: 'organization', id: home.id }, product: 'focus-pro-yearly',
+    id: 'evt_1', type: 'subscription', ref: 'sub_1', subject: { type: 'organization', id: home.id }, product: 'group-pro-yearly',
     status: 'active', quantity: 1, periodEnd: new Date(Date.now() + 365 * DAY).toISOString(),
   }), 'granted');
   suite.organizations.addMember(home.id, eve.id, 'admin');
@@ -763,12 +764,12 @@ test('customerUnsigned: a customer the checkout didn\'t name is never linked, ne
   assert.equal(billing.customerOf({ type: 'user', id: eve.id }), null);
   assert.deepEqual(audit.list({ action: 'billing.customer_conflict' }).map((e) => e.action), ['billing.customer_conflict']);
 
-  // The same with a customer nobody here has: a Tracker buyer's, or one a checkout made unpaid.
-  assert.equal(sale('c3', { customer: 'ctm_tracker_buyer', customerUnsigned: true }), 'granted');
+  // The same with a customer nobody here has: another app's buyer's, or one a checkout made unpaid.
+  assert.equal(sale('c3', { customer: 'ctm_acme_buyer', customerUnsigned: true }), 'granted');
   assert.equal(billing.customerOf({ type: 'user', id: eve.id }), null, 'nobody\'s customer is not hers either');
-  assert.equal(database.get("SELECT COUNT(*) AS n FROM billing_customers WHERE customer_id = 'ctm_tracker_buyer'").n, 0);
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM billing_customers WHERE customer_id = 'ctm_acme_buyer'").n, 0);
   assert.deepEqual(audit.list({ action: 'billing.customer_unvouched' }).map((e) => e.action), ['billing.customer_unvouched']);
-  // Without a link there is no portal to open: not Ada's, not the Tracker buyer's.
+  // Without a link there is no portal to open: not Ada's, not another app's buyer's.
   await assert.rejects(() => billing.portalUrl({ type: 'user', id: eve.id }, { returnUrl: 'https://work.example/' }), { code: 'no_customer' });
 
   // A customer the checkout named (signed) is linked as always.
@@ -931,10 +932,10 @@ test('a subscription paid back in full ends now at the provider: asked once, aga
   assert.equal(asked.length, before);
 
   // Not one of this install's (another product's, on the same account), nor a one-off purchase: nothing asked.
-  assert.equal(billing.apply({ id: 'r3', type: 'refund', ref: 'sub_tracker', subscription: true, occurredAt: at() }), 'nothing');
+  assert.equal(billing.apply({ id: 'r3', type: 'refund', ref: 'sub_acme', subscription: true, occurredAt: at() }), 'nothing');
   assert.equal(billing.apply({ id: 'r4', type: 'refund', ref: 'txn_once', occurredAt: at() }), 'nothing');
   await settle();
-  assert.equal(stop('sub_tracker'), null);
+  assert.equal(stop('sub_acme'), null);
   assert.equal(stop('txn_once'), null);
   assert.equal(asked.length, before);
 });

@@ -36,7 +36,7 @@
  * Only the modules the person uses are asked, all at once and in their zone. One that fails is
  * left out and named (`failed`), never the whole answer, as in the calendar.
  */
-import { badRequest, unauthorized, sendJson, isoDate } from './http.js';
+import { badRequest, unauthorized, sendJson, isoDate, isObject } from './http.js';
 import { inZoneOf, todayFor, zoneOf, dayIn, addDays } from './time.js';
 import { readPrefs } from './prefs.js';
 
@@ -77,8 +77,6 @@ const STEP = /^(?:[01]\d|2[0-3]):[0-5][05]$/;
 /** People whose devices are asked for at once. */
 const PEOPLE_AT_ONCE = 200;
 
-const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
 /* ------------------------------ preferences ------------------------------ */
 
 /**
@@ -91,10 +89,10 @@ const isPlain = (value) => Boolean(value) && typeof value === 'object' && !Array
  */
 export function dayPrefsOf(raw) {
   const prefs = readPrefs(raw);
-  const stored = isPlain(prefs.day) ? prefs.day : {};
+  const stored = isObject(prefs.day) ? prefs.day : {};
   const one = (kind, on) => {
-    const given = isPlain(stored[kind]) ? stored[kind] : {};
-    const out = isPlain(given.modules)
+    const given = isObject(stored[kind]) ? stored[kind] : {};
+    const out = isObject(given.modules)
       ? Object.entries(given.modules).filter(([mount, kept]) => MOUNT.test(mount) && kept === false).slice(0, MODULES_MAX)
       : [];
     return {
@@ -123,13 +121,13 @@ export const DAY_PREFS = Object.freeze({
     if (!('day' in changes)) return current;
     const sent = changes.day;
     const invalid = () => badRequest('field_invalid', { field: 'day' });
-    if (!isPlain(sent)) throw invalid();
+    if (!isObject(sent)) throw invalid();
     const day = {
       morning: { ...current.day.morning, modules: { ...current.day.morning.modules } },
       evening: { ...current.day.evening, modules: { ...current.day.evening.modules } },
     };
     for (const [kind, value] of Object.entries(sent)) {
-      if (!DAY_NOTICES.includes(kind) || !isPlain(value)) throw invalid();
+      if (!DAY_NOTICES.includes(kind) || !isObject(value)) throw invalid();
       if ('on' in value) {
         if (typeof value.on !== 'boolean') throw invalid();
         day[kind].on = value.on;
@@ -139,7 +137,7 @@ export const DAY_PREFS = Object.freeze({
         day[kind].at = value.at;
       }
       if ('modules' in value) {
-        if (!isPlain(value.modules)) throw invalid();
+        if (!isObject(value.modules)) throw invalid();
         for (const [mount, kept] of Object.entries(value.modules)) {
           if (!MOUNT.test(mount) || typeof kept !== 'boolean') throw invalid();
           if (kept) delete day[kind].modules[mount];
@@ -160,7 +158,7 @@ const keyOf = (item) => `${item.module}:${item.type}:${item.id}`;
 
 /** An open thing as the page shows it, from what its module gave; null for one that can't be shown. */
 function agendaItemOf(m, raw, today) {
-  if (!isPlain(raw)) return null;
+  if (!isObject(raw)) return null;
   const id = idOf(raw);
   const date = isoDate(raw.date);
   // After today it is no business of today's: the module's mistake, and nothing to show here.
@@ -178,7 +176,7 @@ function agendaItemOf(m, raw, today) {
  * against the day: each module reads its own day in the person's zone, from what it stores.
  */
 function doneItemOf(m, raw) {
-  if (!isPlain(raw)) return null;
+  if (!isObject(raw)) return null;
   const id = idOf(raw);
   const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
   if (typeof raw.type !== 'string' || !raw.type || id === null || Number.isNaN(at) || !DONE_KINDS.includes(raw.kind)) return null;
@@ -269,7 +267,7 @@ export function createDay({ modules, uses = () => true, icon = (m) => m.config.a
    */
   async function agenda(user, { today }, { using } = {}) {
     const asked = await ask(user, 'agenda', { today }, (m, given) => {
-      const list = Array.isArray(given) ? given : isPlain(given) && Array.isArray(given.items) ? given.items : null;
+      const list = Array.isArray(given) ? given : isObject(given) && Array.isArray(given.items) ? given.items : null;
       if (!list) throw new Error('its agenda gave no list');
       const items = once(list.map((raw) => agendaItemOf(m, raw, today)).filter(Boolean).sort(byDate));
       // Its oldest overdue and all of today's, each up to the cap: the overdue never push today's out.

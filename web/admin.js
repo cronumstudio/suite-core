@@ -10,6 +10,7 @@ import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, 
 import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
+import { dayKey } from './days.js';
 
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
@@ -642,7 +643,8 @@ function userDialog(user) {
           if (!(await confirmDialog(t('admin.users.signOutConfirm', { name: user.display_name }), { confirm: t('admin.users.signOut') }))) return;
           try {
             const { closed } = await api.delete(`/api/admin/users/${user.id}/sessions`);
-            toast(`${t('admin.users.signedOut', { n: closed })} ${t('admin.users.signedOutMore')}`);
+            // Two sentences, so both with their full stop (rule 25): the first is a notice of its own elsewhere.
+            toast(`${t('admin.users.signedOut', { n: closed })}. ${t('admin.users.signedOutMore')}`);
             // Their phones went with the sessions.
             if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
           } catch (err) { fail(err); }
@@ -2028,7 +2030,8 @@ function payoutDialog(code) {
   const amount = el('input', { inputmode: 'decimal', autocomplete: 'off', value: String(Math.max(0, code.figures.balance) / 100) });
   const method = el('input', { maxlength: '80', autocomplete: 'off', placeholder: t('admin.affiliates.methodHint') });
   const reference = el('input', { maxlength: '120', autocomplete: 'off' });
-  const day = el('input', { type: 'date', value: new Date().toISOString().slice(0, 10) });
+  // Today where the person noting it is: UTC's day is still yesterday in Madrid after midnight.
+  const day = el('input', { type: 'date', value: dayKey(new Date()) });
   const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
   formDialog({
     title: t('admin.affiliates.recordPayout'),

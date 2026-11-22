@@ -187,6 +187,21 @@ export function shareLanguage(lang = language) {
   return true;
 }
 
+/**
+ * With the browser's language in charge ('auto'), the server is told which one it resolved
+ * (`prefs.lang_seen`): what it writes in where no browser takes part (the notices, the daily
+ * summary, a list an assistant creates). Once per change, and never if they chose a language:
+ * kept in `user.prefs`, so the next call sends nothing. `send` is how the app writes
+ * `PATCH /api/me`; it is only a hint, so a failure is not an error for anyone.
+ * @returns {string|null} the language sent, or null when nothing went
+ */
+export function reportLanguage(user, lang, { send }) {
+  if (!user || !lang || (user.prefs?.lang ?? 'auto') !== 'auto' || user.prefs?.lang_seen === lang) return null;
+  user.prefs = { ...user.prefs, lang_seen: lang };
+  Promise.resolve().then(() => send({ prefs: { lang_seen: lang } })).catch(() => { /* it is only a hint */ });
+  return lang;
+}
+
 export const currentLanguage = () => language;
 
 /** The text of a key, with its placeholders filled (numbers written by Intl); plurals picked with `n`. */
@@ -289,3 +304,65 @@ export function instant(value) {
 }
 
 export const formatDate = (iso) => formatDateTime(iso, { dateStyle: 'medium' });
+
+/* ------------------------- short dates, times, ago ------------------------- */
+
+/** A day ("2026-03-14", taken as the local day it names) or a moment (instant), as a Date or null. */
+function dayOrInstant(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const text = String(value ?? '');
+  const day = /^(\d{4})-(\d\d)-(\d\d)$/.exec(text);
+  return day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : instant(text);
+}
+
+const thisYear = (date) => date.getFullYear() === new Date().getFullYear();
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+/**
+ * "14 mar", or "14 mar 2027" when it isn't this year, written by Intl in the language in use: the
+ * short date of every module (audit of 6/11, ux-acciones-18). A day ("2026-03-14") is the local day
+ * it names; a moment from the server (ISO, or SQLite's "2026-03-14 15:52:00" in UTC) the day it is
+ * here. An empty string for none.
+ */
+export function shortDate(value) {
+  const date = dayOrInstant(value);
+  if (!date) return '';
+  return dateFormat(thisYear(date) ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })
+    .format(date);
+}
+
+/**
+ * The hour and minute, the one way each language writes them ("3:52 PM", "15:52", "09:10"): Intl's
+ * short time style, the same in every module (Tasks wrote "09:10 AM" in English beside "9:10 AM").
+ */
+export function timeText(value) {
+  const date = dayOrInstant(value);
+  return date ? dateFormat({ timeStyle: 'short' }).format(date) : '';
+}
+
+/**
+ * When, short: the time today, the short date before (shortDate). With `time`, the time after the
+ * date too ("14 mar, 15:52"): when a version was saved.
+ */
+export function shortStamp(value, { time = false } = {}) {
+  const date = dayOrInstant(value);
+  if (!date) return '';
+  if (sameDay(date, new Date())) return timeText(date);
+  // Each half written its one way, so the time reads as timeText writes it everywhere else.
+  return time ? `${shortDate(date)}, ${timeText(date)}` : shortDate(date);
+}
+
+/**
+ * "today", "yesterday", "3 days ago", "2 months ago", "1 year ago", by calendar days here, written
+ * by Intl; `short`, the abbreviated form where the language has one. An empty string for none.
+ */
+export function timeAgo(value, { short = false } = {}) {
+  const date = dayOrInstant(value);
+  if (!date) return '';
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const days = Math.round((midnight(new Date()) - midnight(date)) / 86400000);
+  const words = cached('ago', { short }, () => new Intl.RelativeTimeFormat(language, { numeric: 'auto', style: short ? 'short' : 'long' }));
+  if (days < 45) return words.format(-days, 'day');
+  if (days < 365) return words.format(-Math.round(days / 30), 'month');
+  return words.format(-Math.round(days / 365), 'year');
+}

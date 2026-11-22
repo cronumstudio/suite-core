@@ -1,11 +1,12 @@
 /**
- * Catalog checks, for the suite's own texts and for each app's (taken from
- * Focus's tools/i18n.mjs):
+ * Catalog checks, for the suite's own texts and for each app's:
  *
- *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]… [--kit-words]
+ *   node server/suite/tools/i18n.mjs app [root] [--skip <file>]… [--allow <word>]… [--kit-words]
  *                                                            all of the below for an app, as its tests run them
  *   node server/suite/tools/i18n.mjs parity [dir]            every language says the same things
  *   node server/suite/tools/i18n.mjs used <dir> <src>…       every key the code uses exists
+ *   node server/suite/tools/i18n.mjs unused [--skip <file>]… <dir> <src>…
+ *                                                            the keys of <dir> that no code under <src> reads
  *   node server/suite/tools/i18n.mjs hardcoded <src>…        no text for people written in the code
  *   node server/suite/tools/i18n.mjs hardcoded --server [--skip <file>]… <src>…
  *                                                            no text in another language on the server
@@ -19,6 +20,19 @@
  * the plural forms each language uses (from Intl.PluralRules; "many", which
  * only big round numbers take, may be left to "other"), exact forms like "=0"
  * wherever English has them, and nothing left as "TODO".
+ *
+ * Unused: the keys of `<dir>/en.json` alone (not merged) that no code under the
+ * folders given reads (unusedKeys). The suite's are read by the kit, every module
+ * and Work; a module's by its own code and by the kit, which builds `errors.…`,
+ * `fields.…` and `data.tables.…` keys and reads every suite key a module
+ * overrides (a `suite` folder is only read when it is named):
+ *
+ *   node tools/i18n.mjs unused i18n . ../tasks ../projects ../notes ../next ../work
+ *   node server/suite/tools/i18n.mjs unused public/i18n public server scripts server/suite --skip smoke-test.js
+ *
+ * A key the code builds (`errors.${code}`) keeps every key under what it starts
+ * with: the output names each such prefix, where it is built and how many keys
+ * it keeps, which only reading that code can clear.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -140,10 +154,12 @@ export function unknownKeys(english, dirs) {
 
 /**
  * Names that are the same in every language: the brand that signs every app,
- * the products and the protocols. An app adds its own with `allow`.
+ * the suite's own apps and the protocols. An app adds its own name, and any
+ * other, with `allow` (`--allow <word>` on the command line), or marks the
+ * line that writes it `i18n-exempt`, saying why.
  */
 export const BRAND_WORDS = [
-  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Focus', 'Notes', 'Tracker',
+  'by', 'Cronum', 'Cronum Studio', 'Cronum Work', 'Tasks', 'Projects', 'Next', 'Notes',
   'MCP', 'OAuth', 'WorkOS', 'Claude', 'ChatGPT', 'English', 'Español', 'Français', 'Deutsch',
 ];
 
@@ -409,7 +425,8 @@ const SHARED_WORD = /^(?:kit|fields)\.[^.]+$/;
  * `dir` is the app's public/i18n.
  * → ['common.cancel: say kit.cancel', …]
  */
-export function kitDuplicates(dir, languages = LANGUAGES) {
+export function kitDuplicates(dir, languages = LANGUAGES, { allow = [], overrides = false } = {}) {
+  const allowed = new Set(allow.map((entry) => (typeof entry === 'string' ? entry : entry.key)));
   const own = {};
   for (const lang of languages) {
     try {
@@ -426,8 +443,12 @@ export function kitDuplicates(dir, languages = LANGUAGES) {
   const words = Object.keys(suite).filter((key) => SHARED_WORD.test(key)).sort((a, b) => a.length - b.length);
   const found = [];
   for (const key of Object.keys(own.en || {})) {
+    if (allowed.has(key)) continue;
     if (key in suite) {
       if (same(key, key)) found.push(`${key}: the suite's own text in every language, nothing to override`);
+      // With `overrides`, a word of the kit is the kit's in every module (audit of 6/11,
+      // ux-textos-20): an app saying it otherwise is told, unless it says why (`allow`).
+      else if (overrides && /^kit\./.test(key)) found.push(`${key}: a word of the kit, said otherwise by the app`);
       continue;
     }
     // The suite's own groups (errors.<code>, fields.<name>) are looked up by the name the server
@@ -437,6 +458,96 @@ export function kitDuplicates(dir, languages = LANGUAGES) {
     if (word) found.push(`${key}: say ${word}, the same in every language`);
   }
   return found;
+}
+
+/* ------------------------------- typography ------------------------------- */
+
+/**
+ * Texts written the way the suite writes them (audit of 6/11, ux-textos-14 and -17): quotes are the
+ * language's own («…», “…”, „…“), never straight ones; an apostrophe is ’, never '; and a way through
+ * menus reads with ›, never →. `dir` is a catalog folder (an app's public/i18n, or the suite's);
+ * `allow`, keys left out, with why: a text that must stay as another place has it word for word
+ * (an assistant's instructions the server gives too).
+ * → ['es.json app.moved: a straight quote ("), say «…»', …]
+ */
+export function typography(dir, languages = LANGUAGES, { allow = [] } = {}) {
+  const allowed = new Set(allow.map((entry) => (typeof entry === 'string' ? entry : entry.key)));
+  const QUOTE = { es: '«…»', en: '“…”', fr: '« … »', de: '„…“', it: '“…”' };
+  const found = [];
+  for (const lang of languages) {
+    let catalog;
+    try {
+      catalog = flatten(JSON.parse(readFileSync(path.join(dir, `${lang}.json`), 'utf8')));
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw new Error(`${lang}.json: ${err.message}`);
+    }
+    for (const [key, value] of Object.entries(catalog)) {
+      if (allowed.has(key)) continue;
+      const texts = typeof value === 'string' ? [value] : Object.values(value || {});
+      for (const text of texts) {
+        if (typeof text !== 'string') continue;
+        if (text.includes('"')) found.push(`${lang}.json ${key}: a straight quote ("), say ${QUOTE[lang] || '“…”'}`);
+        if (/\p{L}'\p{L}/u.test(text)) found.push(`${lang}.json ${key}: a straight apostrophe ('), say ’`);
+        if (text.includes(' → ')) found.push(`${lang}.json ${key}: a way through menus with →, say ›`);
+      }
+    }
+  }
+  return [...new Set(found)];
+}
+
+/* ------------------------------- unused keys ------------------------------ */
+
+/** What a key looks like inside a literal: dotted words (`kit.cancel`, `errors.not_found`). */
+const KEY_LIKE = /[\w-]+(?:\.[\w-]+)+/g;
+/** The text a key built in the code starts with: dotted words, the last one maybe cut (`kit.split.layout`). */
+const PREFIX_LIKE = /^[\w-]+\.[\w.-]*$/;
+
+/**
+ * The keys of a catalog that no code reads → { unused: [key…], prefixes: [{ prefix, files, keys }] }.
+ *
+ * `keys` are the catalog's (a module's own, or the suite's); `dirs` the folders whose code may read
+ * them: a module's keys its own code and the kit's, the suite's the kit's and every module's and
+ * Work's (tests, others' code and `suite` folders found inside them are left out, as sources()
+ * does, and the files `skip` names).
+ * A key is read where a literal of the code names it in full (t('…'), an object of keys, data-i18n
+ * and data-i18n-attr in the HTML), comments and regular expressions aside. Code that builds keys
+ * keeps every key under what it starts with: a template literal (`errors.${code}`), a string
+ * joined with `+`, or a string of two dotted words or more ending in a dot (`'home.modules.'`,
+ * handed to code that adds the rest). `prefixes` names each, the files that build it and how many
+ * keys it keeps that nothing names in full: those may be unused too, and only reading that code
+ * says. Nor is a key read through a name made some other way seen: check before taking one out.
+ */
+export function unusedKeys(keys, dirs, { skip = [] } = {}) {
+  const named = new Set();
+  const built = new Map();
+  const builds = (prefix, file) => built.set(prefix, new Set([...(built.get(prefix) || []), file]));
+  for (const file of sources(dirs, skip)) {
+    const source = readFileSync(file, 'utf8');
+    if (file.endsWith('.html')) {
+      for (const [key] of source.matchAll(KEY_LIKE)) named.add(key);
+      continue;
+    }
+    const { masked, literals } = scanLiterals(source);
+    for (const { start, text, kind } of literals) {
+      const [first, ...rest] = text.split('${}');
+      // A literal that is a key, dotted or not (a plan's name, 'Free'), or that has dotted ones in it.
+      for (const part of [first, ...rest]) {
+        named.add(part);
+        for (const [key] of part.matchAll(KEY_LIKE)) named.add(key);
+      }
+      if (!PREFIX_LIKE.test(first)) continue;
+      // Just after the literal's closing quote (or backtick) in the masked code, which keeps every place.
+      const end = masked.indexOf(masked[start], start + 1) + 1;
+      const joined = /^\s*\+/.test(masked.slice(end, end + 20));
+      if ((kind === 'template' && rest.length) || joined || (first.endsWith('.') && first.split('.').length > 2)) builds(first, file);
+    }
+  }
+  const prefixes = [...built].map(([prefix, files]) => ({
+    prefix, files: [...files], keys: keys.filter((key) => key.startsWith(prefix) && !named.has(key)).length,
+  })).filter((entry) => entry.keys > 0).sort((a, b) => a.prefix.localeCompare(b.prefix));
+  const unused = keys.filter((key) => !named.has(key) && !prefixes.some(({ prefix }) => key.startsWith(prefix)));
+  return { unused, prefixes };
 }
 
 /* -------------------------------- an app's -------------------------------- */
@@ -451,7 +562,8 @@ export function kitDuplicates(dir, languages = LANGUAGES) {
  * already says (kitDuplicates).
  * → [{ name, problems }], for the app's tests to turn into checks.
  */
-export function appChecks(root, { skip = [], allow = [], kitWords = false } = {}) {
+export function appChecks(root, { skip = [], allow = [], kitWords = false, kitOverrides = false, kitAllow = [], typography: typed = false } = {}) {
+  // `typography`: true, or { allow } with the keys it leaves out.
   const dir = path.join(root, 'public', 'i18n');
   const publicDir = path.join(root, 'public');
   const serverDir = path.join(root, 'server');
@@ -471,7 +583,8 @@ export function appChecks(root, { skip = [], allow = [], kitWords = false } = {}
     { name: 'Every key the browser and the server use (t(), data-i18n, data-i18n-attr) is in the catalogs', problems: unknownKeys(catalogs.en, [publicDir, serverDir]) },
     { name: 'No text for people is written in the browser’s code or in the HTML', problems: hardcodedTexts([publicDir], { allow, skip }) },
     { name: 'Nothing on the server is written in another language: what people read comes from the catalogs', problems: hardcodedTexts([serverDir], { server: true, allow, skip }) },
-    ...(kitWords ? [{ name: 'No key of the app repeats what a word of the kit already says (kit.cancel, fields.name…)', problems: kitDuplicates(dir, languages) }] : []),
+    ...(kitWords ? [{ name: 'No key of the app repeats what a word of the kit already says (kit.cancel, fields.name…)', problems: kitDuplicates(dir, languages, { allow: kitAllow, overrides: kitOverrides }) }] : []),
+    ...(typed ? [{ name: 'Quotes, apostrophes and ways through menus are written as the suite writes them («…», ’, ›)', problems: typography(dir, languages, { allow: typed.allow || [] }) }] : []),
   ];
 }
 
@@ -482,14 +595,18 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     let problems;
     if (command === 'app') {
       const skip = [];
+      const allow = [];
       let root = '.';
       let kitWords = false;
+      let typed = false;
       for (let i = 0; i < args.length; i++) {
         if (args[i] === '--skip') skip.push(args[++i]);
+        else if (args[i] === '--allow') allow.push(args[++i]);
         else if (args[i] === '--kit-words') kitWords = true;
+        else if (args[i] === '--typography') typed = true;
         else root = args[i];
       }
-      const checks = appChecks(path.resolve(root), { skip, kitWords });
+      const checks = appChecks(path.resolve(root), { skip, allow, kitWords, typography: typed });
       for (const { name, problems: found } of checks) {
         console.log(`${found.length ? '✗' : '✓'} ${name}`);
         for (const problem of found.slice(0, 20)) console.log(`    ${problem}`);
@@ -506,14 +623,39 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
         else folders.push(path.resolve(args[i]));
       }
       problems = hardcodedTexts(folders, options).map((f) => `written in the code: ${f}`);
+    } else if (command === 'typography') {
+      problems = typography(dir ? path.resolve(dir) : fileURLToPath(new URL('../i18n/', import.meta.url)));
+      if (!problems.length) console.log('Quotes, apostrophes and menu paths are written as the suite writes them');
     } else if (command === 'kit-words') {
       problems = dir ? kitDuplicates(path.resolve(dir)) : ['Use: kit-words <dir>'];
       if (!problems.length) console.log('No key repeats a word of the kit');
+    } else if (command === 'unused') {
+      const skip = [];
+      const [catalogDir, ...readers] = args.filter((arg, i) => {
+        if (arg === '--skip') skip.push(args[i + 1]);
+        return arg !== '--skip' && args[i - 1] !== '--skip';
+      });
+      if (!catalogDir) {
+        problems = ['Use: unused [--skip <file>]… <dir> <source folders…>'];
+      } else {
+        const keys = Object.keys(flatten(JSON.parse(readFileSync(path.resolve(catalogDir, 'en.json'), 'utf8'))));
+        const folders = (readers.length ? readers : ['.']).map((folder) => path.resolve(folder));
+        const { unused, prefixes } = unusedKeys(keys, folders, { skip });
+        if (prefixes.length) console.log('Kept because the code builds keys under them (each key under one counts as read):');
+        for (const { prefix, files, keys: kept } of prefixes) {
+          const where = files.map((file) => path.relative(process.cwd(), file).replace(/\\/g, '/'));
+          console.log(`  ${prefix}…  ${kept} key${kept === 1 ? '' : 's'} nothing names in full; built in ${where.slice(0, 3).join(', ')}${where.length > 3 ? ` and ${where.length - 3} more` : ''}`);
+        }
+        console.log(unused.length ? `${unused.length} of the ${keys.length} keys of ${catalogDir} that nothing reads:` : `Every key of ${catalogDir} is read (${keys.length})`);
+        for (const key of unused) console.log(`  ${key}`);
+        if (unused.length) process.exitCode = 1;
+        problems = [];
+      }
     } else {
       const catalogs = catalogsOf(dir ? path.resolve(dir) : null);
       problems = command === 'parity' ? parity(catalogs)
         : command === 'used' ? unknownKeys(catalogs.en, rest.length ? rest : [process.cwd()]).map((k) => `not in any catalog: ${k}`)
-          : [`Use: app [root] [--skip <file>]… [--kit-words] | parity [dir] | used <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir>`];
+          : [`Use: app [root] [--skip <file>]… [--allow <word>]… [--kit-words] [--typography] | parity [dir] | used <dir> <source folders…> | unused [--skip <file>]… <dir> <source folders…> | hardcoded [--server] [--skip <file>]… <source folders…> | kit-words <dir> | typography [dir]`];
       if (!problems.length) {
         console.log(command === 'parity'
           ? `Catalog parity: ${Object.keys(catalogs).length} languages, ${Object.keys(catalogs.en).length} keys`

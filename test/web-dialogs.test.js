@@ -22,7 +22,7 @@ const { showModal, close } = FakeElement.prototype;
 FakeElement.prototype.showModal = function showOpen() { showModal.call(this); this.setAttribute('open', ''); };
 FakeElement.prototype.close = function closeOpen() { this.removeAttribute('open'); close.call(this); };
 
-const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, QUESTION_WIDTH, menu, closeMenu, moreButton } = await import('../web/ui.js');
+const { openDialog, formDialog, confirmDialog, deleteDialog, undoToast, trashKeeps, QUESTION_WIDTH, menu, closeMenu, moreButton } = await import('../web/ui.js');
 const { el } = await import('../web/dom.js');
 
 const buttonsOf = (node) => node.find('button').filter((b) => (b.getAttribute('class') || '').includes('kit-btn'));
@@ -339,6 +339,12 @@ test('deleteDialog and undoToast: the question with its name and a red button, a
   assert.deepEqual(undone, [true]);
 });
 
+test('trashKeeps: the plan\'s days above a trash\'s rows, or until it is emptied', () => {
+  assert.equal(trashKeeps(30), 'kit.trash.keepDays');
+  assert.equal(trashKeeps(null), 'kit.trash.keepForever', 'a plan that keeps it all');
+  assert.equal(trashKeeps(undefined), 'kit.trash.keepForever');
+});
+
 /* ---------------------------------- menus --------------------------------- */
 
 test('menu: at a pointer\'s place, in a module\'s own place, with emoji in place of icons', async () => {
@@ -472,4 +478,58 @@ test('a sheet’s field to type in rides on the keyboard in the iPhone app, as W
   assert.equal((keyboard.match(/const KEYBOARD_MIN = /g) || []).length, 1);
   assert.match(keyboard, /const riseKey = \(full\) => `cw-keyboard-rise:\$\{window\.innerWidth\}x\$\{full\}`;/);
   assert.match(css, /\.kit-dialog\[data-riding\] \{/);
+});
+
+test('stamps: who made an item and who changed it, in the kit words, the change only when it is not the creation', async () => {
+  const { stamps } = await import('../web/ui.js');
+  const format = (value) => `@${value}`;
+  // No catalog is loaded here: t() answers with the key, so the lines say which words were taken.
+  assert.deepEqual(stamps({}, { format }), ['kit.stamps.created']);
+  assert.deepEqual(stamps({ author: 'Ana' }, { format }), ['kit.stamps.createdBy']);
+  assert.deepEqual(stamps({ created: 'a' }, { format }), ['kit.stamps.createdAt']);
+  assert.deepEqual(stamps({ author: 'Ana', created: 'a', updated: 'a' }, { format }), ['kit.stamps.createdByAt']);
+  assert.deepEqual(stamps({ author: 'Ana', created: 'a', editor: 'Luis', updated: 'b' }, { format }),
+    ['kit.stamps.createdByAt', 'kit.stamps.modifiedBy']);
+  assert.deepEqual(stamps({ created: 'a', updated: 'b', completed: 'c' }, { format }),
+    ['kit.stamps.createdAt', 'kit.stamps.modified', 'kit.stamps.completed']);
+  // The five catalogs carry the same words.
+  const fs = await import('node:fs');
+  const keys = ['at', 'created', 'createdAt', 'createdBy', 'createdByAt', 'modified', 'modifiedBy', 'via', 'completed'];
+  for (const lang of ['en', 'es', 'fr', 'de', 'it']) {
+    const catalog = JSON.parse(fs.readFileSync(new URL(`../i18n/${lang}.json`, import.meta.url), 'utf8'));
+    for (const key of keys) assert.ok(catalog[`kit.stamps.${key}`], `${lang} kit.stamps.${key}`);
+  }
+});
+
+test('dialogs: one look from the kit, no line under the title nor over the buttons', async () => {
+  const fs = await import('node:fs');
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  for (const part of ['header', 'body', 'footer']) {
+    const rules = css.match(new RegExp(`\\.kit-dialog__${part} \\{[^}]*\\}`, 'g')) || [];
+    assert.ok(rules.length, part);
+    for (const rule of rules) assert.doesNotMatch(rule, /border-(block|top|bottom)/, rule);
+  }
+});
+
+test('a dialog opened from a menu gives the focus back to the menu\'s button once closed (ui-dialogos-16)', () => {
+  const focused = [];
+  const anchor = el('button', { type: 'button' });
+  anchor.focus = () => { focused.push('anchor'); document.activeElement = anchor; };
+  document.body.append(anchor);
+  let opened = null;
+  const node = menu(anchor, [{ label: 'Public page', onClick: () => { opened = openDialog({ title: 'Public page' }); } }]);
+  // The entry that had the focus goes with the menu: the browser leaves it on the body.
+  document.activeElement = document.body;
+  node.find('button')[0].dispatch('click');
+  assert.equal(opened?.dialog.open, true);
+  opened.close();
+  assert.deepEqual(focused, ['anchor'], 'back on «…», not lost on the body');
+
+  // A dialog opened afterwards from elsewhere has nothing to do with that menu.
+  document.activeElement = document.body;
+  const later = openDialog({ title: 'Another' });
+  later.close();
+  assert.deepEqual(focused, ['anchor']);
+  delete document.activeElement;
+  anchor.remove();
 });

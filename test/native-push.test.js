@@ -699,7 +699,6 @@ test('over HTTP, option off: no routes, the device list as before, and nothing n
   const phone = await device();
   assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).status, 404);
   assert.equal((await call('DELETE', '/api/devices/push', undefined, phone.auth)).status, 404);
-  assert.equal((await call('POST', '/api/devices/push/test', {}, phone.auth)).status, 404);
   assert.equal('notifications' in (await web('GET', '/api/me/devices')).data[0], false);
 });
 
@@ -727,14 +726,13 @@ test('over HTTP: the app registers its token with its device token, checked, and
   assert.equal((await web('GET', '/api/me/devices')).data[0].notifications, true);
   assert.equal((await register({ platform: 'ios', token: IOS_TOKEN })).data.environment, 'production', 'production unless it says');
 
-  // Without APNs' credentials the test notice is a failure, said, and the token kept.
-  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 1 });
-  // Web Push's own test reaches the phone too: one send for both.
+  // Without APNs' credentials the test notice is a failure, said, and the token kept. Web Push's
+  // own test reaches the phone too: one send for both.
   assert.deepEqual((await web('POST', '/api/push/test', {})).data, { sent: 0, gone: 0, failed: 1 });
 
   assert.equal((await call('DELETE', '/api/devices/push', undefined, phone.auth)).status, 200);
   assert.equal((await web('GET', '/api/me/devices')).data[0].notifications, false);
-  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 0, no_token: true });
+  assert.deepEqual((await web('POST', '/api/push/test', {})).data, { sent: 0, gone: 0, failed: 0, no_devices: true });
 
   const tablet = await device('android');
   assert.equal((await register({ platform: 'android', token: ANDROID_TOKEN, environment: 'production' }, tablet.auth)).data.environment, null);
@@ -742,6 +740,80 @@ test('over HTTP: the app registers its token with its device token, checked, and
   assert.equal((await web('DELETE', `/api/me/devices/${tablet.id}`)).status, 200);
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM device_push_tokens').n, 0);
   assert.equal((await register({ platform: 'android', token: ANDROID_TOKEN }, tablet.auth)).status, 401);
+});
+
+test('over HTTP: Settings › Notifications lists the phones with the app beside the browsers, each one removable', async (t) => {
+  const { suite, call, web, device } = await startApp(t);
+  const register = (phone, platform = 'ios') => call('POST', '/api/devices/push',
+    { platform, token: platform === 'ios' ? IOS_TOKEN : ANDROID_TOKEN }, phone.auth);
+  const phone = await device();
+  const tablet = await device('android');
+  // A phone connected but without notices allowed isn't one that gets them.
+  await device();
+  assert.equal((await register(phone)).status, 200);
+  assert.equal((await register(tablet, 'android')).status, 200);
+  const listed = (await web('GET', '/api/push/devices')).data;
+  assert.deepEqual(listed.map(({ id, name, platform, phone: isPhone }) => ({ id, name, platform, phone: isPhone })), [
+    { id: phone.id, name: 'Phone', platform: 'ios', phone: true },
+    { id: tablet.id, name: 'Phone', platform: 'android', phone: true },
+  ], 'what the test reaches is what the list says (it said «no device» while a phone rang)');
+  assert.ok(listed.every((row) => row.created_at && !('token' in row) && !row.current), 'when it came; never the token');
+  assert.equal((await web('POST', '/api/push/test', {})).data.no_devices, undefined, 'and the test goes to them');
+
+  // Inside the app on the phone, its own row is this device (the web session it opened, devices.webSessions).
+  const admin = suite.accounts.byUsername('admin');
+  const inApp = suite.sessions.open(admin.id, { deviceId: phone.id });
+  const own = (await call('GET', '/api/push/devices', undefined, { Cookie: `work_sid=${inApp}` })).data;
+  assert.deepEqual(own.map((row) => Boolean(row.current)), [true, false]);
+
+  // «Remove»: its token goes, nothing more reaches it, and it stays signed in.
+  assert.equal((await web('DELETE', `/api/push/phones/${tablet.id}`)).status, 200);
+  assert.equal((await web('DELETE', `/api/push/phones/${tablet.id}`)).status, 404, 'once');
+  assert.deepEqual((await web('GET', '/api/push/devices')).data.map((row) => row.id), [phone.id]);
+  assert.deepEqual(suite.database.all('SELECT device_id FROM device_push_tokens').map((row) => row.device_id), [phone.id]);
+  assert.equal(suite.devices.isActive(tablet.id), true, 'still signed in');
+  // Someone else's phone, or what isn't a phone's id, is no phone of theirs.
+  const bea = suite.accounts.create({ username: 'bea', password: 'bea-password' });
+  const beas = suite.sessions.open(bea.id);
+  assert.equal((await call('DELETE', `/api/push/phones/${phone.id}`, undefined, { Cookie: `work_sid=${beas}` })).status, 404);
+  assert.deepEqual((await call('GET', '/api/push/devices', undefined, { Cookie: `work_sid=${beas}` })).data, []);
+  for (const junk of ['abc', '0', '-1', '99999']) assert.equal((await web('DELETE', `/api/push/phones/${junk}`)).status, 404);
+  assert.equal((await call('DELETE', `/api/push/phones/${phone.id}`)).status, 401, 'signed in only');
+  assert.deepEqual(suite.database.all('SELECT device_id FROM device_push_tokens').map((row) => row.device_id), [phone.id]);
+  // The app opened there again with notices allowed: back on the list, as a browser turned on again.
+  assert.equal((await register(tablet, 'android')).status, 200);
+  assert.deepEqual((await web('GET', '/api/push/devices')).data.map((row) => row.id), [phone.id, tablet.id]);
+});
+
+test('over HTTP: closing a phone app’s session in Where you’re signed in signs the phone out, and its notices go', async (t) => {
+  const { suite, call, web, device } = await startApp(t);
+  const admin = suite.accounts.byUsername('admin');
+  const phone = await device();
+  const tablet = await device('android');
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).status, 200);
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'android', token: ANDROID_TOKEN }, tablet.auth)).status, 200);
+  // The web sessions the phones' apps opened (devices.webSessions), and a browser's.
+  suite.sessions.open(admin.id, { deviceId: phone.id });
+  suite.sessions.open(admin.id, { deviceId: tablet.id });
+  suite.sessions.open(admin.id);
+  const listed = (await web('GET', '/api/me/sessions')).data.filter((s) => !s.current);
+  assert.equal(listed.length, 3);
+  const keyOf = (deviceId) => listed.find((s) => suite.sessions.deviceOfKey(admin.id, s.key) === deviceId)?.key;
+  const browserKey = listed.find((s) => suite.sessions.deviceOfKey(admin.id, s.key) == null).key;
+
+  // The phone's: closed, the phone is signed out, and nothing more reaches it.
+  assert.equal((await web('DELETE', `/api/me/sessions/${keyOf(phone.id)}`)).status, 200);
+  assert.equal(suite.devices.isActive(phone.id), false, 'the phone signed out');
+  assert.deepEqual(suite.database.all('SELECT device_id FROM device_push_tokens').map((r) => r.device_id), [tablet.id]);
+  assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).status, 401, 'its token no longer works');
+  assert.deepEqual((await web('GET', '/api/push/devices')).data.map((d) => d.id), [tablet.id]);
+  assert.ok(suite.database.get(`SELECT 1 AS x FROM audit_log WHERE action = 'device.revoke' AND target_id = ?`, String(phone.id)), 'said in the audit');
+
+  // A browser's session closed leaves the phones alone.
+  assert.equal((await web('DELETE', `/api/me/sessions/${browserKey}`)).status, 200);
+  assert.equal(suite.devices.isActive(tablet.id), true);
+  assert.deepEqual(suite.database.all('SELECT device_id FROM device_push_tokens').map((r) => r.device_id), [tablet.id]);
+  assert.equal((await web('DELETE', `/api/me/sessions/${browserKey}`)).status, 404, 'once');
 });
 
 test('over HTTP: bad device tokens count against the address, in the devices’ bucket', async (t) => {
@@ -752,7 +824,7 @@ test('over HTTP: bad device tokens count against the address, in the devices’ 
 });
 
 test('over HTTP: credentials that can’t be used start the app anyway, that platform off and its tokens kept', async (t) => {
-  const { suite, call, device, lines } = await startApp(t, {
+  const { suite, call, web, device, lines } = await startApp(t, {
     env: {
       APNS_KEY_ID: 'ABCDE12345', APNS_TEAM_ID: 'TEAM123456', APNS_PRIVATE_KEY: 'secret-typo-value', APNS_TOPIC: 'com.cronumstudio.work',
       FCM_SERVICE_ACCOUNT: JSON.stringify(SERVICE_ACCOUNT),
@@ -763,7 +835,7 @@ test('over HTTP: credentials that can’t be used start the app anyway, that pla
   assert.equal(lines.some((l) => l.includes('secret-typo-value')), false, 'never the value');
   const phone = await device();
   assert.equal((await call('POST', '/api/devices/push', { platform: 'ios', token: IOS_TOKEN }, phone.auth)).data.sending, false);
-  assert.deepEqual((await call('POST', '/api/devices/push/test', {}, phone.auth)).data, { sent: 0, gone: 0, failed: 1 });
+  assert.deepEqual((await web('POST', '/api/push/test', {})).data, { sent: 0, gone: 0, failed: 1 });
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM device_push_tokens').n, 1, 'kept for when the key is fixed');
 });
 

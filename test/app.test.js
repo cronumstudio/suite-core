@@ -6,6 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './remote-provider.js';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -62,7 +63,7 @@ test('the configuration: defaults, the environment, and every mistake named', ()
 
   // An old name is not an alias: it would keep the install on it forever without anyone knowing.
   const oldNames = resolveConfig(PRODUCT, {
-    PUBLIC_URL: 'https://gps.example', PUERTO: '8080', PORT_HOST: '8080', RECARGA_EN_CALIENTE: 'true',
+    PUBLIC_URL: 'https://legacy.example', PUERTO: '8080', PORT_HOST: '8080', RECARGA_EN_CALIENTE: 'true',
   });
   assert.deepEqual(oldNames.errors, [
     'RECARGA_EN_CALIENTE is no longer read: rename it to HOT_RELOAD',
@@ -108,6 +109,34 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.match(unknownProvider.warnings[0], /AUTH_PROVIDER="ldap" is not known/);
   const billing = resolveConfig({ ...PRODUCT, modules: { billing: true } }, { BILLING_PROVIDER: 'remote', BILLING_SECRET: 'short' });
   assert.match(billing.errors.join(), /BILLING_SECRET/);
+});
+
+test('app.accent: the accent’s steps for the pages the suite draws, checked, and written after the colour', async () => {
+  const { appStyle } = await import('../brand.js');
+  const accent = { light: '#2B3550', dark: '#A4B0CC', onDark: '#10131A' };
+  const given = resolveConfig({ ...PRODUCT, app: { ...PRODUCT.app, accent } }, {});
+  assert.deepEqual(given.errors, []);
+  assert.deepEqual(given.app.accent, accent);
+  assert.notEqual(given.app.accent, accent, 'a copy of its own');
+  assert.equal(resolveConfig(PRODUCT, {}).app.accent, null, 'none unless the app gives it');
+  for (const [value, message] of [
+    ['navy', 'app.accent: an object ({ light, on, dark, onDark }), each a colour as #RRGGBB'],
+    [{ lite: '#000000' }, 'app.accent.lite is not a setting (light, on, dark, onDark)'],
+    [{ dark: '#ABC' }, 'app.accent.dark: a colour as #RRGGBB'],
+  ]) {
+    assert.deepEqual(resolveConfig({ ...PRODUCT, app: { ...PRODUCT.app, accent: value } }, {}).errors, [message], JSON.stringify(value));
+  }
+  assert.deepEqual(resolveConfig({ ...PRODUCT, app: { id: 'demo', name: 'Demo', accent } }, {}).errors,
+    ['app.accent needs app.color: the pages the suite draws write them together']);
+
+  // Without an accent the attribute is exactly what it was; with one, its steps follow the colour.
+  assert.equal(appStyle('#3A4660'), ' style="--app: #3A4660; --app-on: #FFFFFF"');
+  assert.equal(appStyle('#3A4660', accent),
+    ' style="--app: #3A4660; --app-on: #FFFFFF; --app-accent: #2B3550; --app-accent-dark: #A4B0CC; --app-on-dark: #10131A"');
+  assert.equal(appStyle('#3A4660', { on: '#16130E' }), ' style="--app: #3A4660; --app-on: #16130E"', 'the text on the colour, given');
+  assert.equal(appStyle('#3A4660', { light: '"><script>', dark: 'red' }), ' style="--app: #3A4660; --app-on: #FFFFFF"',
+    'only colours as #RRGGBB reach the attribute');
+  assert.equal(appStyle(null, accent), '', 'no colour, no style');
 });
 
 test('rateLimits: every limit the limiter has, from its own list (audit sc-host-6)', async () => {
@@ -162,6 +191,18 @@ test('a configuration that can’t run doesn’t start, and says why', (t) => {
   assert.throws(() => createSuite({
     config: PRODUCT, env: { DATA_DIR: dir, PLANS: '{"free": {"name": "Free", "note.max": 1}}' }, ...quiet,
   }), (err) => err instanceof SuiteConfigError && /PLANS/.test(err.message) && /note\.max/.test(err.message));
+});
+
+test('a PLANS that names no catalog stops the start, with that one message', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-app-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.throws(() => createSuite({
+    config: { app: { id: 'demo', name: 'Demo' } },
+    env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', PLANS: 'no-such-catalog' },
+    log: () => {}, exitOnError: false,
+  }), (err) => err instanceof SuiteConfigError
+    && err.message.includes('is no catalog of the suite (cronum-work, cronum-per-group, cronum-per-seat) and no JSON')
+    && !/must be an object/.test(err.message));
 });
 
 test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, static files', async (t) => {
@@ -576,4 +617,25 @@ test('security.txt names the install’s contact; an app that names its routes a
   assert.deepEqual([missing.status, missing.text], [404, 'Not found'], 'a file it hasn’t is no page');
   assert.equal((await get('/.env')).text, 'Not found');
   assert.deepEqual([(await get('/api')).status, JSON.parse((await get('/api')).text)], [404, { error: 'not_found' }]);
+});
+
+test('app.accent on the pages the suite draws: the admin panel, the not-found page and the OAuth screens', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-accent-'));
+  const publicDir = path.join(dir, 'public');
+  fs.mkdirSync(publicDir);
+  fs.writeFileSync(path.join(publicDir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
+  const accent = { light: '#2B3550', dark: '#A4B0CC', onDark: '#10131A' };
+  const suite = createSuite({
+    config: { ...PRODUCT, app: { ...PRODUCT.app, accent } }, env: { DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1' },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, publicDir, version: '1.0.0', handleSignals: false, log: () => {}, clientRoutes: ['/'] });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const style = ' style="--app: #3A4660; --app-on: #FFFFFF; --app-accent: #2B3550; --app-accent-dark: #A4B0CC; --app-on-dark: #10131A"';
+  for (const pathname of ['/admin', '/nope', '/oauth/authorize']) {
+    const html = await (await fetch(base + pathname, { redirect: 'manual' })).text();
+    assert.ok(html.includes(`data-app="demo"${style}>`), `${pathname}: ${html.slice(0, 200)}`);
+  }
 });

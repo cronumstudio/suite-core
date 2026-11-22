@@ -87,7 +87,7 @@ test('dayStart and daySpan: a day from its first instant in the zone, also when 
   assert.deepEqual(daySpan('Europe/Madrid', '2026-03-29'), { from: '2026-03-28T23:00:00.000Z', to: '2026-03-29T22:00:00.000Z' });
   assert.deepEqual(daySpan('UTC', '2026-10-20'), { from: '2026-10-20T00:00:00.000Z', to: '2026-10-21T00:00:00.000Z' });
   // The far ends of the clock, and a zone whose clocks jump at midnight.
-  for (const zone of ['Pacific/Kiritimati', 'Etc/GMT+12', 'America/Havana', 'Asia/Kolkata', 'America/St_Johns']) {
+  for (const zone of ['Pacific/Kiritimati', 'Etc/GMT+12', 'America/Havana', 'Asia/Kolkata', 'America/St_Johns', 'America/New_York']) {
     for (const date of ['2026-03-08', '2026-11-01', '2026-10-20']) {
       const first = dayStart(zone, date);
       assert.equal(dayIn(zone, first), date, `${zone} ${date}`);

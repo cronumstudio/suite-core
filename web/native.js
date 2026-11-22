@@ -46,7 +46,7 @@
  * ignored as unknown. A new message, or a new optional field, is a new line above, in
  * docs/web-kit.md and in the CHANGELOG.
  *
- * In a frame of a host's split view (base.js FRAMED) the app's objects are its parent's, on the same
+ * In a frame of a host's page (base.js FRAMED) the app's objects are its parent's, on the same
  * site: the bridge is the top window's.
  */
 import { FRAMED, framedIn } from './base.js';
@@ -144,7 +144,17 @@ export function hostShellAddress(host, win = globalThis.window) {
   if (!inApp(win) && !shellWay(win)) return null;
   const billing = url.searchParams.get('billing');
   url.searchParams.delete('billing');
-  return `/?open=${encodeURIComponent(url.pathname + url.search + url.hash)}${billing ? `&billing=${encodeURIComponent(billing)}` : ''}`;
+  return `${openAddress(url)}${billing ? `&billing=${encodeURIComponent(billing)}` : ''}`;
+}
+
+/**
+ * The host's one-document page with `url` open in a window (`/?open=…`, which Cronum Work's shell
+ * opens as a notice tapped with it closed does): `url` a path of the site as it is, or a URL whose
+ * path, query and hash are taken, the hash left out with `hash: false`.
+ */
+export function openAddress(url, { hash = true } = {}) {
+  const path = typeof url === 'string' ? url : url.pathname + url.search + (hash ? url.hash : '');
+  return `/?open=${encodeURIComponent(path)}`;
 }
 
 /** Kept in a tab's sessionStorage: its module's page was asked for alone (`?alone`), and stays so in it. */

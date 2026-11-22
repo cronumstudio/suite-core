@@ -26,6 +26,7 @@
  * under a module's path; and any address back from the payment provider (`?billing=done`), which
  * belongs to the browser tab that paid. Apple reads the exclusions first, in order.
  */
+import { isObject } from './http.js';
 
 /** The suite's addresses that a link never opens in the app: the app on the phone needs them in the browser. */
 export const SUITE_EXCLUDED = Object.freeze([
@@ -46,7 +47,6 @@ export const ANDROID_PATH = '/.well-known/assetlinks.json';
 const KEYS = new Set(['paths', 'exclude', 'apple', 'android']);
 const APPLE_KEYS = new Set(['bundleId', 'teamId']);
 const ANDROID_KEYS = new Set(['package', 'sha256']);
-const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 const BUNDLE_ID = /^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/;
 const PACKAGE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
 const TEAM_ID = /^[A-Z0-9]{10}$/;

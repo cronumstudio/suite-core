@@ -186,12 +186,12 @@ test('at the providers only where the install says so; one that can’t be reach
   let idpDown = true;
   const idp = { deleteIdentity: async (id) => { calls.push(['identity', id]); if (idpDown) throw new Error('WorkOS does not answer'); } };
   const lines = [];
-  const make = (atProviders, more = {}) => createAccountDeletion({
-    accounts, sign: (v) => v.length.toString(36), days: 30, atProviders, idp, billing, clock: () => now, log: (l) => lines.push(l), ...more,
+  const make = (more = {}) => createAccountDeletion({
+    accounts, sign: (v) => v.length.toString(36), days: 30, idp, billing, clock: () => now, log: (l) => lines.push(l), ...more,
   });
 
   // Where other apps share the provider's accounts: here only.
-  const shared = make(false);
+  const shared = make();
   const dan = accounts.create({ username: 'dan', displayName: 'Dan' });
   await shared.request(dan);
   now += 31 * DAY;
@@ -199,7 +199,7 @@ test('at the providers only where the install says so; one that can’t be reach
   assert.deepEqual(calls, [], 'neither the subscriptions nor the identity are touched');
 
   // An install that bills alone, with apps that share its logins (Cronum Work): the subscriptions only.
-  const billsAlone = make(false, { endSubscriptions: true });
+  const billsAlone = make({ endSubscriptions: true });
   const fay = accounts.create({ username: 'fay', displayName: 'Fay' });
   await billsAlone.request(fay);
   assert.deepEqual(calls, [['stop', fay.id]], 'the subscriptions stop renewing when they ask');
@@ -211,23 +211,19 @@ test('at the providers only where the install says so; one that can’t be reach
   calls.length = 0;
   idpDown = true;
 
-  // Where this install is all the person has.
-  const whole = make(true);
+  // Taken back, the subscriptions renew again; asked again, a subscription that can't be ended
+  // doesn't keep the account.
   const eve = accounts.create({ username: 'eve', displayName: 'Eve' });
-  await whole.request(eve);
+  await billsAlone.request(eve);
   assert.deepEqual(calls, [['stop', eve.id]], 'the subscriptions stop renewing when they ask');
-  await whole.restore(whole.ticketFor(eve.id));
+  await billsAlone.restore(billsAlone.ticketFor(eve.id));
   assert.deepEqual(calls.at(-1), ['keep', eve.id], 'and renew again when they come back');
-  await whole.request(eve);
+  await billsAlone.request(eve);
   now += 31 * DAY;
-  assert.equal(await whole.sweep(), 0, 'WorkOS down: it waits');
-  assert.ok(accounts.byId(eve.id), 'still here, to know whom to delete there');
-  assert.ok(lines.some((l) => l.includes('could not be deleted yet')));
-  idpDown = false;
-  assert.equal(await whole.sweep(), 1);
+  assert.equal(await billsAlone.sweep(), 1);
   assert.equal(accounts.byId(eve.id), null);
   assert.deepEqual(calls.filter(([what]) => what !== 'stop' && what !== 'keep').map(([what]) => what),
-    ['end', 'identity', 'end', 'identity'], 'a subscription that can’t be ended doesn’t keep the account');
+    ['end'], 'a subscription that can’t be ended doesn’t keep the account');
   database.close();
 });
 
@@ -249,7 +245,7 @@ test('a subscription that never stopped renewing keeps the account a week while 
   };
   const lines = [];
   const deletion = createAccountDeletion({
-    accounts, sign: (v) => v.length.toString(36), days: 30, atProviders: false, billing, endSubscriptions: true,
+    accounts, sign: (v) => v.length.toString(36), days: 30, billing, endSubscriptions: true,
     clock: () => now, log: (l) => lines.push(l),
   });
   const gil = accounts.create({ username: 'gil', displayName: 'Gil' });

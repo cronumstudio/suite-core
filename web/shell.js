@@ -23,26 +23,25 @@
  * its mark. On a phone the drawer keeps its width without the rail: the app's
  * icon and name are a button whose menu has the other modules and, last, Settings.
  *
- * A host with a split view (host.js `split`) has its views on the rail, over
- * Settings: this module alone, or two to four at once on the host's page. There
- * each module is a frame (base.js FRAMED), drawn without the rail: the page says
- * which module each frame shows, and the app's name keeps Settings at hand. A
- * host with a calendar (host.js `calendar`) has it on the rail too, just over
- * the split view: its page, with what has a date in every module.
+ * A page of the host's may hold a module in a frame (base.js FRAMED: Cronum
+ * Work's shell, for a module it can't mount), drawn without the rail: the page
+ * says which module the frame shows, and the app's name keeps Settings at hand.
+ * A host with a calendar (host.js `calendar`) has it on the rail too, just over
+ * Settings: its page, with what has a date in every module.
  *
  * In a window of Cronum Work's one-document shell (`embedded`, mount.js), the
  * page is Work's and every module shares it: the rail, the person, the host's
  * notices and the history of the installed app are the shell's, drawn once, so
  * the frame draws none of them and asks the host nothing. Its sidebar, and its
  * fold, are the module's own and stay. Settings come when Work asks the window
- * (`kit:settings` on `root`), as the split view asks a frame.
+ * (`kit:settings` on `root`), as it asks a frame.
  *
  *   const shell = createShell({
  *     panes: 'split', app: { id: 'notes', name: 'Notes', icon: '/icons/favicon.svg' },
  *     create: { label: newLabel, onClick: newNote },
  *     foot: { create: { items: [newNotebookItem, newGroupItem] }, trash: { onClick: openTrash } },
  *     search: { label: searchLabel, onInput: (text) => findNotes(text) },
- *     onSettings: openSettings, onSignOut: signOut,
+ *     onSettings: openSettings,
  *   });
  *   shell.nav.append(navItem({ label: allLabel, iconName: 'notes', count: 24, current: true }));
  *   shell.list.append(…); shell.detail.append(…); shell.showDetail();
@@ -52,10 +51,13 @@ import { t } from './i18n.js';
 import { icon } from './icons.js';
 import { at, BASE, FRAMED, SETTINGS_EVENT, DRAWER_EVENT, applyLook, LOOK_KEY, hostModules, installed, installedAlone } from './base.js';
 import { banner as bannerNode, menu, closeMenu, heldBack, slideHidden } from './ui.js';
+import { menuOnPress } from './drag.js';
 import { nativeReady, hostShellAddress } from './native.js';
 import { billingReturn, lastDay } from './plan-return.js';
 import { setPlanOpener } from './api.js';
 import { flushSettings } from './settings-queue.js';
+import { paintLive } from './live.js';
+import { ownerOf } from './mount.js';
 
 /** From this width the sidebar sits beside the views instead of over them (kit.css). */
 const BESIDE = 640;
@@ -63,12 +65,13 @@ const BESIDE = 640;
 const RAIL_KEY = 'host.modules';
 /** The founder's notice closed on this device, for the date it named: it comes back for another. */
 const FOUNDER_KEY = 'host.founder-offer';
-/** How many modules the host's split view shows at once: one, two or three side by side, four in a grid. */
-export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
 
 /**
  * @param {object} options
  * @param {'split'|'single'} [options.panes]  a list and its detail, or one view
+ * @param {'beside'|'column'} [options.detail] (split) from 960 px, the detail always beside the list
+ *   (the default), or a column of its own on the list's right only while an item is open
+ *   (`setDetailOpen()`), the list taking the whole width otherwise (Tasks, Projects; kit.css)
  * @param {object} options.app               { id, name, icon }: the id names what the device remembers
  * @param {object} [options.create]          { label, onClick }: the floating button that creates an
  *   item (a note, a step), at every width: over the list on a phone, at the foot of the list's pane
@@ -84,10 +87,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   replace the word, and no module of the suite gives one. Escape empties it, Enter in the drawer
  *   closes it so the results show, and «/» goes to it, said nowhere. `shell.search` is its field.
  * @param {Function} [options.onSettings]
- * @param {Function} [options.onSignOut]
+ * @param {Function} [options.onSignOut]     accepted, and does nothing: signing out is in Settings
  * @param {Function} [options.onBack]        what closes the detail: its ←, its × and Escape (default: showList)
  * @param {Function} [options.onFold]        (folded) the sidebar folded or came back: the views' width changed
- * @param {Array}  [options.accountItems]    the app's own entries of the account menu
  * @param {Node}   [options.root]
  * @param {boolean} [options.embedded]      in a window of Cronum Work's shell: no rail, account or host notices
  * @param {Function} [options.active]       () → whether this frame has the keyboard when the focus is on no
@@ -96,9 +98,9 @@ export const SPLIT_LAYOUTS = Object.freeze([1, 2, 3, 4]);
  *   is the one in front (`data-focus="true"` on the window that holds `root`, windows.js)
  */
 export function createShell({
-  panes = 'split', app, create = null, foot = null, search = null, onSettings = null, onSignOut = null,
-  onBack = null, onFold = null, accountItems = [], root = document.body, dragTabs = {},
-  embedded = false, active = null,
+  panes = 'split', detail: detailMode = 'beside', app, create = null, foot = null, search = null, onSettings = null,
+  onBack = null, onFold = null, root = document.body, dragTabs = {},
+  embedded = false, active = null, onNew = null,
 }) {
   // Every listener the frame adds goes with destroy(), through this one signal (all but the
   // click swallowed after a drag of the drawer, see `swallowing`). An app that draws its frame
@@ -110,12 +112,7 @@ export function createShell({
   flushSettings();
   const swallowing = new Set();
   let destroyed = false;
-  let user = null;
   const appIcon = (size) => el('img', { class: 'kit-appicon', src: at(app.icon || '/icons/favicon.svg'), alt: '', width: size, height: size });
-  // The person opens Settings, where everything about the account is, signing out included; a
-  // menu only when the app has entries of its own for it or there is no Settings. There is no
-  // button for the person: the app's icon and name open Settings (the switcher), or the rail does.
-  const direct = Boolean(onSettings) && !accountItems.length;
 
   /* --------------------------------- pieces --------------------------------- */
 
@@ -137,15 +134,42 @@ export function createShell({
     type: 'search', class: 'kit-side__search-input', placeholder: search.placeholder || t('kit.side.search'),
     'aria-label': search.label, enterkeyhint: 'search', autocomplete: 'off',
   }) : null;
+  // `onSearch(text)`: the search to run, the same in every module: a moment after the last key
+  // (`wait`, 220 ms), from the first letter (`min`, 1), at once with Enter or when emptied. Text
+  // shorter than `min` is no search: it is told as ''. `onInput` stays, told on every key.
+  let searchTimer = null;
+  let searched = '';
+  const told = (text) => (text.trim().length >= (search?.min ?? 1) ? text : '');
+  const runSearch = (text) => {
+    clearTimeout(searchTimer);
+    searchTimer = null;
+    const query = told(text);
+    if (query === searched) return;
+    searched = query;
+    search.onSearch(query);
+  };
   if (searchField) {
-    searchField.addEventListener('input', () => search.onInput?.(searchField.value), { signal });
+    // A module may write the field itself while it has no focus (emptied away from the results,
+    // a search's text again on its route): what it holds then is what is searched, so typing the
+    // same words again searches them.
+    searchField.addEventListener('focus', () => { if (searchTimer == null) searched = told(searchField.value); }, { signal });
+    searchField.addEventListener('input', () => {
+      search.onInput?.(searchField.value);
+      if (!search.onSearch) return;
+      clearTimeout(searchTimer);
+      const text = searchField.value;
+      if (!text.trim()) runSearch('');
+      else searchTimer = setTimeout(() => runSearch(text), search.wait ?? 220);
+    }, { signal });
     searchField.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && searchField.value) {
         ev.stopPropagation();
         searchField.value = '';
         search.onInput?.('');
+        if (search.onSearch) runSearch('');
       } else if (ev.key === 'Enter') {
         ev.preventDefault();
+        if (search.onSearch) runSearch(searchField.value);
         search.onSubmit?.(searchField.value);
         // In the drawer the results are behind it.
         if (element.hasAttribute('data-drawer')) closeDrawer();
@@ -195,11 +219,15 @@ export function createShell({
   const actions = el('div', { class: 'kit-bar__actions' });
   // The bar's buttons, made again for each view's head (head()): kit.css shows each one where
   // it applies, in the bar or in a head alike, by its class.
+  // How many invitations wait in the sidebar (setMark): on a phone it is a closed drawer, so its ☰
+  // carries a dot, and says why to a screen reader.
+  let marked = 0;
+  const labelMenu = (button) => button.setAttribute('aria-label', marked ? `${t('kit.menu')} · ${t('kit.invite.mark', { n: marked })}` : t('kit.menu'));
   const menuToggle = () => {
     // ☰ pressed with Enter or Space: the click that follows is the keyboard's. Not a click without
     // a pointer, which a tap at the screen's edge passed on is too.
     let byKeys = false;
-    return el('button', {
+    const button = el('button', {
       type: 'button', class: 'kit-icon-btn kit-bar__menu', 'aria-label': t('kit.menu'), 'data-drag-spring': '',
       onKeydown: (ev) => { byKeys = ev.key === 'Enter' || ev.key === ' '; },
       onClick: () => {
@@ -208,6 +236,8 @@ export function createShell({
         toggleDrawer({ keyboard });
       },
     }, icon('menu'));
+    if (marked) labelMenu(button);
+    return button;
   };
   const backToggle = () => el('button', {
     type: 'button', class: 'kit-icon-btn kit-bar__back', 'aria-label': t('kit.back'), onClick: () => (onBack || showList)(),
@@ -239,7 +269,7 @@ export function createShell({
   const shell = el('div', { class: 'kit-shell' },
     side, scrim, bar, banners, list, detail, fab, tab('open', dragTabs.open || 'menu'), tab('back', dragTabs.back || 'back'));
   // `data-layout` stays for the apps' own CSS, which names it.
-  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}) }, shell);
+  const element = el('div', { class: 'kit-app', 'data-layout': 'side', 'data-panes': panes, 'data-screen': 'list', ...(embedded ? { 'data-embedded': '' } : {}), ...(detailMode === 'column' ? { 'data-detail': 'column' } : {}) }, shell);
   root.append(element);
 
   /* --------------------------------- folding -------------------------------- */
@@ -293,6 +323,15 @@ export function createShell({
     else nav.focus({ preventScroll: true });
   }
   function closeDrawer() { element.removeAttribute('data-drawer'); }
+  /**
+   * What waits in the sidebar for an answer (the invitations, invitation.js): a dot on every ☰ of
+   * the frame, the bar's and each head's, which only show where the sidebar is a drawer or folded.
+   */
+  function setMark(count = 0) {
+    marked = Math.max(0, Number(count) || 0);
+    element.toggleAttribute('data-mark', marked > 0);
+    for (const button of element.querySelectorAll('.kit-bar__menu')) labelMenu(button);
+  }
   function toggleDrawer(how) { if (element.hasAttribute('data-drawer')) closeDrawer(); else openDrawer(how); }
   // Choosing something in the drawer closes it, as on any phone.
   nav.addEventListener('click', (ev) => { if (ev.target.closest('a, button')) closeDrawer(); }, { signal });
@@ -307,9 +346,9 @@ export function createShell({
   for (let at = outOfView ? root : null; at && at !== document.documentElement; at = at.parentElement) {
     outOfView.observe(at, { attributes: true, attributeFilter: ['hidden'] });
   }
-  // In a frame of the host's split view, the view's own Settings button (at its rail's foot)
-  // opens this module's: the page asks with `kit:settings` on this frame's window, and may name
-  // the section (`detail.start`), one of this module's chosen in Settings in another frame.
+  // In a frame of a host's page (Work's shell, for a module it can't mount), the page asks for this
+  // module's Settings with `kit:settings` on this frame's window, and may name the section
+  // (`detail.start`): one of this module's, chosen in another's Settings.
   if (FRAMED && onSettings) {
     window.addEventListener(SETTINGS_EVENT, (ev) => {
       closeDrawer();
@@ -320,9 +359,16 @@ export function createShell({
   }
   // On a phone Work's shell has the one ☰, beside its brand: it asks the module in sight for its
   // drawer on the body of its window (ctx.root).
-  if (embedded) root.addEventListener(DRAWER_EVENT, () => toggleDrawer(), { signal });
+  // Where the sidebar sits beside the views (Work shows its ☰ up to 768 px, the kit puts the sidebar
+  // beside from 640), that ☰ folds and unfolds it: as a drawer there it did nothing.
+  if (embedded) {
+    root.addEventListener(DRAWER_EVENT, () => {
+      if (beside()) setFolded(!element.hasAttribute('data-folded'));
+      else toggleDrawer();
+    }, { signal });
+  }
   // In Work's shell one window object is every module's: the shell asks the one it means on the
-  // body of its window (ctx.root), naming the section or not, as the split view asks a frame.
+  // body of its window (ctx.root), naming the section or not, as it asks a frame.
   if (embedded && onSettings) {
     root.addEventListener(SETTINGS_EVENT, (ev) => {
       closeDrawer();
@@ -690,20 +736,33 @@ export function createShell({
     }, { signal });
   }
 
+  /* ------------------------------ «n» to create ----------------------------- */
+  /*
+   * «n» makes a new item, the same in every module (`onNew`: a task, a note, a step), as «/» goes to
+   * the search and under the same conditions: without Ctrl, ⌘ or Alt, not while composing, not
+   * from a field or an editor, where it is typed, not with a dialog, a menu, Settings or a drag over
+   * the frame, and only in the frame that has the keyboard. Settings › About lists the keys.
+   */
+  if (onNew) {
+    document.addEventListener('keydown', (ev) => {
+      if ((ev.key !== 'n' && ev.key !== 'N') || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing || ev.defaultPrevented) return;
+      const focus = ev.target?.closest ? ev.target : null;
+      if (focus?.closest(EDITABLE) || focus?.isContentEditable || layerOver()) return;
+      const nowhere = !focus || focus === document.body || focus === document.documentElement;
+      if (nowhere ? !hasKeyboard() : !element.contains(focus)) return;
+      ev.preventDefault?.();
+      closeDrawer();
+      onNew();
+    }, { signal });
+  }
+
   /* --------------------------------- account -------------------------------- */
 
-  /** The account menu's entries; with Settings and nothing of the app's own, Settings alone. */
-  function accountMenuItems() {
-    const settings = onSettings ? { label: t('kit.account.settings'), iconName: 'sliders', onClick: () => { closeDrawer(); onSettings(); } } : null;
-    if (direct) return [settings];
-    return [
-      ...accountItems,
-      settings,
-      user?.role === 'admin' ? { label: t('kit.account.admin'), iconName: 'shield', href: '/admin', external: true } : null,
-      onSignOut ? 'separator' : null,
-      onSignOut ? { label: t('kit.account.signOut'), iconName: 'logout', danger: true, onClick: onSignOut } : null,
-    ].filter(Boolean);
-  }
+  /**
+   * Settings, last in the switcher's menu: everything about the account is there, signing out
+   * included. There is no button for the person: the app's icon and name open them, or the rail does.
+   */
+  const settingsItem = () => ({ label: t('kit.account.settings'), iconName: 'sliders', onClick: () => { closeDrawer(); onSettings(); } });
 
   /** A menu from `anchor`, or none if it was open: a second tap closes it. */
   function toggleMenu(anchor, items) {
@@ -714,13 +773,10 @@ export function createShell({
     menu(anchor, items);
   }
 
-  // Who is signed in is in Settings (the account's section), so the menu doesn't say it.
-  const openAccountMenu = (anchor) => toggleMenu(anchor, accountMenuItems());
-
   /* --------------------------------- modules -------------------------------- */
 
-  // This page's module, when it is one of a host's: its path's single segment.
-  const mount = /^\/([a-z][a-z0-9-]{1,30})\/$/.exec(BASE)?.[1] || null;
+  // This page's module, when it is one of a host's: its path's single segment (mount.js ownerOf).
+  const mount = ownerOf(BASE);
   let rail = null;
   let switcher = null;
   let switcherIcon = null;   // its arrow, or Settings' icon where it opens them
@@ -757,7 +813,7 @@ export function createShell({
   }, { capture: true, signal });
 
   /** Nothing but Settings for the switcher (no other modules, nor the calendar): a tap opens them. */
-  const onlySettings = () => direct && !others.length && !calendarPath;
+  const onlySettings = () => !others.length && !calendarPath;
 
   /**
    * The app's icon and name are the switcher wherever the rail doesn't show: an app on its own, a
@@ -767,9 +823,9 @@ export function createShell({
    * come with a switcher that goes.
    */
   function syncSwitcher() {
-    // In a frame of the host's split view there is no rail: the view says which module is in it.
+    // In a frame of a host's page there is no rail: the page says which module is in it.
     const known = answered || !mount;
-    const want = !embedded && Boolean(onSettings || accountItems.length || onSignOut)
+    const want = !embedded && Boolean(onSettings)
       && (FRAMED || !beside() || (known && !rail));
     if (want && !switcher) {
       switcher = el('button', { type: 'button', class: 'kit-side__app' });
@@ -785,7 +841,7 @@ export function createShell({
           // The host's calendar, which the rail has where it shows.
           calendarPath ? { label: t('kit.calendar.title'), iconName: 'calendar', href: calendarPath } : null,
           others.length || calendarPath ? 'separator' : null,
-          ...accountMenuItems(),
+          settingsItem(),
         ].filter(Boolean));
       }, { signal });
       switcherIcon = icon('chevron-down');
@@ -817,14 +873,6 @@ export function createShell({
     switcherIcon = next;
   }
 
-  /** The views of the host's split view (at `page`): this module alone, as now, or two to four at once. */
-  function splitMenuItems(page) {
-    return SPLIT_LAYOUTS.map((n) => ({
-      label: t(`kit.split.layout${n}`), iconName: `layout-${n}`, current: n === 1,
-      href: n === 1 ? null : `${page}?layout=${n}&from=${encodeURIComponent(mount)}`,
-    }));
-  }
-
   /** Takes the rail away, and the sidebar's content back to where it was. */
   function dropRail() {
     if (!rail) return;
@@ -840,7 +888,7 @@ export function createShell({
       dropRail();
       return asModule(false);
     }
-    // A frame of the host's split view: the view has the modules, and remembers what it shows.
+    // A frame of a host's page: the page has the modules, and remembers what it shows.
     if (FRAMED) {
       others = [];
       calendarPath = null;
@@ -867,7 +915,7 @@ export function createShell({
     calendarPath = host.calendar || null;
     modulePaths = new Set(modules.map((m) => new URL(m.path, window.location.href).pathname));
     // With one module too: the rail has Settings, where more are chosen (Settings › Modules).
-    const settingsLabel = direct ? t('kit.account.settings') : t('kit.account.menu');
+    const settingsLabel = t('kit.account.settings');
     const next = el('nav', { class: 'kit-rail', 'aria-label': t('kit.modules.rail') },
       // The host's mark, and nothing more: as a link to the page that chooses the modules it only
       // took people out of what they were doing, and the modules are chosen in Settings. Where the
@@ -884,17 +932,10 @@ export function createShell({
       host.calendar ? el('a', {
         class: 'kit-rail__calendar', href: host.calendar, title: t('kit.calendar.title'), 'aria-label': t('kit.calendar.title'),
       }, icon('calendar')) : null,
-      // The split view, where the host has one: this module alone (now), or two to four at once.
-      host.split ? el('button', {
-        type: 'button', class: 'kit-rail__split', title: t('kit.split.title'), 'aria-label': t('kit.split.title'),
-        'aria-haspopup': 'menu', 'aria-expanded': 'false',
-        onClick: (ev) => toggleMenu(ev.currentTarget, splitMenuItems(host.split)),
-      }, icon('layout-2')) : null,
       // Settings at its foot, in place of the person's button.
-      onSettings || accountItems.length || onSignOut ? el('button', {
+      onSettings ? el('button', {
         type: 'button', class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,
-        ...(direct ? {} : { 'aria-haspopup': 'menu' }),
-        onClick: (ev) => (direct ? onSettings() : openAccountMenu(ev.currentTarget)),
+        onClick: () => onSettings(),
       }, icon('sliders')) : null);
     if (!side.querySelector(':scope > .kit-side__main')) {
       const main = el('div', { class: 'kit-side__main' });
@@ -972,12 +1013,19 @@ export function createShell({
     }
     // A phone turned, a window made narrower: the rail shows or not, and the switcher with it.
     window.addEventListener('resize', syncSwitcher, { signal });
-    // Back to the page, the host is asked again; in a frame of the split view the view has the rail, not the frame.
+    // Back to the page, the host is asked again; in a frame of a host's page that page has the rail, not the frame.
     if (!FRAMED) document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshModules(); }, { signal });
-    document.addEventListener('kit-modules', () => refreshModules(), { signal });
-    // A look chosen in another tab, or in another frame of the split view: this page follows at once.
+    // A module turned on or off, or put in order, in Settings: the modules as they are now come with
+    // it (settings.js modulesChanged), the device's own without a signal, and the rail follows them
+    // at once; the host is asked after, and with no signal nothing more changes.
+    document.addEventListener('kit-modules', (ev) => {
+      const given = ev.detail?.answer;
+      if (!destroyed && !embedded && Array.isArray(given?.modules) && given.modules.some((m) => m?.mount === mount)) paintRail(given);
+      refreshModules();
+    }, { signal });
+    // A look chosen in another tab, or in another frame of a host's page: this page follows at once.
     window.addEventListener('storage', (ev) => {
-      // Closed in another tab, or another frame of the split view: gone here too.
+      // Closed in another tab, or another frame of a host's page: gone here too.
       if (ev.key === FOUNDER_KEY) hideBanner('founder-offer');
       if (ev.key !== LOOK_KEY) return;
       if (ev.newValue === 'clean') document.documentElement.setAttribute('data-look', 'clean');
@@ -988,17 +1036,38 @@ export function createShell({
   /* --------------------------------- notices -------------------------------- */
 
   const shown = new Map();
-  /** A banner under the header, one per id: showing the same id again replaces it. */
-  function showBanner(id, options) {
-    hideBanner(id);
+  /** The banners given as a function: id → { write, words }, what wrote it and the words it drew. */
+  const written = new Map();
+  /** Draws a banner in place of the one of its id. */
+  function drawBanner(id, options) {
+    shown.get(id)?.remove();
     const node = bannerNode({ ...options, onClose: options.onClose ? () => { shown.delete(id); options.onClose(); } : null });
     shown.set(id, node);
     banners.append(node);
     return node;
   }
+  /**
+   * A banner under the header, one per id: showing the same id again replaces it. `options` may be
+   * a function that writes them, in the language of the moment: asked now, and shown again with the
+   * same words (its text and its action's) the one on screen stays as it is. The frame keeps it
+   * until it is closed or hidden (`keptBanners()`), for a frame drawn again in a new language.
+   */
+  function showBanner(id, options) {
+    if (typeof options !== 'function') {
+      written.delete(id);
+      return drawBanner(id, options);
+    }
+    const value = options();
+    const words = `${value.text}|${value.action?.label || ''}`;
+    const same = shown.has(id) && written.get(id)?.words === words;
+    written.set(id, { write: options, words });
+    if (same) return shown.get(id);
+    return drawBanner(id, { ...value, onClose: value.onClose ? () => { written.delete(id); value.onClose(); } : null });
+  }
   function hideBanner(id) {
     shown.get(id)?.remove();
     shown.delete(id);
+    written.delete(id);
   }
 
   /**
@@ -1033,16 +1102,14 @@ export function createShell({
 
   /** 'open', 'connecting' or 'closed': the dot next to the app's name. */
   function setLive(state) {
-    live.dataset.state = state;
-    live.title = t(`kit.live.${state}`);
-    live.setAttribute('aria-label', t(`kit.live.${state}`));
+    paintLive(live, state);
   }
 
   /* -------------------------------- teardown -------------------------------- */
 
   /**
-   * The frame taken down whole, for an app that draws it again (Focus after a new language, Tracker
-   * closing its frame) without reloading the page: its listeners on the document and the window
+   * The frame taken down whole, for an app that draws it again without reloading the page (after
+   * a new language, or closing its frame): its listeners on the document and the window
    * go, an account or modules menu it opened closes, and its DOM leaves the page, so nothing
    * holds the old frame and it can be collected. Twice, or after the page let it go, it does
    * nothing. What the app hung on the frame's nodes itself goes with them.
@@ -1076,13 +1143,16 @@ export function createShell({
    * @param {object} [options]
    * @param {'list'|'detail'} [options.pane]  the pane it heads: ☰ over a list, ← (and ×) over a detail
    * @param {string|null} [options.title]   null: none, where the view says it itself (a note's first line)
-   * @param {Node|Node[]} [options.lead]      before the title (a list's icon, a note's notebook)
+   * @param {Node|Node[]} [options.lead]      before the title (a note's notebook)
+   * @param {string|Node} [options.icon]      the collection's own emoji, loose before the title, the same in every module
    * @param {Node|Node[]} [options.actions]   after it, at the end: the item's toggles (Notes' pin) and «…»
    * @param {Node} [options.below]            under the line, in the head (a search, chips, a toolbar)
    * @param {boolean} [options.close]         false: a detail with no ×, one that must not close beside its list
    */
-  function viewHead({ pane = 'list', title: text = '', lead = null, actions: own = [], below = null, close = true } = {}) {
+  function viewHead({ pane = 'list', title: text = '', lead = null, icon: glyph = null, actions: own = [], below = null, close = true } = {}) {
     const heading = text === null ? el('span', { class: 'kit-head__title' }) : el('h1', { class: 'kit-head__title', text });
+    const iconNode = (value) => el('span', { class: 'kit-head__icon', 'aria-hidden': 'true' }, value);
+    let mark = glyph ? iconNode(glyph) : null;
     let start = null;
     if (pane === 'detail') start = backToggle();
     else {
@@ -1091,9 +1161,17 @@ export function createShell({
     }
     const end = pane === 'detail' && close ? closeToggle() : null;
     const node = el('header', { class: 'kit-head', 'data-pane': pane },
-      el('div', { class: 'kit-head__row' }, start, lead, heading, el('div', { class: 'kit-head__actions' }, own), end),
+      el('div', { class: 'kit-head__row' }, start, lead, mark, heading, el('div', { class: 'kit-head__actions' }, own), end),
       below);
-    return { element: node, setTitle: (value) => { if (text !== null) heading.textContent = value || ''; } };
+    return {
+      element: node,
+      setTitle: (value) => { if (text !== null) heading.textContent = value || ''; },
+      setIcon: (value) => {
+        if (!value) { mark?.remove(); mark = null; return; }
+        if (mark) mark.replaceChildren(value);
+        else heading.before(mark = iconNode(value));
+      },
+    };
   }
 
   // Inside the suite's app on a phone, the page is drawn and listens: the app's bridge (native.js), once a
@@ -1104,11 +1182,25 @@ export function createShell({
     element, nav, list, detail, actions, banners, head: viewHead, search: searchField,
     foot: footer ? { element: footer, create: add, trash } : null,
     get screen() { return element.dataset.screen; },
-    showList, showDetail, openDrawer, closeDrawer, toggleDrawer,
+    showList, showDetail, openDrawer, closeDrawer, toggleDrawer, setMark,
+    /** Empties the search without telling anyone: opening a collection from the sidebar leaves it. */
+    clearSearch: () => {
+      if (!searchField) return;
+      clearTimeout(searchTimer);
+      searchTimer = null;
+      searchField.value = '';
+      searched = '';
+    },
+    /** (detail: 'column') whether an item is open: its column on the list's right from 960 px. */
+    setDetailOpen: (open) => element.toggleAttribute('data-detail-open', Boolean(open)),
+    get detailOpen() { return element.hasAttribute('data-detail-open'); },
     get folded() { return folded(); },
     setTitle: (text) => { title.textContent = text || ''; },
-    setUser: (next) => { user = next; },
+    // Accepted, and does nothing: the modules still call it, and who is signed in is Settings' to say.
+    setUser: () => {},
     setLive, showBanner, hideBanner, refreshModules, destroy,
+    /** The banners on screen that were given as a function: id → it, for a frame drawn anew to show them again. */
+    keptBanners: () => new Map([...written].map(([id, { write }]) => [id, write])),
   };
 }
 
@@ -1162,6 +1254,7 @@ export function navGroup({
   onToggle = null, onName = null, empty = '', extra = null, data = null, headData = null, bodyData = null,
   children = [],
 }) {
+  const openFromHead = (at) => onName?.({ clientX: at.x, clientY: at.y, currentTarget: label, target: label }, label);
   const unfolded = keep || open;
   const kept = [children].flat(Infinity).filter(Boolean);
   const body = el('div', { class: 'kit-nav-group__body', hidden: !unfolded, ...dataAttributes(bodyData) },
@@ -1208,30 +1301,69 @@ export function navGroup({
   iconName || glyph ? el('span', { class: 'kit-nav-group__icon', 'aria-hidden': 'true' }, iconName ? icon(iconName) : glyph) : null,
   el('span', { class: 'kit-nav-group__label', text: name }),
   extra);
-  return el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
-    el('div', { class: 'kit-nav-group__head', ...dataAttributes(headData) }, toggle, label, total),
-    body);
+  const head = el('div', { class: 'kit-nav-group__head', ...dataAttributes(headData) }, toggle, label, total);
+  const group = el('div', { class: 'kit-nav-group', style: color ? `--group-color: ${color}` : null, ...dataAttributes(data) },
+    head, body);
+  // The group's menu with a right-click or a long press on its head too, as on its name. A group is
+  // picked up by its head as a whole (drag.js): a finger let go where it was tells the group.
+  if (onName) menuOnPress(head, openFromHead, { held: group });
+  return group;
 }
 
 /**
- * An entry of the sidebar: `iconName` or `color` (a swatch for a list or a
- * notebook), a `count` on the right; `now` paints it yolk (today, my day).
- * `data` becomes data-* attributes: `{ drop: '', notebook: 7 }` makes it a
- * place to drop things on (drag.js) that knows which notebook it is.
+ * The mark of a shared collection, on its icon's corner, the same in every module: two people, and
+ * in words «Compartido», or «Compartido · de {name}» when it is someone else's (`owner`). → the mark.
  */
-export function navItem({ label, iconName = null, color = null, count = null, current = false, now = false, href = null, onClick = null, data = null }) {
+export function sharedMark({ owner = null, label = null } = {}) {
+  const words = label || (owner ? t('kit.side.sharedBy', { name: owner }) : t('kit.side.shared'));
+  return el('span', { class: 'kit-nav__shared', role: 'img', title: words, 'aria-label': words }, icon('users'));
+}
+
+/**
+ * An entry of the sidebar: `iconName`, `color` (a swatch for a list or a
+ * notebook) or `emoji` (the collection's own, as wide as an icon so every
+ * label starts in line), a `count` on the right; `now` paints it yolk (today,
+ * my day). `shared` puts the kit's mark on its icon: true, or `{ owner }` when
+ * it is someone else's; `marks` are more nodes there (a public page's globe).
+ * `title` is said by a pointer resting on it (a long name, cut); `under`, a node
+ * under the name (a project's progress), and `countTitle`, what the count means. `menu` (its
+ * items, or a function that returns them) or `onMenu(at, node)`: what its «…»
+ * opens, there too with a right-click or a long press (`menuOnPress`). `data`
+ * becomes data-* attributes: `{ drop: '', notebook: 7 }` makes it a place to
+ * drop things on (drag.js) that knows which notebook it is; `style`, its own.
+ */
+export function navItem({
+  label, iconName = null, color = null, emoji = null, count = null, current = false, now = false, href = null,
+  onClick = null, data = null, shared = null, marks = null, title = null, menu: items = null, onMenu = null,
+  style = null, className = '', under = null, countTitle = null,
+}) {
   const props = {
-    class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}`,
+    class: `kit-nav__item${now ? ' kit-nav__item--now' : ''}${className ? ` ${className}` : ''}`,
     'aria-current': current ? 'page' : null,
     onClick,
+    style,
     ...dataAttributes(data),
   };
+  let lead = color ? el('span', { class: 'kit-nav__swatch', style: `background:${color}` })
+    : emoji ? el('span', { class: 'kit-nav__emoji', 'aria-hidden': 'true', text: emoji })
+      : iconName ? icon(iconName) : null;
+  const corner = [shared ? sharedMark(shared === true ? {} : shared) : null, ...[marks].flat()].filter(Boolean);
+  if (corner.length) lead = el('span', { class: 'kit-nav__lead' }, lead, corner);
+  const name = el('span', { class: 'kit-nav__label', text: label, title });
   const children = [
-    color ? el('span', { class: 'kit-nav__swatch', style: `background:${color}` }) : iconName ? icon(iconName) : null,
-    el('span', { class: 'kit-nav__label', text: label }),
-    count != null ? el('span', { class: 'kit-nav__count', text: String(count) }) : null,
+    lead,
+    // `under`: a node under the name, in its column (a project's progress), the entry as tall.
+    under ? el('span', { class: 'kit-nav__body' }, name, under) : name,
+    count != null ? el('span', { class: 'kit-nav__count', text: String(count), title: countTitle }) : null,
   ];
-  return href ? el('a', { ...props, href }, children) : el('button', { ...props, type: 'button' }, children);
+  const node = href ? el('a', { ...props, href }, children) : el('button', { ...props, type: 'button' }, children);
+  if (items || onMenu) {
+    menuOnPress(node, (at) => {
+      if (onMenu) onMenu(at, node);
+      else menu(node, typeof items === 'function' ? items() : items, { at });
+    });
+  }
+  return node;
 }
 
 /**

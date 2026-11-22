@@ -247,7 +247,7 @@ test('WorkOS: the login made there with its email verified, the account here lin
 
 test('WorkOS: only with the admin’s own password again, and never over a login WorkOS already has', async (t) => {
   const { suite, workos, admin } = await withWorkos(t);
-  workos.add('user_focus', 'focus.person@example.com');
+  workos.add('user_acme', 'acme.person@example.com');
   const before = suite.accounts.list().length;
   const posts = () => workos.calls.filter((c) => c.method === 'POST' && c.path === '/user_management/users').length;
   const ask = (body) => admin('POST', '/api/admin/users', { password: SECRET, admin_password: ADMIN_SECRET, ...body });
@@ -256,7 +256,7 @@ test('WorkOS: only with the admin’s own password again, and never over a login
   assert.deepEqual([wrong.status, wrong.data.error], [403, 'wrong_password']);
   assert.equal(posts(), 0, 'WorkOS isn’t asked to make anything');
 
-  const there = await ask({ email: 'Focus.Person@example.com' });
+  const there = await ask({ email: 'Acme.Person@example.com' });
   assert.equal(there.status, 409);
   assert.deepEqual(there.data, { error: 'email_taken_provider', provider: 'WorkOS' }, 'someone’s login, maybe of another app');
   assert.equal(posts(), 0);

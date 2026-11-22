@@ -685,7 +685,7 @@ test('update: a different fingerprint is announced; closing it keeps it quiet fo
   assert.equal(offline.latest(), null);
 });
 
-test('update: in a host with one worker, the whole app’s version, and no notice in a frame of the split view', async () => {
+test('update: in a host with one worker, the whole app’s version, and no notice in a frame of a host’s page', async () => {
   const asked = [];
   const notices = [];
   const server = { app: '0.3.15', name: 'Cronum Work', version: 'bbb' };
@@ -703,10 +703,10 @@ test('update: in a host with one worker, the whole app’s version, and no notic
   await new Promise((done) => setTimeout(done, 10));
   notices.length = 0;
   assert.equal(await frame.check({ announce: true }), true, 'a frame knows it');
-  assert.deepEqual(notices, [], 'but the split view says it, once');
+  assert.deepEqual(notices, [], 'but the host’s page says it, once');
 });
 
-test('update: a frame of the split view never asks /version by itself, nor on coming back', async () => {
+test('update: a frame of a host’s page never asks /version by itself, nor on coming back', async () => {
   const asked = [];
   let listened = 0;
   const timers = { ...fakeTimers(), setInterval: () => { throw new Error('no timer in a frame'); } };
@@ -870,12 +870,12 @@ test('a dialog without actions has no footer, and no "null" where it would have 
   for (const actions of [undefined, [], null]) {
     let closed = 0;
     const { dialog, close } = openDialog({
-      title: 'About', content: el('p', { text: 'Tracker 0.14.1' }), onClose: () => { closed += 1; },
+      title: 'About', content: el('p', { text: 'Demo 1.0.0' }), onClose: () => { closed += 1; },
       ...(actions === undefined ? {} : { actions }),
     });
     assert.equal(dialog.open, true);
     assert.equal(dialog.find('footer').length, 0, `actions: ${actions}`);
-    assert.equal(dialog.textContent, 'AboutTracker 0.14.1', `actions: ${actions}`);
+    assert.equal(dialog.textContent, 'AboutDemo 1.0.0', `actions: ${actions}`);
     close();
     assert.equal(closed, 1);
     assert.ok(!document.body.childNodes.includes(dialog), 'gone once closed');
@@ -923,7 +923,9 @@ test('every product’s accent reads: 4.5:1 with its text, light and dark', () =
   // A product's own page and, for a module of Cronum Work, its windows and pieces in Work's shell (audit of 6/11, work-web-3).
   const products = [...css.matchAll(/:root\[data-app="(\w+)"\](?:, :root\[data-app="work"\] :is\(\[data-module="(\w+)"\], \[data-owner="(\w+)"\]\))?\s*\{([^}]*)\}/g)]
     .map(([, id, inWork, owner, body]) => [id, inWork ?? null, owner ?? null, body]);
-  assert.deepEqual(products.map(([id]) => id), ['tasks', 'projects', 'next', 'focus', 'notes', 'tracker', 'work']);
+  assert.deepEqual(products.map(([id]) => id), ['tasks', 'projects', 'next', 'notes', 'work']);
+  assert.deepEqual([...css.matchAll(/--cr-product-(\w+):/g)].map(([, id]) => id).sort(), products.map(([id]) => id).sort(),
+    'every app colour has its accent block, and no block lacks its colour');
   assert.deepEqual(products.filter(([, inWork]) => inWork).map(([id, inWork, owner]) => [id, inWork, owner]),
     ['tasks', 'projects', 'next', 'notes'].map((id) => [id, id, id]), 'each module of Work in its own accent inside Work');
   for (const [id, , , body] of products) {
@@ -941,6 +943,31 @@ test('the yolk is "now" only: as text it is the deep one, never the flat on whit
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   assert.ok(contrast('#9A6500', '#FFFFFF') >= 4.5);
   assert.doesNotMatch(css, /color:\s*var\(--cr-yolk-(?:500|600)\)/, 'flat yolk as text does not read on light');
+});
+
+test('a state as text reads (ok, warn, danger, violet): on the page, a panel and its soft tint, light and dark', () => {
+  // A module's states written in words take these (Projects' overdue, at risk and blocked, the
+  // palette's violet; Next's fresh, stalled, stuck): their own vivid colours stay for bars and
+  // borders (audit of 6/11, dup-css-3).
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  const block = (re) => re.exec(css)[1];
+  const themes = {
+    light: { body: block(/^:root \{([\s\S]*?)\n\}/m), grounds: ['#FFFFFF', '#FAF8F4'] },
+    dark: { body: block(/^:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/m), grounds: ['#1C1914', '#14120E'] },
+  };
+  const mix = (a, b, share) => `#${[1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * share
+    + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, '0')).join('')}`;
+  for (const [theme, { body, grounds }] of Object.entries(themes)) {
+    const token = (name) => new RegExp(`--kit-${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(body)?.[1];
+    for (const state of ['ok', 'warn', 'danger', 'color-violet']) {
+      const ink = token(state);
+      // Its soft ground: the kit's own, or the 14 % tint a badge of it gets (.kit-badge--on).
+      const soft = token(`${state}-soft`) || mix(ink, grounds[0], 0.14);
+      for (const ground of [...grounds, soft]) {
+        assert.ok(contrast(ink, ground) >= 4.5, `${theme} ${state} on ${ground}: ${contrast(ink, ground).toFixed(2)}`);
+      }
+    }
+  }
 });
 
 test('one frame: no button for the person at the sidebar\'s foot, and no top bar with tabs', () => {
@@ -963,26 +990,22 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
   const icons = fs.readFileSync(new URL('../web/icons.js', import.meta.url), 'utf8');
-  // The switcher: the other modules, then the account's entries (Settings alone, in every app today).
+  // The switcher: the other modules, then Settings.
   assert.match(shell, /class: 'kit-side__app' }/);
   assert.match(shell, /switcher\.setAttribute\('aria-haspopup', 'menu'\);/, 'a menu where it has more than Settings');
-  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*\.\.\.accountMenuItems\(\),/);
+  assert.match(shell, /others\.map\(\(m\) => \(\{ label: m\.name, image: m\.icon, href: m\.path \}\)\),[^]*?others\.length \|\| calendarPath \? 'separator' : null,\s*settingsItem\(\),/);
   // Only where the rail doesn't show (a phone, or no answer from the host yet beside the views),
-  // and always in a frame of the host's split view, which has no rail.
+  // and always in a frame of a host's page, which has no rail.
   // Never in a window of Work's shell, where the modules and Settings are the shell's.
   // An app on its own (no module's path) has no host to wait for.
   assert.match(shell, /const known = answered \|\| !mount;/);
   assert.match(shell, /&& \(FRAMED \|\| !beside\(\) \|\| \(known && !rail\)\);/);
   assert.match(shell, /if \(FRAMED\) \{\s*others = \[\];\s*calendarPath = null;\s*asModule\(true\);\s*return null;\s*\}/, 'no rail in a frame, nor other modules or the calendar');
-  // The split view's views on the rail, where the host has one, over Settings.
-  assert.match(shell, /host\.split \? el\('button', \{\s*type: 'button', class: 'kit-rail__split'/);
-  assert.match(shell, /href: n === 1 \? null : `\$\{page\}\?layout=\$\{n\}&from=\$\{encodeURIComponent\(mount\)\}`/);
-  assert.match(css, /\.kit-rail__split \+ \.kit-rail__settings \{ margin-top: 0; \}/);
-  for (const n of [1, 2, 3, 4]) assert.match(icons, new RegExp(` {2}'layout-${n}': '[^']+',\n`));
-  // The calendar, where the host has one: a link to its page, just over the split view.
+  assert.match(icons, / {2}'layout-1': '[^']+',\n/, 'the frame Work\'s shell draws its layouts on');
+  // The calendar, where the host has one: a link to its page, just over Settings.
   assert.match(shell, /host\.calendar \? el\('a', \{\s*class: 'kit-rail__calendar', href: host\.calendar, title: t\('kit\.calendar\.title'\)/);
-  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__split'"), 'over the split view');
-  assert.match(css, /\.kit-rail__calendar \+ :is\(\.kit-rail__split, \.kit-rail__settings\) \{ margin-top: 0; \}/);
+  assert.ok(shell.indexOf("class: 'kit-rail__calendar'") < shell.indexOf("class: 'kit-rail__settings'"), 'over Settings');
+  assert.match(css, /\.kit-rail__calendar \+ \.kit-rail__settings \{ margin-top: 0; \}/);
   assert.match(icons, /\n {2}calendar: '[^']+',\n/);
   // Settings › Modules turns its button on and off, where the host has one.
   const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
@@ -994,8 +1017,9 @@ test('in a host the rail is for where the sidebar stays, the app\'s icon changes
   assert.match(shell, /calendarPath = host\.calendar \|\| null;/);
   assert.match(shell, /calendarPath \? \{ label: t\('kit\.calendar\.title'\), iconName: 'calendar', href: calendarPath \} : null,/);
   assert.doesNotMatch(shell, /shown\.length < 2/, 'with one module too: the rail has Settings');
-  assert.match(shell, /if \(direct\) return \[settings\];/, 'the same Settings as the app\'s icon opens on its own');
-  assert.match(shell, /class: 'kit-rail__settings'/, 'Settings at the rail\'s foot');
+  assert.match(shell, /class: 'kit-rail__settings', title: settingsLabel, 'aria-label': settingsLabel,\s*onClick: \(\) => onSettings\(\),/,
+    'Settings at the rail\'s foot, the same as the app\'s icon opens on its own');
+  assert.doesNotMatch(shell, /accountItems|openAccountMenu|kit\.account\.(?:menu|admin)/, 'no account menu: the account is in Settings, signing out too');
   assert.match(icons, /'chevron-down': /);
   assert.match(icons, /\n  camera: '[^']+',\n/, 'the camera and the picture, for attaching (0.63.0)');
   assert.match(icons, /\n  image: '[^']+',\n/);
@@ -1013,8 +1037,11 @@ test('from one module to another: the rail of last time at once, and one page fa
   assert.match(shell, /localStorage\.setItem\(RAIL_KEY, JSON\.stringify\(answer\)\)/);
   assert.match(shell, /if \(Array\.isArray\(last\?\.modules\) && last\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(last\);\s*refreshModules\(\{ fresh: false \}\);/);
   assert.match(shell, /status === 404\) \{[^}]*localStorage\.removeItem\(RAIL_KEY\)/, 'no host there: forgotten');
-  // Back to the page the rail asks again, but not in a frame of the split view: the view has the rail.
+  // Back to the page the rail asks again, but not in a frame of a host's page: that page has the rail.
   assert.match(shell, /if \(!FRAMED\) document\.addEventListener\('visibilitychange'/);
+  // A module turned on or off in Settings: the modules as they are now come with the event, the
+  // device's own without a signal, and the rail is drawn from them before the host is asked.
+  assert.match(shell, /addEventListener\('kit-modules', \(ev\) => \{\s*const given = ev\.detail\?\.answer;[^}]*given\.modules\.some\(\(m\) => m\?\.mount === mount\)\) paintRail\(given\);\s*refreshModules\(\);/);
   // A crossfade between pages of the site, the rail standing still; none for less motion.
   assert.match(css, /@view-transition \{ navigation: auto; \}/);
   assert.match(css, /\.kit-rail \{ view-transition-name: kit-rail; \}/);
@@ -1304,7 +1331,7 @@ test('a module’s service worker keeps to its path: its API, its caches, its no
   await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/?list=3' } } });
   await tasks.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=4' } } });
   await tasks.fire('notificationclick', { notification: { close() {}, data: {} } });
-  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/?app']);
+  assert.deepEqual(tasks.opened, ['/tasks/?list=3', '/tasks/?list=4', '/tasks/'], 'and one without a path, the app');
 
   const host = await serviceWorker('https://work.example/', keys);
   host.self.suiteWorker({ version: 'work-v2', shell: ['/'], skip: ['/tasks/', '/notes/'] });
@@ -1357,7 +1384,7 @@ test('a host’s one worker serves every module’s paths as the module did, and
   const framed = page('https://work.example/tasks/', 'nested');
   host.self.clients.matchAll = async () => [split, framed];
   await host.fire('notificationclick', { notification: { close() {}, data: { url: '/tasks/?list=5' } } });
-  assert.equal(framed.got.length, 1, 'in the split view, the module’s frame gets it');
+  assert.equal(framed.got.length, 1, 'in a host’s page, the module’s frame gets it');
   assert.equal(split.focused, 1, 'and the view the focus');
   assert.equal(split.went, null);
 
@@ -1689,7 +1716,7 @@ test('a page asked for outside a navigation is the browser’s, so a failed fetc
   const server = { '/': 'home', '/js/home.js': 'v1', '/tasks/': 'tasks page' };
   const { worker, fetched } = await deployedWorkers('https://work.example/', server);
   const one = await worker({ version: 'work-a', modules: ['/tasks/'], codeFirst: true, shell: ['/', '/js/home.js', '/tasks/'], kit: false });
-  // Chrome checks the page before installing the app: Work's split view, `|` and all.
+  // Chrome checks the page before installing the app: Work's windows (`?w=`), `|` and all.
   fetched.length = 0;
   for (const page of ['https://work.example/?w=tasks:%3Flist%3D38|notes:&f=notes', 'https://work.example/w/', 'https://work.example/tasks/list/12', 'https://work.example/index.html']) {
     assert.equal(await one.get(page), null, page);
@@ -2311,7 +2338,7 @@ async function settingsAt(start, config, answers) {
 }
 const shape = (node) => node.childNodes.map((child) => child.tagName || `text "${child.textContent}"`);
 
-test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with no "null" in their place (Tracker\'s review)', async () => {
+test('a copy\'s plan in Your data leaves out the lines that don\'t apply, with no "null" in their place', async () => {
   const { t } = await import('../web/i18n.js');
   const copy = { created_at: '2026-10-12T09:30:00.000Z', applied_at: null, tables: { notes: 4 } };
   const planOf = async (answer) => {
@@ -2757,12 +2784,13 @@ test('the drawer opened by a finger takes the focus itself, with no ring on the 
 test('a view\'s head: the bar\'s buttons are made for it too, and a pane showing one doesn\'t show the bar', () => {
   const shell = fs.readFileSync(new URL('../web/shell.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, actions: own = \[\], below = null, close = true \} = \{\}\)/);
+  assert.match(shell, /function viewHead\(\{ pane = 'list', title: text = '', lead = null, icon: glyph = null, actions: own = \[\], below = null, close = true \} = \{\}\)/);
   assert.match(shell, /if \(pane === 'detail'\) start = backToggle\(\);/, '← over a detail, ☰ over a list');
   // Its line ends with the app's «…», and a detail's with its × (0.248.0): what creates is the
   // floating button, at every width (0.247.0).
   assert.match(shell, /const end = pane === 'detail' && close \? closeToggle\(\) : null;/, 'a detail\'s ×, unless it must not close');
-  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, heading, el\('div', \{ class: 'kit-head__actions' \}, own\), end\),/);
+  assert.match(shell, /el\('div', \{ class: 'kit-head__row' \}, start, lead, mark, heading, el\('div', \{ class: 'kit-head__actions' \}, own\), end\),/);
+  assert.match(shell, /let mark = glyph \? iconNode\(glyph\) : null;/, 'the collection\'s own emoji only when given: a head without one is as before');
   assert.doesNotMatch(shell, /createButton/);
   assert.match(shell, /element, nav, list, detail, actions, banners, head: viewHead,/, 'the shell gives it');
   assert.match(shell, /if \(showing\('\.kit-bar__back'\)\) return/, 'a swipe from the edge finds the button that shows, in the bar or a head');
@@ -2814,7 +2842,7 @@ async function framePage() {
 
 const frameOptions = () => ({
   app: { id: 'notes', name: 'Notes' }, create: { label: 'New', onClick: () => {} },
-  onSettings: () => {}, accountItems: [{ label: 'Export', onClick: () => {} }],
+  onSettings: () => {},
 });
 
 test('the frame’s destroy() takes away every listener it added, the menu it opened and its DOM; twice is harmless', async () => {
@@ -2822,23 +2850,23 @@ test('the frame’s destroy() takes away every listener it added, the menu it op
   try {
     const { createShell } = await import('../web/shell.js');
     const before = { document: page.listenerCount(), window: win.listenerCount() };
-    const shell = createShell(frameOptions());
+    const shell = createShell({ ...frameOptions(), foot: { create: { items: [{ label: 'New notebook', onClick: () => {} }] } } });
     assert.ok(page.listenerCount() >= before.document + 7, 'touches, drags and the like, on the document');
     assert.equal(page.body.children.length, 1);
 
-    // The account menu open (the app's icon, with entries of the app's own), as it may be when an
-    // app draws its frame again: it lives in the body.
-    const account = shell.element.querySelector('.kit-side__app');
-    assert.equal(account.dataset.opens, 'menu');
-    account.click();
-    assert.equal(account.getAttribute('aria-expanded'), 'true');
+    // A menu open (the sidebar's +, with what it makes), as it may be when an app draws its frame
+    // again: it lives in the body.
+    const add = shell.foot.create;
+    add.click();
+    assert.equal(add.getAttribute('aria-expanded'), 'true');
     assert.equal(page.body.children.length, 2);
+    const app = shell.element.querySelector('.kit-side__app');
 
     shell.destroy();
     assert.deepEqual({ document: page.listenerCount(), window: win.listenerCount() }, before, 'nothing left listening');
     assert.equal(page.body.children.length, 0, 'the frame and its menu left the page');
-    assert.equal(account.getAttribute('aria-expanded'), 'false');
-    assert.equal(account.listenerCount(), 0, 'its own nodes hold nothing either');
+    assert.equal(add.getAttribute('aria-expanded'), 'false');
+    assert.equal(app.listenerCount(), 0, 'its own nodes hold nothing either');
 
     shell.destroy();
     // The menu's outside-click listener comes on the next turn, and not for a menu already closed.
@@ -2905,8 +2933,11 @@ test('an app on its own: no button for the person, and the app\'s icon at the si
   try {
     const { createShell } = await import('../web/shell.js');
     let opened = 0;
-    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; } });
-    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com' });
+    let signedOut = 0;
+    // onSignOut and setUser(), which the modules still give and call, change nothing: no menu, an
+    // admin's neither, and nothing signs out from the frame.
+    const shell = createShell({ app: { id: 'notes', name: 'Notes' }, onSettings: () => { opened += 1; }, onSignOut: () => { signedOut += 1; } });
+    shell.setUser({ id: 1, username: 'ana', display_name: 'Ana', email: 'ana@example.com', role: 'admin' });
     assert.equal(shell.element.querySelector('.kit-account'), null);
     assert.equal(shell.element.querySelector('.kit-side__foot'), null);
     const app = shell.element.querySelector('.kit-side__app');
@@ -2917,6 +2948,7 @@ test('an app on its own: no button for the person, and the app\'s icon at the si
     app.click();
     assert.equal(opened, 1, 'straight to Settings');
     assert.equal(page.body.children.length, 1, 'no menu in the body');
+    assert.equal(signedOut, 0);
     shell.destroy();
   } finally {
     restore();
@@ -3217,14 +3249,14 @@ test('a frame of the host\'s own page is FRAMED; a page on its own, or framed by
   assert.equal(framedIn(page), false, 'a page on its own');
   const frame = { location: { origin: 'https://work.example' }, top: page };
   frame.self = frame;
-  assert.equal(framedIn(frame), true, 'a frame of the split view');
+  assert.equal(framedIn(frame), true, 'a frame of a host’s page');
   const elsewhere = { location: { origin: 'https://work.example' }, top: { get location() { throw new Error('SecurityError'); } } };
   elsewhere.self = elsewhere;
   assert.equal(framedIn(elsewhere), false, 'another site\'s page can\'t be read');
   assert.equal(framedIn(undefined), false, 'no window: Node');
 });
 
-test('in a frame, the split view opens the module\'s Settings, and hears when they open and close', () => {
+test('in a frame, the host\'s page opens the module\'s Settings, and hears when they open and close', () => {
   const read = (file) => fs.readFileSync(new URL(`../web/${file}`, import.meta.url), 'utf8');
   assert.match(read('base.js'), /export const SETTINGS_EVENT = 'kit:settings';/);
   assert.match(read('base.js'), /export const SETTINGS_SHOWN_EVENT = 'kit:settings-shown';/);
@@ -3313,7 +3345,7 @@ test('the search reads the kit’s «Buscar» in every module, its own words nam
     { es: 'Buscar', en: 'Search', fr: 'Rechercher', de: 'Suchen', it: 'Cerca' });
   // Its own line height after `font: inherit`, which would give it the page's (Notes' 1.5: a pixel taller).
   const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
-  assert.match(css, /\n\.kit-side__search-input \{[^}]*font: inherit; font-size: max\(16px, var\(--look-body, 15px\)\); line-height: 1\.45;\n\}/);
+  assert.match(css, /\n\.kit-side__search-input \{[^}]*font: inherit; font-size: max\(16px, var\(--look-body\)\); line-height: 1\.45;\n\}/);
   assert.match(css, /^\.kit-side__search-input::placeholder \{ color: var\(--kit-faint\); opacity: 1; \}$/m, 'not the browser\'s grey');
   // «/»'s key: hidden but on a big screen with a fine pointer and the sidebar beside the views, and
   // gone while the field has the focus or text.
@@ -3712,4 +3744,263 @@ test('a group folded stays open with the collection open in it; without a menu i
   assert.match(css, /\.kit-nav-group__toggle\[aria-expanded="true"\] \.kit-icon \{ transform: rotate\(90deg\); \}/);
   assert.match(css, /\.kit-nav-group__body \{[^}]*padding-inline-start: 12px; \}/);
   assert.match(css, /:root\[data-look="clean"\] \.kit-nav-group__head \{\s*min-height: 40px;[^}]*border-inline-start: 0; background: transparent; color: var\(--kit-text\);/);
+});
+
+/* ---------------------- the sidebar's entries (0.302.0) ---------------------- */
+
+test('an entry of the sidebar: its own emoji as wide as an icon, the kit\'s one shared mark, its title, its menu', async () => {
+  const { page, win, restore } = await framePage();
+  try {
+    const { navItem, sharedMark } = await import('../web/shell.js');
+    const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+    const plain = navItem({ label: 'Inbox', iconName: 'inbox' });
+    assert.equal(plain.children.length, 2, 'without the new options, as before: the icon and the label');
+    assert.equal(plain.hasAttribute('data-kit-menu'), false);
+    const mine = navItem({ label: 'Groceries', emoji: '🛒', count: 3, title: 'Groceries' });
+    const [emoji, label] = mine.children;
+    assert.equal(emoji.getAttribute('class'), 'kit-nav__emoji');
+    assert.equal(emoji.textContent, '🛒');
+    assert.equal(label.getAttribute('title'), 'Groceries');
+    const theirs = navItem({ label: 'Trip', color: '#C8372D', shared: { owner: 'Ana' }, marks: [page.createElement('span')] });
+    const lead = theirs.children[0];
+    assert.equal(lead.getAttribute('class'), 'kit-nav__lead', 'the swatch and its marks in one box, as wide as an icon');
+    assert.equal(lead.children[0].getAttribute('class'), 'kit-nav__swatch');
+    const mark = lead.children[1];
+    assert.equal(mark.getAttribute('class'), 'kit-nav__shared');
+    assert.equal(mark.getAttribute('role'), 'img');
+    assert.equal(mark.getAttribute('aria-label'), mark.getAttribute('title'), 'said in words, and the same to a pointer');
+    assert.equal(lead.children.length, 3, 'the module\'s own marks after it (a public page\'s globe)');
+    assert.equal(sharedMark().getAttribute('class'), 'kit-nav__shared');
+    // Something under its name, in its column (a project's progress), and what its count means.
+    const bar = page.createElement('span');
+    const project = navItem({ label: 'House', emoji: '🏠', under: bar, count: 2, countTitle: '2 overdue' });
+    const [, body, count] = project.children;
+    assert.equal(body.getAttribute('class'), 'kit-nav__body');
+    assert.deepEqual([...body.children].map((node) => node.getAttribute('class')), ['kit-nav__label', null]);
+    assert.equal(body.children[1], bar);
+    assert.equal(count.getAttribute('title'), '2 overdue');
+    assert.equal(mine.children[2].getAttribute('title'), null, 'a count says nothing more without it');
+    assert.match(css, /\.kit-nav__body \{ position: relative; flex: 1; min-width: 0; display: grid; \}/);
+    assert.match(css, /\.kit-nav__swatch \{ width: 10px; height: 10px;[^}]*margin-inline: 3\.5px; \}/, 'a colour as wide as an icon: its label in line with a view’s');
+    assert.match(css, /\.kit-nav-group__name > \.kit-nav__shared \{ position: static; flex: none; \}/, 'after a group’s name');
+    assert.match(css, /\.kit-nav__emoji \{ display: inline-grid; place-items: center; width: 17px;/, 'as wide as a view\'s icon: every label starts in line');
+    assert.match(css, /\.kit-nav__item \.kit-icon \{ color: var\(--kit-muted\); width: 17px; height: 17px; \}/);
+    assert.match(css, /\.kit-nav__item \{\n[^}]*line-height: 1\.45;/, 'its own line height: 36 px in every module');
+    assert.match(css, /\.kit-nav-group__head \{\n[^}]*line-height: 1\.45;/);
+    assert.match(css, /\.kit-icon-btn\[aria-pressed="true"\] \{ background: var\(--kit-accent-soft\); color: var\(--kit-accent\); \}/);
+
+    // Its menu: the same as its «…», with a right-click at the pointer, and from a long press.
+    const opened = [];
+    const entry = navItem({ label: 'Work', onMenu: (at, node) => opened.push([at, node]) });
+    assert.equal(entry.hasAttribute('data-kit-menu'), true);
+    let prevented = false;
+    entry.dispatch('contextmenu', { clientX: 40, clientY: 90, preventDefault: () => { prevented = true; } });
+    assert.ok(prevented, 'not the browser\'s menu');
+    assert.deepEqual(opened, [[{ x: 40, y: 90 }, entry]]);
+    page.documentElement.setAttribute('data-kit-dragging', '');
+    entry.dispatch('contextmenu', { clientX: 40, clientY: 90, preventDefault: () => {} });
+    page.documentElement.removeAttribute('data-kit-dragging');
+    assert.equal(opened.length, 1, 'not while something is carried');
+    entry.dispatch('kit:hold');
+    assert.equal(opened.length, 2, 'a drag held and let go where it was tells the entry, which opens it');
+    // A finger: held still for HOLD_MS and let go opens it; moved, it was a scroll.
+    const { HOLD_MS } = await import('../web/drag.js');
+    const realNow = performance.now;
+    let now = 1000;
+    performance.now = () => now;
+    try {
+      const touch = { pointerType: 'touch', button: 0, isPrimary: true, pointerId: 3, clientX: 10, clientY: 10 };
+      entry.dispatch('pointerdown', touch);
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'a long press opens it under the entry');
+      entry.dispatch('pointerdown', touch);
+      win.dispatch('pointermove', { pointerId: 3, clientX: 10, clientY: 60 });
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'moved: a scroll, no menu');
+      entry.dispatch('pointerdown', touch);
+      now += 100;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'a tap opens the entry, not its menu');
+      entry.dispatch('pointerdown', touch);
+      page.dispatch('kit-dragstart');
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'picked up by the hold: the drag answers it (kit:hold), not twice');
+      entry.dispatch('pointerdown', { ...touch, pointerType: 'mouse' });
+      now += HOLD_MS + 20;
+      win.dispatch('pointerup', { pointerId: 3 });
+      assert.equal(opened.length, 3, 'a mouse held is no long press: its right button is');
+    } finally {
+      performance.now = realNow;
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('a group\'s head opens its menu with a right-click too, as its name does', async () => {
+  const { restore } = await framePage();
+  try {
+    const { navGroup } = await import('../web/shell.js');
+    const named = [];
+    const group = navGroup({ name: 'Home', onName: (event, name) => named.push([event.clientX, name]) });
+    const head = group.children[0];
+    head.dispatch('contextmenu', { clientX: 12, clientY: 30, preventDefault: () => {} });
+    assert.equal(named.length, 1);
+    assert.equal(named[0][0], 12);
+    assert.equal(named[0][1].getAttribute('class'), 'kit-nav-group__name', 'told the name, as a tap on it does');
+    // Held by a finger and let go where it was, the drag of groups tells the group (kit:hold).
+    group.dispatch('kit:hold');
+    assert.equal(named.length, 2, 'a long press on a group picked up by its head opens its menu too');
+    group.dispatch('kit:hold', { target: head });
+    assert.equal(named.length, 2, 'not for an event of something inside it');
+    assert.equal(navGroup({ name: 'Plain' }).children[0].hasAttribute('data-kit-menu'), false, 'without a menu, the browser\'s');
+  } finally {
+    restore();
+  }
+});
+
+test('a sidebar\'s order after a drop is the kit\'s, the same in every module', async () => {
+  const { orderAfterDrop } = await import('../web/drag.js');
+  assert.deepEqual(orderAfterDrop([1, 2, 3], 3, 1, 'before'), [3, 1, 2]);
+  assert.deepEqual(orderAfterDrop([1, 2, 3], 1, 3, 'after'), [2, 3, 1]);
+  assert.equal(orderAfterDrop([1, 2, 3], 1, 2, 'before'), null, 'nothing changes');
+  assert.equal(orderAfterDrop([1, 2, 3], 1, 9, 'before'), null, 'the target isn\'t there');
+  const drag = fs.readFileSync(new URL('../web/drag.js', import.meta.url), 'utf8');
+  assert.match(drag, /if \(onHold\) \{ onHold\(item\); return; \}\s*item\.dispatchEvent\?\.\(new CustomEvent\('kit:hold'\)\);/, 'without onHold the entry is told');
+});
+
+test('«n» makes a new item in every module (`onNew`), under the same conditions as «/»', async () => {
+  const { page, restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    let made = 0;
+    const shell = createShell({ ...frameOptions(), onNew: () => { made += 1; } });
+    const field = shell.detail.appendChild(page.createElement('input'));
+    const press = (target, extra = {}) => page.dispatch('keydown', { key: 'n', target, preventDefault: () => {}, ...extra });
+    press(page.body);
+    assert.equal(made, 1);
+    press(field);
+    for (const extra of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { defaultPrevented: true }, { key: 'm' }]) press(page.body, extra);
+    assert.equal(made, 1, 'typed in a field; with a modifier, composing, answered or another key, nothing');
+    shell.destroy();
+    press(page.body);
+    assert.equal(made, 1, 'gone with the frame');
+    const quiet = createShell(frameOptions());
+    press(page.body);
+    assert.equal(made, 1, 'without onNew «n» is the page\'s');
+    quiet.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('the search waits the same in every module (`onSearch`, `wait`, `min`), Enter runs it at once, and clearSearch() empties it', async () => {
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const runs = [];
+    const shell = createShell({ ...frameOptions(), search: { label: 'Search', onSearch: (text) => runs.push(text), wait: 5, min: 2 } });
+    const type = (value) => { shell.search.value = value; shell.search.dispatch('input'); };
+    const pause = () => new Promise((done) => { setTimeout(done, 25); });
+    type('a');
+    await pause();
+    assert.deepEqual(runs, [], 'shorter than min: no search, and nothing to tell');
+    type('ab');
+    type('abc');
+    await pause();
+    assert.deepEqual(runs, ['abc'], 'once, a moment after the last key');
+    type('abcd');
+    shell.search.dispatch('keydown', { key: 'Enter', preventDefault: () => {} });
+    assert.deepEqual(runs, ['abc', 'abcd'], 'Enter at once');
+    await pause();
+    assert.equal(runs.length, 2, 'and not again when the wait ends');
+    type('');
+    assert.equal(runs.at(-1), '', 'emptied, at once');
+    type('xyz');
+    shell.clearSearch();
+    await pause();
+    assert.equal(shell.search.value, '');
+    assert.equal(runs.at(-1), '', 'cleared before its wait ended: nothing runs');
+    // A module that writes the field itself away from the results (Notes, Next): the same words
+    // typed again are searched again.
+    type('abc');
+    await pause();
+    assert.equal(runs.at(-1), 'abc');
+    shell.search.value = '';
+    shell.search.dispatch('focus');
+    type('abc');
+    await pause();
+    assert.deepEqual(runs.slice(-2), ['abc', 'abc'], 'emptied by the module, then the same search again');
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('an invitation waiting marks every ☰ of the frame, and says so; none, no mark', async () => {
+  const css = fs.readFileSync(new URL('../web/kit.css', import.meta.url), 'utf8');
+  assert.match(css, /\.kit-app\[data-mark\] \.kit-bar__menu::after \{/, 'a dot at its corner');
+  const { restore } = await framePage();
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { t } = await import('../web/i18n.js');
+    const shell = createShell(frameOptions());
+    shell.head({ pane: 'list', title: 'All notes' });
+    shell.setMark(2);
+    assert.equal(shell.element.hasAttribute('data-mark'), true);
+    const later = shell.head({ pane: 'list', title: 'Pinned' }).element.querySelector('.kit-bar__menu');
+    const label = `${t('kit.menu')} · ${t('kit.invite.mark', { n: 2 })}`;
+    assert.equal(shell.element.querySelector('.kit-bar__menu').getAttribute('aria-label'), label);
+    assert.equal(later.getAttribute('aria-label'), label, 'a head made afterwards too');
+    shell.setMark(0);
+    assert.equal(shell.element.hasAttribute('data-mark'), false);
+    assert.equal(shell.element.querySelector('.kit-bar__menu').getAttribute('aria-label'), t('kit.menu'));
+    shell.destroy();
+  } finally {
+    restore();
+  }
+});
+
+test('in Work\'s shell, its ☰ folds the sidebar where it sits beside the views, and opens the drawer on a phone', async () => {
+  const { page, win, restore } = await framePage();
+  const realLocal = globalThis.localStorage;
+  globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+  try {
+    const { createShell } = await import('../web/shell.js');
+    const { DRAWER_EVENT } = await import('../web/base.js');
+    const phone = createShell({ ...frameOptions(), embedded: true });
+    page.body.dispatch(DRAWER_EVENT);
+    assert.ok(phone.element.hasAttribute('data-drawer'), 'a phone: the drawer');
+    phone.destroy();
+    globalThis.innerWidth = 700;
+    win.innerWidth = 700;
+    const tablet = createShell({ ...frameOptions(), embedded: true });
+    page.body.dispatch(DRAWER_EVENT);
+    assert.ok(tablet.element.hasAttribute('data-folded'), '700 px: folded away');
+    assert.ok(!tablet.element.hasAttribute('data-drawer'));
+    page.body.dispatch(DRAWER_EVENT);
+    assert.ok(!tablet.element.hasAttribute('data-folded'), 'and back');
+    tablet.destroy();
+    // A module in Work's shell without a search keeps its sidebar's head, with the button that folds it.
+    const bare = createShell({ ...frameOptions(), embedded: true });
+    assert.equal(bare.element.querySelector('.kit-side__fold')?.parentElement?.getAttribute('class'), 'kit-side__head', 'no search: the fold has its own line');
+    bare.destroy();
+  } finally {
+    globalThis.localStorage = realLocal;
+    restore();
+  }
+});
+
+test('the key a shortcut takes is the device\'s: ⌘ on Apple\'s, Ctrl elsewhere; Settings › About lists the keys', async () => {
+  const { modKey } = await import('../web/keyboard.js');
+  assert.equal(modKey({ platform: 'MacIntel' }), '⌘');
+  assert.equal(modKey({ userAgentData: { platform: 'macOS' } }), '⌘');
+  assert.equal(modKey({ platform: 'iPhone' }), '⌘');
+  assert.equal(modKey({ platform: 'Win32' }), 'Ctrl');
+  assert.equal(modKey({}), 'Ctrl');
+  const settings = fs.readFileSync(new URL('../web/settings.js', import.meta.url), 'utf8');
+  assert.match(settings, /block\(t\('kit\.about\.keys'\), shortcuts\(\)\),/);
 });

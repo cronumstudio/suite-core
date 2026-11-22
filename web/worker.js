@@ -137,7 +137,7 @@ function activeOf(registration) {
   });
 }
 
-/** One page at a time (the split view loads several modules at once), where the browser can say so. */
+/** One page at a time (a host's page may load several modules at once), where the browser can say so. */
 function alone(fn) {
   const locks = globalThis.navigator?.locks;
   return locks?.request ? locks.request('host.worker', fn) : fn();
