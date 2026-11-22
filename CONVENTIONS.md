@@ -35,8 +35,8 @@ it may not relax these. The design they serve is in [docs/architecture.md](docs/
     (`kit.delete`), never another language's.
   - No people: no names or e-mail addresses of maintainers or testers, and no dated decision
     notes such as "(Name, 14/11)". Write the rule as the code's own.
-  - No private references: no audit or review ids (`sc-data-6`), audit dates, task, list or
-    step numbers (`#56`), pull requests of other repositories, private repositories, or the
+  - No private references: no audit or review ids (`<area>-<n>`), audit dates, task, list or
+    step numbers (`#<n>`), pull requests of other repositories, private repositories, or the
     maintainers' machines and hosting.
   - No products, plans or prices that are not public yet.
   - Cite only documents that exist in this repository or in another public one.
