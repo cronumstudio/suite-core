@@ -33,9 +33,9 @@ licence is next to it, in full:
 ## Lucide
 
 These icons of `web/icons.js` are Lucide's, each drawn as one path on the kit's grid: `bold`,
-`camera`, `code-xml`, `heading`, `heading-1`, `heading-2`, `heading-3`, `image`, `italic`, `link`,
-`list`, `list-indent-decrease`, `list-indent-increase`, `list-ordered`, `list-todo`, `redo-2`,
-`strikethrough`, `table` and `undo-2`.
+`camera`, `code-xml`, `eraser`, `heading`, `heading-1`, `heading-2`, `heading-3`, `highlighter`,
+`image`, `italic`, `link`, `list`, `list-indent-decrease`, `list-indent-increase`, `list-ordered`,
+`list-todo`, `marker` (Lucide's `brush`), `pen`, `redo-2`, `strikethrough`, `table` and `undo-2`.
 
 ```
 ISC License
@@ -83,8 +83,8 @@ SOFTWARE.
 ```
 
 Some of the kit's other icons are drawn close to Lucide's or Feather's: `book`, `clip`, `copy`,
-`eye`, `filter`, `globe`, `logout`, `star`, `sun` and `users`. The two licences above cover them
-too.
+`eye`, `filter`, `flag`, `fork`, `globe`, `history`, `logout`, `star`, `sun`, `users`, `zoom-in`
+and `zoom-out`. The two licences above cover them too.
 
 ## LobeHub Icons
 
