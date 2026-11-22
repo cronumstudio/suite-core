@@ -6,10 +6,10 @@ and this document disagree, fix one of them in the same change.
 
 ## 1. Goals and constraints
 
-- **One platform, many apps.** Tasks, Projects, Next, Focus and Tracker keep their own domain
-  (lists, Gantt charts, progress logs, routines, GPS routes) and share everything that is the same
+- **One platform, many apps.** Tasks, Projects, Next, Notes and any other app keep their own domain
+  (lists, Gantt charts, progress logs, notebooks) and share everything that is the same
   everywhere: HTTP, accounts, sessions, tokens, OAuth for the MCP, the MCP transport, live updates,
-  translations, plans, billing, administration. Show Lab (IDEAA Lab) takes the conventions only.
+  translations, plans, billing, administration.
 - **Same image, two ways to run it.** Every app can be downloaded and self-hosted for free
   (AGPL-3.0), and the same image runs as a paid hosted service. The difference is configuration,
   never a fork: local accounts and everything allowed by default; WorkOS accounts and paid plans
@@ -30,16 +30,16 @@ Each shared piece takes the best version the apps already had:
 | Piece | Taken from | Why that one |
 | --- | --- | --- |
 | Conventions (English, error codes, aliases, commits, versions) | Next | Already all English, API answers codes, renames recorded |
-| HTTP kernel, database, migrations | Focus | Factories with injected dependencies, numbered migrations, strict request parsing |
-| Principal and access checks | Focus | One resolver for every credential, one place that decides access |
-| Sessions, secrets, brute-force brake | Focus + Tasks | Sliding sessions with rotation; secret generated when missing; brake persisted |
+| HTTP kernel, database, migrations | An app sold on its own | Factories with injected dependencies, numbered migrations, strict request parsing |
+| Principal and access checks | An app sold on its own | One resolver for every credential, one place that decides access |
+| Sessions, secrets, brute-force brake | That app + Tasks | Sliding sessions with rotation; secret generated when missing; brake persisted |
 | OAuth for the MCP, WorkOS | Tasks (**done** here) | Proven in production and on the hosted version |
 | MCP transport | Tasks / Next | The same code in three apps today |
-| Live updates | Tasks + Focus | SSE hub of Tasks with the event ids and replay designed in Focus |
-| Translations | Focus + Next | One `t()` for server and browser, CLDR plurals, parity and lint tools |
+| Live updates | Tasks + that app | SSE hub of Tasks with the event ids and replay designed in that app |
+| Translations | That app + Next | One `t()` for server and browser, CLDR plurals, parity and lint tools |
 | Push, uploads | Tasks | Web Push without dependencies (RFC 8291/8292); uploads checked by content |
 | Plans | Tasks | `planes.js`: catalog, per-user plan, barriers already placed |
-| Web kit | Tasks, Next, Focus | `el()`, API client, theme, service worker, update notice, offline outbox |
+| Web kit | Tasks, Next, that app | `el()`, API client, theme, service worker, update notice, offline outbox |
 
 ## 3. Repository layout
 
@@ -59,7 +59,7 @@ suite-core/
   host.js               done   createHost(): several apps as one, each a module at its own path (§21)
   runtime.js            done   what both run the same way: the server, the install's jobs, signals, listening
   legacy-domains.js     done   the apps' old addresses, answered by a host for a while (§21.2.1)
-  watcher.js            done   hot reload by polling, for code mounted over SMB
+  watcher.js            done   hot reload by polling, for code mounted over a network share
   http.js               done   router, HttpError, body parsing, security headers, CSRF, static files;
                                the checks of a field every module shares (str, int, intInRange, isoDate, dateOnly,
                                color, idParam, isObject) and the guards requireUser, requireAdmin
@@ -166,7 +166,7 @@ then tries `joinHost()` first, and a `server/module.js` hands the host what `ind
 
 ## 5. The configuration file
 
-`suite.config.js` sits in the app's `server/` folder (the one installs like the NAS mount live, so no
+`suite.config.js` sits in the app's `server/` folder (the one an install may mount live, so no
 container has to be recreated for it) and is committed: it is the product definition, the same
 for every install. suite-core validates it on start and refuses to start with a message that
 says what is wrong — a misspelled feature must never leave a barrier open.
@@ -179,6 +179,8 @@ export default {
     port: 3456,                   // default for PORT (see the port registry in CONVENTIONS.md)
     languages: ['en', 'es'],      // English first: it is the fallback
     color: '#EF4B2A',             // the product's colour: the accent of the OAuth consent screen
+    // accent: { light, on, dark, onDark },  // optional, each #RRGGBB: the accent's measured steps on
+    //                            // the pages the suite draws, for an app tokens.css doesn't list
     icon: '/icons/favicon.svg',   // the default; a path on the app, with its ?v= if the icons carry one
     mail: {                       // how its emails look (mail-layout.js), all optional:
       icon: '/icons/apple-touch-180.png',  // the default: a PNG on the app (mail clients show no SVG); null for none
@@ -214,9 +216,9 @@ export default {
   trustProxy: true,               // the default of TRUST_PROXY when an install doesn't set it
 
   organizations: {                // only with modules.organizations
-    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'driver' in Tracker
+    roles: ['owner', 'admin', 'member'],   // plus the app's own, e.g. 'agent'
     invitationDays: 7,
-    // seatRoles: ['driver'],     // some of roles, the ones that take a seat (else every member)
+    // seatRoles: ['agent'],      // some of roles, the ones that take a seat (else every member)
     // Kinds the app manages itself (section 10): the generic /api/orgs routes refuse to create,
     // join, leave or remove members of them; maxPerUser caps them per person; onEmpty: 'delete'
     // (a managed kind's default) deletes a group whose last member goes instead of archiving it.
@@ -246,7 +248,7 @@ export default {
   products: {
     'pro-monthly':  { plan: 'pro', kind: 'subscription' },
     'pro-lifetime': { plan: 'pro', kind: 'once' },
-    // A group's: the quantity bought is its seats, unless `seats: false` (any number of adults).
+    // A group's: the quantity bought is its seats, unless `seats: false` (any number of members).
     'family-yearly': { plan: 'pro', kind: 'subscription', for: 'organization', seats: false },
   },
 
@@ -356,8 +358,8 @@ CREATE TABLE api_tokens (
 
 -- oauth_clients, oauth_grants, oauth_tokens: see OAUTH_SCHEMA in oauth.js (done).
 
--- An app on a phone, with modules.devices (devices.js, migration 22). Not `devices`: Focus has
--- a table of its own by that name.
+-- An app on a phone, with modules.devices (devices.js, migration 22). Not `devices`: an app may
+-- have a table of its own by that name.
 CREATE TABLE device_tokens (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -428,7 +430,7 @@ CREATE TABLE organizations (
   name        TEXT NOT NULL,
   kind        TEXT,                      -- free text for the app: 'household', 'school'…
   settings    TEXT NOT NULL DEFAULT '{}',
-  branding    TEXT NOT NULL DEFAULT '{}',  -- logo, colors: Tracker's schools
+  branding    TEXT NOT NULL DEFAULT '{}',  -- logo, colors: a school's, say
   created_at  TEXT NOT NULL,
   archived_at TEXT
 );
@@ -572,8 +574,8 @@ created whole. The suite's first migrations then adapt what already exists to th
 `sessions.token` / `workos_sid` become `token_hash` / `idp_session_id`; `users.plan` and
 `plan_expires_at` become an `entitlement_grants` row with source `admin`; timestamps written by
 `datetime('now')` are rewritten as ISO 8601 with `Z`. Password hashes need nothing: every app
-already stores `scrypt$N$r$p$salt$hash`. Focus's `accounts` + `persons` map to `users` + its own
-`persons` table, which keeps the profiles that have no account (children).
+already stores `scrypt$N$r$p$salt$hash`. An app with `accounts` + `persons` maps them to `users` +
+its own `persons` table, which keeps the profiles that have no account.
 
 ## 7. Identity and access
 
@@ -589,11 +591,11 @@ a built-in OAuth access token, then an AuthKit JWT). There is no second path for
 clients. A device token is not one of them: no route of the suite takes it, the MCP included
 (except, with `stores.devices`, the store routes and `/api/billing/overview`, section 9), and an
 app checks it itself on the routes it opens to devices (`suite.devices.authenticate(req)`, below),
-so Tracker's native app reaches only what Tracker chose. Focus keeps its own pairing for
-its kiosks and ESP32 screens, with its `X-Focus-Device` header.
+so a phone app reaches only what its app chose. An app may keep its own pairing for its kiosks
+and screens, with a header of its own.
 
 **Device tokens** (**done**, v0.67.0, `devices.js`, with `modules.devices`): what an app on a phone
-holds instead of a session (Tracker's native app). The app opens the system browser on its own
+holds instead of a session. The app opens the system browser on its own
 connect page with a PKCE challenge (S256) and the address to come back to, a private-use scheme of
 its own (RFC 8252); the person signs in there as on the web and says yes; the page asks
 `POST /api/devices/codes` (session only, the address one of `devices.redirectUris`, exactly) for a
@@ -616,14 +618,14 @@ as its API tokens are. No route of the suite takes one, the MCP included (except
 the session cookie. The app accepts a device on the routes it chooses with
 `suite.devices.authenticate(req)` (the account with its `device_id`, or null) and checks an open
 connection with `isActive(id)`. Not for a module of a host: a
-host turns it on in its own suite.config.js, and its phone connects to the whole app. Focus
+host turns it on in its own suite.config.js, and its phone connects to the whole app. An app that
 pairs its kiosks the other way round (a code shown on the signed-in screen and typed or scanned on
-the device, bound to a profile with runner-only scopes, in its `X-Focus-Device` header) and keeps
+the device, bound to a profile with scopes of its own, in a header of its own) keeps
 its own pairing; the tables are named so that both live in its database.
 
 **The connect page** (**done**, v0.105.0, `device-pages.js` and `web/connect.js`, with
-`devices.connectPage`): the suite serves `/devices/connect` itself, ported from Tracker's (which
-Tracker keeps), for any app or host with `modules.devices`. The app opens it with
+`devices.connectPage`): the suite serves `/devices/connect` itself, for any app or host with
+`modules.devices`. The app opens it with
 `?code_challenge&state&redirect_uri&name&platform`; a query that is not a request the core takes
 (the address exactly one of `devices.redirectUris`) goes to the bare page, which says the link
 can't connect a device. Signed out with local accounts, the page signs in in place (second step
@@ -735,7 +737,7 @@ turned off in Settings › Modules still acts, as its pages still open at its pa
 
 **Roles** live at two levels: the instance (`users.role`: `admin` runs the install and is never
 limited by plans) and each organization (`owner`, `admin`, `member` and the app's own roles).
-Permissions over the app's records (shared lists, project members, guardianships, assigned routes)
+Permissions over the app's records (shared lists, project members, what is assigned to whom)
 stay in the app and are decided from the principal. A resource someone may not see answers 404, not
 403; 403 is for a resource they see but an action they may not take.
 
@@ -824,8 +826,8 @@ entitlements.countDaily(user, 'mcp.calls_per_day')  // → { allowed, used, limi
 entitlements.countWeekly(user, 'mcp.calls_per_week') // → the same, from Monday, and resets
 ```
 
-**A group's own plan.** Some things act for a group with no person behind them: a child's paired
-device in Focus, the hourly sweep of a family's History. `ofOrganization(id)` answers what `of()`
+**A group's own plan.** Some things act for a group with no person behind them: a device paired
+to the group, the group's hourly sweep. `ofOrganization(id)` answers what `of()`
 answers, from the organization's active grants alone: never a member's own grants nor the instance
 admin's "no limits", which belong to a person, and never `of(null)`'s declared defaults (no limit at
 all, where nobody asks). With no grant it is the default plan, and so is a group that isn't there or
@@ -858,20 +860,22 @@ A product sold on its own has a catalog of its own, which its installs name, so 
 gives anything in another product, nor the other way round (a key the named catalog lacks stops the
 start, as above).
 
-`PLANS=cronum-focus` is Cronum Focus's. Its plans, `free` and `pro`, are a family's: a family is an
-organization (kind `family`), Pro is granted to it —bought by its owner or an admin, or the 14-day
-trial a new family starts with, a grant with an end— and reaches its adults, who are its members.
-Its keys are Focus's own, `routines.max` (5, no limit), `history.days` (7, no limit),
+`PLANS=cronum-per-group` is for an app sold on its own whose plans belong to a group, not to a
+person. Its plans, `free` and `pro`, are a group's: the group is an organization, Pro is granted
+to it —bought by its owner or an admin, or a trial, which is a grant with an end— and reaches every
+member. Its keys are the app's own, `routines.max` (5, no limit), `history.days` (7, no limit),
 `devices.per_child` (1, no limit), `live`, `summary.days` (0, 14) and `runner.views`, and the common
 `mcp` (on in both) and `mcp.calls_per_day` (100, 1000). In `cronum-work`, `history.days` is how long
 a note keeps its earlier versions: a key means what the catalog an install names says, and an
 install names one.
 
-`PLANS=cronum-tracker` is Cronum Tracker's, with `free`, `org` (named Fleet) and `pro`, and the keys
-`mcp` (off in all three), `capture.native`, `links.max`, `track.days` and `viewers.max`. An
-organization's plan reaches every member, its admins and viewers too, so Fleet gives each person
-what Free gives and sits before Pro: what a fleet pays for, per driver, sits on what the
-organization owns, and the app checks it against the organization's grant and its seats.
+`PLANS=cronum-per-seat` is for an app whose organization pays per seat, with `free`, `org` (shown
+as Team) and `pro`, and the keys `mcp` (off in all three), `capture.native`, `links.max`,
+`track.days` and `viewers.max`. Pro is one person's; `org` is an organization's, and the quantity
+granted is its seats: only the roles the app names take one (`organizations.seatRoles`), its
+admins and viewers none. An organization's plan reaches every member, its admins and viewers too,
+so `org` gives each person what Free gives and sits before Pro: what the organization pays for sits
+on what it owns, and the app checks it against the organization's grant and its seats.
 
 **Barriers.** REST handlers call `require()`. MCP tools declare the feature they need and the
 transport checks it, so the assistant reads a sentence it can pass on instead of a failure. The
@@ -942,7 +946,7 @@ identity is first linked to an account (`accounts.whenLinked` → `billing.claim
 first sign-in; a refund of what is waiting waits with it, and what nobody claims goes after 400
 days. An identity outranks an older link of the customer to someone else. The copy of a whole
 install carries customers, subscriptions and paid grants with the new ids (portability.js), so a
-renewal that still says an old id can't reach whoever has it after the move (audit sc-data-48).
+renewal that still says an old id can't reach whoever has it after the move.
 
 **The founder's price.** A product may have a `founderPrice` besides its `price`; the server
 chooses it for whoever `isFounder` says —in `createSuite`, whoever joined before
@@ -976,7 +980,7 @@ every account made during the early access a grant of its plan until a date
   seats (`quantity`) replaces the grant.
 - A group's purchase sells seats: the quantity the provider reports goes on the grant and caps its
   members. A product with `seats: false` (only `for: 'organization'`) sells the plan with no cap: a
-  family buys one Pro however many adults it has. The quantity every event reports (Paddle's and
+  family buys one Pro however many members it has. The quantity every event reports (Paddle's and
   Stripe's checkouts buy one of the price) is dropped for it, from whichever provider, on every event
   of the subscription and on a one-off purchase, so neither the subscription's row nor the grant has
   one. A group's subscription bought before the option has its grant replaced by one without a
@@ -1008,8 +1012,8 @@ subscription, a 402's call to action and the return from the checkout ([web-kit.
 
 `signedProvider()` speaks these normalized events directly, signed with a shared secret
 (`t=…,v1=…`, HMAC-SHA256, the scheme Stripe uses, five minutes of tolerance). It is what the tests
-use and what a private service of the hosted suite (working name *Cronum Accounts*) would send: that
-service would hold products, customers and subscriptions for every app, with WorkOS and the real
+use and what a service in the hosted service's closed parts could send: such a service would
+hold products, customers and subscriptions for every app, with WorkOS and the real
 payment provider, and push each app its grants; the apps would not change.
 
 **Stripe** (`stripe.js`, **done**, v0.18.0; the provider chosen on 2026-09-28, with Stripe Tax for
@@ -1025,7 +1029,7 @@ item), `checkout.session.completed` and `.async_payment_succeeded` of a paid one
 become purchases, and a full `charge.refunded` a refund; everything else is acknowledged and
 ignored. The webhook to set in Stripe's dashboard is `BASE_URL/api/billing/webhook`.
 
-> `paddle.js` is since 0.209.0 outside this repository: the hosted suite registers it (providers.js), with the price and product ids of the apps it sells (`catalog`).
+> `paddle.js` is since 0.209.0 outside this repository: the hosted service's closed parts register it (providers.js), with the price and product ids of the apps it sells (`catalog`).
 > What follows is its design, kept here because billing.js's options were made with it.
 
 **Paddle** (`paddle.js`, **done**, v0.38.0; the merchant of record chosen on 2026-10-02: it charges
@@ -1055,7 +1059,7 @@ any h1 while a secret rotates. Each app has its own notification destination at
 `BASE_URL/api/billing/webhook`, with the subscription, transaction and adjustment events.
 
 **Another product's sales** (v0.66.0). One Paddle account may sell more than one product (Cronum
-Work, and Tracker on its own), and every destination of the account gets every event, often for
+Work, and another app on its own), and every destination of the account gets every event, often for
 people this app knows by the same WorkOS id. Before this version such an event linked the person's
 customer here, waited 400 days in `billing_pending` for someone who never opens the app, and was
 granted when a product of the other one had a key of this catalog's name (`custom_data.product`
@@ -1076,7 +1080,7 @@ waits and nothing is granted; only its id, type and outcome are kept in `billing
 log names the event only. What waited from before the guard was on is foreign when its person
 arrives (`claim`). Refunds are not checked: a refund names no product, and one of another
 product's sale finds nothing here to take back. `app` is one value for every install that sells a
-subscription together (Tasks, Next and Work all say `work`; Tracker says `tracker`), or each
+subscription together (Tasks, Next and Work all say `work`; another app says its own), or each
 would find the others' sales foreign; an event without one, sold before checkouts said it, is
 judged by its product alone. So `app` alone never keeps out the renewals of what was sold before
 it: it goes with `ignoreUnknownProducts` and `paddleProductIds`. Only Paddle's checkout writes it
@@ -1094,9 +1098,9 @@ an install sets the three together. Paddle's product ids differ between the sand
 account, so `paddleProductIds` is one list per environment; with Paddle on, a single list, or none
 for `PADDLE_ENV`, stops the start.
 
-> `revenuecat.js` is since 0.209.0 outside this repository: the hosted suite registers it (providers.js); `stores.js` and its interface stay.
+> `revenuecat.js` is since 0.209.0 outside this repository: the hosted service's closed parts register it (providers.js); `stores.js` and its interface stay.
 
-**Several providers and the stores** (v0.78.0; Tracker's P6 and P7, RevenueCat chosen to start easy
+**Several providers and the stores** (v0.78.0; RevenueCat chosen to start easy
 and free, with a move to Apple's and Google's own APIs kept open). People buy for
 themselves inside the app on a phone, in the App Store and Google Play, and groups buy on the web.
 An install sets `STORE_BILLING=revenuecat` next to (or without) `BILLING_PROVIDER`, with
@@ -1167,7 +1171,7 @@ stores: {
   and `.`, so no delivery writes one): a `refunded_at` the store took back or that was an
   older renewal's no longer takes the period back, and a one-off refunded while still listed stays
   refunded until a REFUND_REVERSED of its transaction. Unverified until the stores' sandbox tests
-  (Tracker's A12), and handled either way: whether RevenueCat clears `refunded_at` when a refund is
+  and handled either way: whether RevenueCat clears `refunded_at` when a refund is
   reversed, whether it removes a refunded one-off from `non_subscriptions`, and that `refunded_at`
   and `store_transaction_id` are the latest purchase's.
 - **Another product's sales**: a webhook for another store (the web through Stripe or Paddle,
@@ -1239,10 +1243,12 @@ stores: {
 `affiliates.js` runs with the billing module: people who bring buyers, and what they earn. Two kinds
 of code in one system. A **referral** code is any account's own, made the first time its panel
 asks for it (`WORK7KQ2`: the app's prefix and four letters nobody misreads); the buyer pays less on
-their first payment (by default 3,90 € off, the monthly's first month free) and the referrer gets
+their first payment (by default a flat amount off, `{ type: 'flat', amount: 390 }` in cents, the
+monthly's first month free) and the referrer gets
 a month of the plan for each buyer who pays, up to 12 a calendar year. A **creator** code is a
 campaign the admin makes for a chosen account (`MARIA20`, /admin › Affiliates); its buyers get 20 %
-off the first yearly, and the creator earns 6 € per yearly paid, recorded here and paid by hand
+off the first yearly, and the creator earns a cash reward per yearly paid (`{ cash: 600 }` cents
+by default), recorded here and paid by hand
 (a payout the admin notes down). The amounts are `suite.config.js` `affiliates`, the program is off
 until `affiliates.enabled`, and the admin can always make campaigns.
 
@@ -1268,15 +1274,15 @@ root's, with `/r/` and the admin's tab; a module's page opened with `?codigo=` s
 An organization answers "whose is this and who pays": a group of people who share data, roles and
 a subscription. The module is off by default. With `mode: 'optional'` people use the app on their
 own and may create or join groups (a family in Tasks, a team in Projects); with `mode: 'required'`
-every user belongs to one (the schools of Tracker). The suite provides the tables, the roles,
+every user belongs to one (the staff of a school, say). The suite provides the tables, the roles,
 invitations by link or email, an organization switcher in the web kit and organization-level
 grants: a plan bought for a household covers its members, and a grant's `quantity` caps the number
 of members (seats). An app that charges for some of its members only names the roles that take a
-seat (`organizations.seatRoles`: Tracker's drivers, while its admins and viewers are free): then
+seat (`organizations.seatRoles`: say `agent`, while admins and viewers are free): then
 only those count, joining in one of them or being moved into one needs a free seat, and
 `seatsTaken(id)` says how many are used. Fewer seats bought takes nobody's away; past them, no one
 more joins in a seat. A membership has one role, so when the last owner's account goes, the group
-passes to someone outside those roles first: a driver inherits it, and stops driving, only when
+passes to someone outside those roles first: an agent inherits it, and stops taking a seat, only when
 nobody else is left. A product with `seats: false` grants no quantity, so there are no seats to
 take: a family's members have no cap, whatever their role (section 9), and `seatRoles` only says
 which roles take a seat when there are seats. What acts for the group with nobody behind it reads
@@ -1287,10 +1293,10 @@ organization instead of a person is the app's decision, made in its own tables.
 `kind` is the app's free text; naming one in the configuration (up to 40 lowercase letters, digits,
 `-` and `_`, starting with a letter: `KIND_NAME`, the rule a data copy's kinds follow too) gives it
 rules, checked on start like the rest (an unknown key or a wrong value stops it). Not to be
-confused with a data copy's `copyKinds` (portability.js, once K4 lands), which lists the kinds of
+confused with a data copy's `copyKinds` (portability.js), which lists the kinds of
 group a copy carries:
 
-- `managed: true` (Focus's `family`): the generic routes refuse to create one (`POST /api/orgs` with
+- `managed: true` (a `family`, say): the generic routes refuse to create one (`POST /api/orgs` with
   that kind), to join one by an invitation (`POST /api/orgs/join`, before the invitation is spent)
   and to leave or remove its members (`DELETE /api/orgs/:id/members/:user`), answering 403
   `organization_managed` with the `kind`. The app does those through its own routes and its own
@@ -1387,7 +1393,7 @@ changes an account says so with `accounts.changed(id)`. A channel lasts while th
 opened with does (v0.162.0): signing out, a session closed from the list, out everywhere, the
 account disabled or deleted close it at once (`sessions.whenClosed` → `live.recheck`), with
 `account` as its last word, and every heartbeat asks again (`sessions.stillOpen`, which doesn't
-slide the session). Events may carry the new state (Focus's run contract) or
+slide the session). Events may carry the new state (a run's progress, say) or
 just say what changed (Tasks' lists): the app chooses.
 
 ## 13. MCP
@@ -1474,7 +1480,7 @@ month. `today` is the person's day (YYYY-MM-DD); without it, the server's.
 
 ## 14. Translations
 
-One implementation for server and browser (`t()` from Focus): flat dotted keys that describe place
+One implementation for server and browser (`t()`): flat dotted keys that describe place
 and role (`settings.password.change`), CLDR plurals (`{ one, other }`), `{placeholders}` formatted
 with `Intl`, a fallback to English key by key, and a pseudo-locale for testing layouts. The suite
 ships its own catalogs (`i18n/<lang>.json`): the consent screen (**done** in v0.3.0) and, since
@@ -1484,10 +1490,13 @@ them (`oauth.allow`). The app keeps its own texts in `public/i18n/<lang>.json`, 
 and may override any suite key; `createApp` serves both merged at `/i18n/<lang>.json`, in the
 app's own shape (**done**, v0.12.0), and the service worker fetches them network-first. The
 language is negotiated in the same order everywhere: the user's choice, then `Accept-Language` /
-`navigator.languages`, then English. `tools/i18n.mjs` (**done**, from Focus) checks the merged
+`navigator.languages`, then English. `tools/i18n.mjs` (**done**) checks the merged
 catalogs: the same keys in every language, the same placeholders, each language's plural forms,
 nothing left as `TODO`, and no key used in the code that no catalog defines; the check of visible
-strings written in the code comes with the web kit. Content people write is never translated.
+strings written in the code comes with the web kit, and flags a name `BRAND_WORDS` lacks (the
+brand, the suite's own apps and the protocols): an app passes its own name with `--allow <word>`
+(`allow` in code) or marks the line that writes it `i18n-exempt`. Content people write is never
+translated.
 
 ## 15. Web kit
 
@@ -1519,7 +1528,9 @@ uses it is in [web-kit.md](web-kit.md). The frame (`shell.js`) has a sidebar, wh
 a computer, and a drawer and two screens on a phone; sign-in (`signin.js`) puts the
 product's colour large beside the form; Settings (`settings.js`) is a list of sections, one screen
 each on a phone, with the app's own among them and About in every app; dialogs are sheets from the
-bottom on a phone. `tokens.css` brings the brand and each product's accent by `<html data-app>`,
+bottom on a phone. `tokens.css` brings the brand and each of the suite's own apps' accent by
+`<html data-app>` (any other app sets the five `--app*` variables in its own sheet and gives
+`app.accent` for the pages the suite draws),
 measured for contrast by the tests, and the fonts (Geist, Space Grotesk, Geist Mono) from
 `/suite/fonts/`. `update.js` keeps the new-version notice until it is acted on and waits for the
 new service worker; `live.js` groups changes, resyncs after a cut and reopens with a growing wait;
@@ -1542,7 +1553,7 @@ disabling, removal), invitations with the link to pass on, what each plan allows
 when that module is on, and the activity log, filtered and paged. A feature is named by the app's
 `features.<key>` text when it has one, else by its label in the configuration.
 
-**Accounts the admin makes** (**done**, v0.263.0, `POST /api/admin/users`; Martin, 12/11/2026: test
+**Accounts the admin makes** (**done**, v0.263.0, `POST /api/admin/users`, for test
 accounts for the stores' reviews, testers, directories). Users › New account takes an email, a
 name, a role, a password and the plan the account has from the start (with its end and reason),
 checks all of it before making anything, and gives the plan in the account's own transaction
@@ -1554,7 +1565,7 @@ password makes the login at WorkOS (`POST /user_management/users` with `email_ve
 the app's mark in its metadata) and links the account here to it, so it signs in on AuthKit at
 once; the admin gives their own password (and code) again first, as for setting someone's
 password there, since that login opens every product. Since v0.266.0 it isn't in the form and
-stands 10 minutes in that session (Martin, 12/11/2026: several reviewers' accounts in a row): a
+stands 10 minutes in that session (for several reviewers' accounts in a row): a
 request that comes with none outside those minutes is `403 admin_confirm_required` with what to
 give (`reauth`), the panel asks for it in a dialog of its own (`POST /api/admin/confirm`) and
 sends the account again; what changes someone who already exists still asks every time
@@ -1582,8 +1593,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `/api/push/test`; the app composes the real messages and chooses who gets them
   (`suite.push.deliver(suite.push.subscriptionsOf(userIds), payload | (subscription) => payload)`), as Tasks batches other
   people's changes to a shared list.
-- **Push to an app's own devices** (v0.81.0, for Focus' paired tablets): a device that belongs to
-  the app and has no account behind it (a child's profile, a kiosk) keeps its subscription in the
+- **Push to an app's own devices** (v0.81.0, for paired tablets, say): a device that belongs to
+  the app and has no account behind it (a profile without an account, a kiosk) keeps its subscription in the
   app's own table, with the rest the app knows of it, never in `push_subscriptions`, whose rows are
   people's. The browser subscribes with the kit's `push.js` (`devicePushSubscription(publicKey)`,
   which asks nothing of the server: the app gives the device `suite.push.publicKey` its own way)
@@ -1739,8 +1750,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   says so in the log (`[mail] SMTP ready` or why not); a message that fails later is logged with
   its reason and answered `mail_failed` (502), except a forgotten password, whose answer never
   changes.
-- **Whose it is** (**done**, v0.229.0, `ownership.js`, `web/ownership.js`; Martin, 03/11/2026,
-  `auditoria-2026-10-30/compartir.md`). sharing.js says who may see and edit something; this says
+- **Whose it is** (**done**, v0.229.0, `ownership.js`, `web/ownership.js`). sharing.js says who may
+  see and edit something; this says
   what only its owner may do. What someone shares stays theirs: whoever edits it may change it but
   not destroy it or take it away. Deleting what isn't theirs, purging it, emptying the owner's
   trash or moving it into something of their own answers **403 `not_yours`** with
@@ -1751,7 +1762,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   authorId })`, `mayDelete`); what keeps no maker (a category, a step with none) only its owner.
   Closing what isn't theirs says "ask Ana to close it" (`requireOwner(…, { action: 'close' })`).
   The page keeps the button for everyone and, pressed by whoever may not, says whom to ask
-  (`tellNotYours(owner)`, as Projects did; audit of 6/11, ownership-5). Moving it away answers the same with `copy: true` and `hint: 'copy'`:
+  (`tellNotYours(owner)`, as Projects did). Moving it away answers the same with `copy: true` and `hint: 'copy'`:
   the page's `moving(send)` asks "Take a copy?" and sends again with `{ copy: true }`, which makes
   a copy that is theirs and leaves the original; an assistant reads `errors.not_yours` followed by
   `errors.not_yours_copy` (mcp-kit's `describeErrorWith` adds the sentence of `<code>_<hint>`),
@@ -1763,15 +1774,15 @@ kit's), then Notes is built on it whole, then the others as they move to English
   `tellGone({ kind, name, icon, actorId, audience, id })` tells whoever used it, by push where a
   device takes one (`ownership.gone.*`, tagged by the thing's id) and by email
   (`suite.shareMail.gone`, `mail.gone.*`), with no copy offered; never the owner, never throwing,
-  and once a day per sender and person (v0.295.0, audit sc-data-10). When an owner's account goes
+  and once a day per sender and person (v0.295.0). When an owner's account goes
   (or their data is erased, or replaced by a copy), `handOver(userId, { table, candidates, … })`
-  passes each thing someone accepted to its heir, the same in every module (v0.295.0, audits
-  dup-srv-1, ownership-20): `pickHeir(candidates, { prefer })` chooses whoever gave it to them if
+  passes each thing someone accepted to its heir, the same in every module (v0.295.0):
+  `pickHeir(candidates, { prefer })` chooses whoever gave it to them if
   they still use it, else an editor before a viewer, the longest in it first, an account in use
   before a disabled one; its `owner_since` is now, which the module's sweeps count from (what the
   heir's plan keeps less of is not lost at once); its public page goes off; the offers by address
-  its former owner made still wait, and the heir sees their addresses masked (`addressFor`,
-  Martin, 14/11/2026). The suite makes it once: `suite.ownership`, and one brake on offers for the
+  its former owner made still wait, and the heir sees their addresses masked (`addressFor`).
+  The suite makes it once: `suite.ownership`, and one brake on offers for the
   whole install, `suite.shareBrake`. Every module uses that `suite.ownership`, in its own words (its
   `hooks.texts`), and a notice goes with the push, email and brake its suite has when it goes, a
   test's stand-ins too. The check is always the server's; the page only explains it.
@@ -1823,8 +1834,8 @@ kit's), then Notes is built on it whole, then the others as they move to English
   shared list passes to one of the people it is shared with), then goes, in one transaction,
   exactly what their own copy would take and "replace" empties, and its files once committed.
   Both ask again who it is (api.js `identityCheck`: `confirm: true`, and the password of an account
-  that has one, here or at WorkOS; v0.289.0, audit authz-9), an import with `replace` as erasing does.
-- **Organizations in the copies** (**done**, v0.84.0, for Focus' families and Tracker's fleets; on
+  that has one, here or at WorkOS; v0.289.0), an import with `replace` as erasing does.
+- **Organizations in the copies** (**done**, v0.84.0, for an app's families or teams; on
   only when the declaration says `organizations` or a table points at `organizations`, which needs
   `modules.organizations`). A table can belong to a group: a NOT NULL reference to `organizations`
   decides it as one to `users` does, and the tables that chain to it are the group's too. Someone's
@@ -1842,7 +1853,7 @@ kit's), then Notes is built on it whole, then the others as they move to English
   (`source.install`, a random id in `app_meta`) and which export run (`source.export`, shared by a
   host's modules exported together). Importing someone's copy puts each group into the
   oldest of that kind they own or administer (`mapOntoOwn`) or a new one they own, made quietly
-  with a slug from its name and today's date; a table with `onePerOrganization` (Focus' family row,
+  with a slug from its name and today's date; a table with `onePerOrganization` (a family's row, say,
   UNIQUE per group) then finds the group's row instead of writing a second one. A whole install's
   restores each group as it was, under its id here (a renewal naming the old id finds the group by
   its customer), and records where it came from (the source install, its id there and the run, in
@@ -1966,23 +1977,23 @@ first, then Tasks, then the rest.
 | `i18n.js` + `tools/i18n.mjs` | done (v0.12.0: the suite's errors and fields once, merged catalogs, parity; v0.15.0: `t()` in the browser; v0.34.0: texts written in the code; v0.49.0: Tasks' stricter scan for everyone, and the server; v0.51.0: one translator for every app, `appTexts` on the server and the kit's in the browser, and `appChecks`) | adopted by Tasks, Projects, Next and Notes; each app's tests run `appChecks` |
 | `accounts.js`, `organizations.js`, `audit.js`, `api.js` | done (v0.8.0) | adopted by Next (organizations off) |
 | Identities, `tokens.js`, profile routes | done (v0.9.0) | adopted by Next |
-| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE; v0.105.0: the connect page and sessions of the web, `device-pages.js`; v0.108.0: actions from a notification, `deviceActions`) | Tracker's native app (its steps A2 and A3); Cronum Work's app (its steps S1 and S2); Focus keeps its own pairing |
+| `devices.js` | done (v0.67.0: phones through the system browser, with PKCE; v0.105.0: the connect page and sessions of the web, `device-pages.js`; v0.108.0: actions from a notification, `deviceActions`) | Cronum Work's phone app; an app that pairs its devices another way keeps its own pairing |
 | `oidc.js`, `jwt.js` | done (v0.13.0) | available to every app with AUTH_PROVIDER=oidc |
 | `mail.js`, `account-mail.js` | done (v0.14.0) | adopted by Next, with its screens (sign-up by invitation or open, confirmation, new passwords); an SMTP server per install |
 | `two-factor.js` | done (v0.19.0) | Next's screens (the code at sign-in, Settings); Tasks and Projects when they take the suite's routes |
 | `entitlements.js` | done (v0.7.0) | adopted by Next (no limits by default); Tasks with `importUserPlans()` |
-| `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next, after its PR #2 |
+| `app.js`, `config.js`, `watcher.js` | done (v0.11.0) | Next boots on them; Tasks next |
 | `live.js` | done (v0.21.0) | Next on it; Tasks and Projects when their PRs on createApp are in (their events.js are the same) |
 | `push.js` | done (v0.23.0) | Tasks moves onto it (its subscriptions and keys stay); Projects and Next when they have something to notify |
 | `uploads.js` | done (v0.24.0) | Tasks moves onto it (its files stay where they are) |
 | `storage.js`, `uploads.storeChecked`, `web/images.js` | done (v0.179.0: storage.mb checked once, with the payer explicit; a photo made ready in the kit) | Tasks, Projects and Notes drop their copies |
 | `mcp-files.js`, `uploads.fromUrl` | done (v0.89.0: files from an assistant, by link or one-time upload link) | Notes and Tasks attach through their MCP tools |
-| `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from the NAS to the cloud. Focus and Tracker carry their families and fleets |
+| `zip.js`, `portability.js`, `tools/data-cli.js` | done (v0.25.0; v0.84.0: organizations and `omit`) | Tasks declares its data; Projects and Next next. It is how the apps move from one server to another. An app with families or teams carries them too |
 | Web kit and admin panel | done (v0.15.0: the base and `/admin`; v0.34.0: the shared interface, sign-in, settings, frame, live, outbox, updates, Markdown, service worker, brand tokens and fonts) | Next adopts it first; Notes is built on it; the rest as they move to English |
 | `idempotency.js` | done (v0.34.0) | used by every app through `createApp`; the kit's outbox sends the keys |
 | `host.js`, `web/base.js` | done (v0.53.0: several apps as one, each a module at its own path; the kit and its service worker at a module's base) | Next first as a module, then Notes, Projects and Tasks; one `/mcp` for all next |
 | `billing.js`, `stripe.js`, `providers.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options; v0.208.0: providers by registration; v0.209.0: Paddle outside the repository) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
-| `stores.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`; v0.209.0: RevenueCat outside the repository) | Tracker sells Pro in the App Store and Google Play (its step A12) |
+| `stores.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`; v0.209.0: RevenueCat outside the repository) | for an app that sells Pro in the App Store and Google Play |
 | `affiliates.js` | done (v0.299.0: referral codes and creators' campaigns, the `payment` event, /afiliados, /admin › Affiliates) | Cronum Work's program, from 1/12/2026 |
 
 ## 21. Several apps as one: the host
@@ -2300,7 +2311,7 @@ module's own kind of thing (`task`, `phase`, `milestone`, `daily`), the row's id
 last day (the same for one day; without `end`, one day), what shows under the title (a list, a
 project › phase, a notebook), its url relative to the module as a card's (`?list=3&task=9`),
 and whether it is the person's. Nothing has a time of day: the `time` the contract once named no
-module ever gave, and it is no longer kept (0.291.0, audit of 6/11, sc-feat-8).
+module ever gave, and it is no longer kept (0.291.0).
 
 - **`GET /api/calendar?from=&to=`** at the root (401 signed out; 400 `field_invalid` naming `from`
   or `to` for a date that isn't one, `to` before `from`, or more than 366 days with both ends)
@@ -2366,7 +2377,7 @@ day: {
   // as each module counts it), with the same permissions as the module's pages.
   // `limit` (DAY_MODULE_MAX, 200; 0.291.0) is the most the host keeps of each of the overdue and
   // today's: so ask for the oldest `limit` overdue and today's up to `limit`, apart, not `limit`
-  // of both together (the overdue would push today's out: audit of 6/11, sc-feat-5).
+  // of both together (the overdue would push today's out).
   agenda: (user, { today, limit }) => [item…]      // or a promise of either
     | { items: [item…], overdueTotal },            // overdueTotal: how many are overdue in all,
                                                    // when it gives fewer (0.291.0)
@@ -2386,7 +2397,7 @@ today's up to 200, and its latest 200 done, each thing once.
 `today`, counted as its agenda counts them (the same lists, the same "theirs") but without its
 `LIMIT`: what it would list with no cap. A whole number; anything else counts as none. The host
 counts each module's overdue as the larger of that and the overdue items it gave, sums them as
-`overdue_total` and says that number in the morning notice («230 vencidas»). A module that gives
+`overdue_total` and says that number in the morning notice ("230 overdue"). A module that gives
 every overdue thing it has needs no `overdueTotal`, and can keep answering a list. One that wants
 to work with a host before 0.291.0 too gives the object only when its args carry `limit` (an
 older host took only a list).
@@ -2399,7 +2410,7 @@ older host took only a list).
   lists (0.291.0). `overdue` the oldest first, `today` and `done` (the latest first) each then in
   the modules' order and each module's own. Whether the person uses each module is asked once a
   module for the whole answer, from its row of `host_modules` (it was all of `/api/modules` for
-  each, three times over: 0.291.0, sc-host-11). What can't be shown is left out (no type or
+  each, three times over, before 0.291.0). What can't be shown is left out (no type or
   id, no day, a day after the one asked, no instant, a kind that isn't one). A module whose part
   throws, or gives no list, is logged and named in `failed`, never a 500. The page may be framed by
   the host's own pages (`pages`), as the calendar's.
@@ -2425,7 +2436,7 @@ older host took only a list).
   last one that looked looks all the same): only the accounts with a device are read
   (`push.peopleWithDevices()`, browsers subscribed and phones with the app; then
   `push.subscriptionsOf` for the devices themselves), each zone's minute once (0.291.0: every
-  account was read every minute, audit of 6/11 sc-feat-1). A notice is due from its time until three
+  account was read every minute before). A notice is due from its time until three
   hours after it on their day in their zone (`prefs.tz`), never past their midnight. It is claimed
   first in `host_day_notices` (host migration 8: one row a person, notice and day, its `outcome`
   `sent`, `empty` or `failed`; read by its day, host migration 12; forgotten once a day after
@@ -2433,9 +2444,9 @@ older host took only a list).
   lists are asked of the modules and, with nothing in them, nothing is sent, the day counting as
   done all the same. They go through the host's own push, in the person's language (their choice,
   the device's, their browser's last one, their account's): `{ title, body, tag, url }`, the
-  morning's «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para hoy: «A», «B» y 3 más»
+  morning's "☀️ Here's what you have to do today", "3 overdue · 5 for today: “A”, “B” and 3 more"
   (the overdue counted as `overdueTotal` says) at
-  `/today/`, the evening's «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota» at
+  `/today/`, the evening's "🌙 What you did today", "7 tasks, 2 steps in Next and 1 note" at
   `/today/?v=done`, with `tag` and push `topic` `day-morning` or `day-evening`.
 - **A module learns that the host says the morning's summary** from its suite: `suite.daySummary`
   is `true` (and `suite.config.host.day` the page, in the browser too, `/api/auth/config`'s
@@ -2525,7 +2536,7 @@ The app on its own never sees any of it: its /sw.js, scope and manifest stay as 
 
 ### 21.6 Windows in one page
 
-Cronum Work's one-document shell (behind `WORK_SHELL`, Work's r2/ventanas.md) mounts each module
+Cronum Work's one-document shell (behind `WORK_SHELL`) mounts each module
 in a window of one page instead of a page or a frame each. The kit's `web/windows.js` and
 `windows.css` place those windows; the shell makes them (`windowOf(module)` → a `.cw-win` with its
 `.cw-win__head` and `.cw-win__body`) and mounts, pauses and unmounts the modules it is told to.
@@ -2555,7 +2566,7 @@ in a window of one page instead of a page or a frame each. The kit's `web/window
   another module; the desk only pans up and down, so nothing scrolls sideways. A sideways finger
   is always the module's: a row's swipe (the kit's `rowSwipe()`, web/swipe.js, docs/web-kit.md),
   Next's line, the Gantt. Until 0.298.0 a sideways swipe elsewhere in the window brought the
-  module beside it; it went (Martin, 14/11) because in most views a sideways finger already does
+  module beside it; it went because in most views a sideways finger already does
   something of its own, so it served almost nowhere and came in by mistake.
 - **Out of view and evicted.** A window out of view is `hidden`, `inert` and paused
   (`onPause(module, true, { hidden: true })`, and `false` with `onShow` when it comes back). At
