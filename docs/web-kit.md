@@ -182,7 +182,7 @@ going from one module to the next in Cronum Work nothing moves:
    word), overdue and the due date, a project's status ("Active", "Paused" or "Finished" under
    "Status"), signing in, Tasks' subtasks, a step logged and done (`kit.links.done`), a dependency
    in Projects, the email address and the email message (`kit.share.email`,
-   `kit.profile.email.provider`), "New X" and "Edit X". Quotes are the language's
+   `errors.mail_failed`), "New X" and "Edit X". Quotes are the language's
    own («…», “…”, « … », „…“), an apostrophe is ’, a way through menus reads "Settings › Profile", and
    English is American (color, canceled). A notice (`toast()`, `undoToast()`) has no full stop when
    it is one sentence and has them when it is two ("Template deleted"; "Step copied. Paste it into
