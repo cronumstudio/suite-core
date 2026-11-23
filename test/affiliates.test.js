@@ -26,6 +26,7 @@ import { createAffiliates, resolveAffiliates, normalizeCode, REF_COOKIE } from '
 import { inRequest } from '../request-scope.js';
 import { resolveConfig } from '../config.js';
 import { createSuite, createApp } from '../app.js';
+import { createHost } from '../host.js';
 import { registerBillingProvider } from '../providers.js';
 import { ID, SECRET, fakeBilling, delivery } from './fake-provider.js';
 
@@ -247,6 +248,47 @@ test('a new account made with a code’s cookie is the code’s; the cookie goes
   const dan = inRequest(unknown.req, () => person('dan'), unknown.res);
   assert.equal(database.get('SELECT 1 AS x FROM affiliate_attributions WHERE user_id = ?', dan.id), undefined);
   assert.equal(database.get('SELECT COUNT(*) AS n FROM affiliate_attributions').n, 1);
+});
+
+test('a code given by hand: the account is the code’s, over its link’s, never over the one it paid with, nor its own', async (t) => {
+  const { affiliates, person, pay, database } = setup(t, { enabled: false });
+  const ana = person('ana');
+  const maria = await affiliates.createCampaign({ email: 'ana@example.com', code: 'MARIA20', campaign: 'YouTube' }, null);
+  const leo = person('leo');
+  const other = await affiliates.createCampaign({ email: 'leo@example.com', code: 'LEO10', campaign: 'Blog' }, null);
+  const of = (user) => ({ ...database.get('SELECT code_id, source FROM affiliate_attributions WHERE user_id = ?', user.id) });
+
+  // Written as people write it; kept as the code is.
+  const bob = person('bob');
+  assert.equal(affiliates.claim(bob, ' maria-20 '), 'MARIA20');
+  assert.deepEqual(of(bob), { code_id: maria.id, source: 'given' });
+  assert.equal(affiliates.broughtBy(bob.id).code, 'MARIA20');
+  assert.equal(affiliates.broughtBy(leo.id), null);
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'affiliates.code_given'").n, 1, 'noted');
+  // And a checkout of theirs gets its discount, as by its link.
+  assert.equal(affiliates.discountFor({ subject: { type: 'user', id: bob.id }, product: 'pro-yearly' }), 'dsc_maria20');
+
+  // Over the link they came by.
+  const { req, res } = browser(`${REF_COOKIE}=LEO10`);
+  const cat = inRequest(req, () => person('cat'), res);
+  assert.deepEqual(of(cat), { code_id: other.id, source: 'link' });
+  affiliates.claim(cat, 'MARIA20');
+  assert.deepEqual(of(cat), { code_id: maria.id, source: 'given' });
+
+  // Never over the code they paid with.
+  const dan = person('dan');
+  pay(dan, { discount: 'dsc_leo10', amount: 2800 });
+  assert.deepEqual(of(dan), { code_id: other.id, source: 'checkout' });
+  affiliates.claim(dan, 'MARIA20');
+  assert.deepEqual(of(dan), { code_id: other.id, source: 'checkout' });
+
+  // Their own, one nobody has, one turned off, and a referral's while the program is off.
+  assert.equal(await code(() => affiliates.claim(ana, 'MARIA20')), '400 affiliate_code_own');
+  assert.equal(await code(() => affiliates.claim(bob, 'NOPE0000')), '404 affiliate_code_not_found');
+  assert.equal(await code(() => affiliates.claim(bob, '!')), '404 affiliate_code_not_found');
+  await affiliates.setActive(other.id, false);
+  assert.equal(await code(() => affiliates.claim(bob, 'LEO10')), '404 affiliate_code_not_found');
+  assert.deepEqual(of(bob), { code_id: maria.id, source: 'given' }, 'what they had stays');
 });
 
 test('the checkout: the code that brought someone gives its discount on their first purchase, at the regular price only', async (t) => {
@@ -613,6 +655,62 @@ test('routes: /r/<CODE> and ?codigo= leave the cookie on the shared domain; the 
   const saved = await ana('PUT', '/api/affiliates/me', { payout_note: '  PayPal ana@example.com ' });
   assert.deepEqual([saved.status, saved.data], [200, { payout_note: 'PayPal ana@example.com' }]);
   assert.equal((await ana('PUT', '/api/affiliates/me', { payout_note: 'x'.repeat(501) })).data.error, 'field_too_long');
+});
+
+test('a host’s first questions take a code: the account is the code’s, and the admin sees which and how', async (t) => {
+  const api = await apiServer(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-affiliates-host-'));
+  const fixture = (name) => new URL(`./fixtures/host/${name}/module.js?case=affiliates`, import.meta.url);
+  const host = await createHost({
+    config: {
+      app: { id: 'work', name: 'Work', color: '#3A4660', icon: '/icons/work.svg', languages: ['en'] }, accounts: { minPasswordLength: 8 },
+      modules: { billing: true }, plans: PLANS, defaultPlan: 'free', products: PRODUCTS, affiliates: { enabled: false },
+    },
+    modules: [{ mount: 'alpha', entry: fixture('alpha') }, { mount: 'beta', entry: fixture('beta') }],
+    env: {
+      DATA_DIR: dir, PORT: '0', ADMIN_PASSWORD: 'root-password', BASE_URL: 'http://127.0.0.1',
+      BILLING_PROVIDER: ID, FAKEPAY_SECRET: SECRET, FAKEPAY_API_BASE: api.url,
+    },
+    firstQuestions: true, version: '9.9.9', handleSignals: false, exitOnError: false, log: () => {},
+  });
+  const server = await host.listen();
+  t.after(async () => { await host.close(); host.suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const as = async (username, password) => {
+    let cookie = '';
+    const call = async (method, pathname, body) => {
+      const res = await fetch(base + pathname, {
+        method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const set = (res.headers.getSetCookie?.() || []).find((c) => c.startsWith('work_sid='));
+      if (set) cookie = set.split(';')[0];
+      return { status: res.status, data: await res.json().catch(() => null) };
+    };
+    assert.equal((await call('POST', '/api/auth/login', { username, password })).status, 200);
+    return call;
+  };
+  host.suite.accounts.create({ username: 'ana', password: 'ana-password', email: 'ana@example.com' });
+  const bob = host.suite.accounts.create({ username: 'bob', password: 'bob-password', email: 'bob@example.com' });
+  const admin = await as('admin', 'root-password');
+  assert.equal((await admin('POST', '/api/admin/affiliates', { email: 'ana@example.com', code: 'MARIA20', campaign: 'YouTube' })).status, 201);
+
+  const call = await as('bob', 'bob-password');
+  const before = (await call('GET', '/api/modules')).data;
+  assert.deepEqual([before.first_questions, before.first_code], [true, true], 'the questions may ask for a code');
+  // One it doesn't know: refused, and nothing kept, so they are still asked.
+  const wrong = await call('PUT', '/api/me/first-answers', { heard_from: 'video', code: 'MARIA2O' });
+  assert.deepEqual([wrong.status, wrong.data.error], [404, 'affiliate_code_not_found']);
+  assert.equal((await call('GET', '/api/modules')).data.first_questions, true);
+  assert.deepEqual((await call('PUT', '/api/me/first-answers', { heard_from: 'video', code: 'maria-20' })).data,
+    { first_questions: false, code: 'MARIA20' });
+  const seen = (await admin('GET', `/api/admin/users/${bob.id}/first-answers`)).data;
+  assert.equal(seen.answers.heard_from, 'video');
+  assert.deepEqual({ ...seen.code, at: null }, { code: 'MARIA20', kind: 'creator', source: 'given', at: null });
+  assert.equal((await admin('GET', '/api/admin/users/1/first-answers')).data.code, null, 'nobody’s');
+  // Their own code is not one to give.
+  const ana = await as('ana', 'ana-password');
+  assert.equal((await ana('PUT', '/api/me/first-answers', { code: 'MARIA20' })).data.error, 'affiliate_code_own');
 });
 
 test('routes: the admin’s are the admin’s alone; a campaign, its switch, its sales, a payout and the CSV', async (t) => {

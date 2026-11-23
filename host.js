@@ -230,8 +230,13 @@ export const HOST_MIGRATIONS = Object.freeze([
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
-/** How someone heard of the app, as the first questions offer it (options.firstQuestions). */
-export const HEARD_FROM = Object.freeze(['reddit', 'social', 'friend', 'search', 'other']);
+/**
+ * How someone heard of the app, as the first questions offer it (options.firstQuestions), in the
+ * order they are shown. An answer kept is never renamed: the first five were the whole list once.
+ */
+export const HEARD_FROM = Object.freeze([
+  'producthunt', 'reddit', 'hackernews', 'social', 'video', 'search', 'ai', 'directory', 'friend', 'store', 'other',
+]);
 /** The longest address of a channel kept from the first questions. */
 const CHANNEL_MAX = 300;
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
@@ -720,7 +725,10 @@ function moduleListErrors(modules) {
  *   can be skipped: how someone heard of the app (HEARD_FROM) and whether they have a channel, blog
  *   or newsletter. GET /api/modules says `first_questions: true` until they answer or skip
  *   (`PUT /api/me/first-answers`), and the admin sees the answers in the account's dialog
- *   (`GET /api/admin/users/:id/first-answers`). Without it, none of this
+ *   (`GET /api/admin/users/:id/first-answers`). Where the host has affiliates (affiliates.js),
+ *   GET /api/modules also says `first_code: true`: the questions may ask for a creator's or a
+ *   referral's code (`code` in the same PUT), which makes the account that code's, as its link
+ *   would have. Without it, none of this
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
  *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
  *   host's icon without them). The host's /version and /js/app-version.js are then the whole
@@ -1251,6 +1259,8 @@ export async function createHost({
       // Whether the first start still asks them its two questions: once, answered or skipped.
       ...(firstQuestions && user ? {
         first_questions: !suite.database.get('SELECT 1 AS asked FROM host_first_answers WHERE user_id = ?', user.id),
+        // And whether they may give a code there: only where codes exist.
+        ...(suite.affiliates ? { first_code: true } : {}),
       } : {}),
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
@@ -1484,11 +1494,17 @@ export async function createHost({
           if (has !== null && typeof has !== 'boolean') throw badRequest('field_invalid', { field: 'has_channel' });
           const channel = typeof body.channel === 'string' ? body.channel.trim() : null;
           if (channel && channel.length > CHANNEL_MAX) throw badRequest('field_too_long', { field: 'channel', max: CHANNEL_MAX });
+          // A creator's or a referral's code, where the host has them: the account is that code's
+          // (affiliates.js claim). One it doesn't know is refused before anything is kept, so they
+          // can write it again or leave it out.
+          const given = typeof body.code === 'string' ? body.code.trim() : '';
+          if (given && !suite.affiliates) throw notFound('affiliate_code_not_found');
+          const code = given ? suite.affiliates.claim(ctx.user, given) : null;
           suite.database.run(`INSERT INTO host_first_answers (user_id, heard_from, has_channel, channel, answered_at) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT (user_id) DO UPDATE SET heard_from = excluded.heard_from, has_channel = excluded.has_channel,
               channel = excluded.channel, answered_at = excluded.answered_at`,
           ctx.user.id, heard, has === null ? null : Number(has), has === false ? null : channel || null, new Date().toISOString());
-          sendJson(ctx.res, 200, { first_questions: false });
+          sendJson(ctx.res, 200, { first_questions: false, ...(code ? { code } : {}) });
         });
         if (config.modules.admin) {
           api.get('/api/admin/users/:id/first-answers', (ctx) => {
@@ -1499,6 +1515,8 @@ export async function createHost({
             const row = suite.database.get('SELECT heard_from, has_channel, channel, answered_at FROM host_first_answers WHERE user_id = ?', user.id);
             sendJson(ctx.res, 200, {
               answers: row ? { ...row, has_channel: row.has_channel === null ? null : Boolean(row.has_channel) } : null,
+              // Whose code brought them, and how: its link, written at the questions, or used to pay.
+              ...(suite.affiliates ? { code: suite.affiliates.broughtBy(user.id) } : {}),
             });
           });
         }

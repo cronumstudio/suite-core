@@ -1016,22 +1016,29 @@ async function paintUsage(box, user, now) {
  * their channel, blog or newsletter. `now` is the fold's summary: where they came from.
  */
 async function paintFirstAnswers(box, user, now) {
-  const { answers } = await api.get(`/api/admin/users/${user.id}/first-answers`);
+  const { answers, code = null } = await api.get(`/api/admin/users/${user.id}/first-answers`);
+  // Whose code brought them (affiliates.js): by its link, written at the questions or used to pay.
+  const brought = code ? t(`admin.firstAnswers.code.${code.source}`, { code: code.code }) : null;
   const heard = answers?.heard_from ? t(`kit.firstQuestions.heard.${answers.heard_from}`) : null;
   const channel = answers?.has_channel === true ? answers.channel || t('admin.firstAnswers.channelNoLink')
     : answers?.has_channel === false ? t('admin.firstAnswers.noChannel') : null;
-  now.textContent = !answers ? t('admin.firstAnswers.notAsked')
-    : heard || channel ? [heard, answers.has_channel ? channel : null].filter(Boolean).join(' · ') : t('admin.firstAnswers.skipped');
+  const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
+  now.textContent = [
+    !answers ? t('admin.firstAnswers.notAsked')
+      : heard || channel ? [heard, answers.has_channel ? channel : null].filter(Boolean).join(' · ') : t('admin.firstAnswers.skipped'),
+    code?.code,
+  ].filter(Boolean).join(' · ');
   if (!answers) {
-    clear(box).append(el('p', { class: 'kit-hint', text: t('admin.firstAnswers.notAskedLead') }));
+    clear(box).append(el('p', { class: 'kit-hint', text: t('admin.firstAnswers.notAskedLead') }),
+      brought ? el('div', { class: 'kit-facts' }, fact(t('admin.firstAnswers.code'), brought)) : null);
     return;
   }
-  const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
   const link = answers.has_channel && /^https?:\/\//i.test(answers.channel || '') ? answers.channel : null;
   clear(box).append(el('div', { class: 'kit-facts' },
     fact(t('kit.firstQuestions.heard', { app: state.config.app?.name || '' }), heard),
     link ? el('div', { class: 'kit-fact' }, el('span', { text: t('kit.firstQuestions.channel') }),
       el('a', { href: link, target: '_blank', rel: 'noopener noreferrer', text: link })) : fact(t('kit.firstQuestions.channel'), channel),
+    brought ? fact(t('admin.firstAnswers.code'), brought) : null,
     fact(t('admin.firstAnswers.when'), new Date(answers.answered_at).toLocaleDateString())));
 }
 

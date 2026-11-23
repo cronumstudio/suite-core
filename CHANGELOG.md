@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.318.0 — 2026-11-24
+
+- **A host's first questions name more places** (`host.js` `HEARD_FROM`, with `firstQuestions`):
+  how someone heard of the app may now be Product Hunt, Hacker News, a video or a creator, an AI
+  that recommended it, an assistant's directory or the app store, besides Reddit, X or LinkedIn, a
+  friend, a search engine and Other, in the order the list gives. The answers kept before keep
+  their names. The texts are the kit's (`kit.firstQuestions.heard.*`), in the five languages.
+- **The first questions take a code** where the host has affiliates (`affiliates.js`): GET
+  /api/modules says `first_code: true`, and `PUT /api/me/first-answers` takes `code`, a creator's
+  or a referral's. The account is then that code's (`claim`, an attribution `given`), as its link
+  would have made it, so a checkout of theirs gets its discount: it wins over the link they came
+  by and never over a code they paid with. One the host doesn't know (404
+  `affiliate_code_not_found`) or their own (400 `affiliate_code_own`) is refused before any answer
+  is kept, so they can write it again or leave it out. The admin sees whose code brought an
+  account, and how, in the account's «First time» (`GET /api/admin/users/:id/first-answers` adds
+  `code: { code, kind, source, at }`). A host's page that asks should leave the field out inside
+  the phone app (`inApp()`), where nothing is said of discounts.
+
 ## 0.317.0 — 2026-11-20
 
 - **Breaking for installs: the two catalogs besides `cronum-work` are named by how their plans are

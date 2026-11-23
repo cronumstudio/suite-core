@@ -1955,6 +1955,12 @@ test('a host with first questions asks them once, keeps the answers and shows th
   assert.equal((await call('GET', '/api/modules')).data.first_questions, true, 'not asked yet');
 
   assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'tv' })).data.field, 'heard_from', 'only the options there are');
+  assert.deepEqual((await call('PUT', '/api/me/first-answers', { heard_from: 'tv' })).data.options,
+    ['producthunt', 'reddit', 'hackernews', 'social', 'video', 'search', 'ai', 'directory', 'friend', 'store', 'other']);
+  // A host without affiliates knows no code: refused before anything is kept, and never offered.
+  assert.equal('first_code' in (await call('GET', '/api/modules')).data, false);
+  const coded = await call('PUT', '/api/me/first-answers', { heard_from: 'producthunt', code: 'MARIA20' });
+  assert.deepEqual([coded.status, coded.data.error], [404, 'affiliate_code_not_found']);
   assert.equal((await call('PUT', '/api/me/first-answers', { has_channel: 'yes' })).data.field, 'has_channel');
   assert.equal((await call('PUT', '/api/me/first-answers', { has_channel: true, channel: 'x'.repeat(301) })).data.error, 'field_too_long');
   assert.equal((await call('GET', '/api/modules')).data.first_questions, true, 'nothing kept from a refused answer');
@@ -1962,6 +1968,11 @@ test('a host with first questions asks them once, keeps the answers and shows th
   const answered = await call('PUT', '/api/me/first-answers', { heard_from: 'reddit', has_channel: true, channel: '  https://youtube.com/@me ' });
   assert.deepEqual(answered.data, { first_questions: false });
   assert.equal((await call('GET', '/api/modules')).data.first_questions, false, 'asked once');
+  assert.equal('code' in (await call('GET', '/api/admin/users/1/first-answers')).data, false, 'no codes here');
+  for (const heard of ['producthunt', 'hackernews', 'video', 'ai', 'directory', 'store', 'social']) {
+    assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: heard, code: '  ' })).status, 200, heard);
+  }
+  await call('PUT', '/api/me/first-answers', { heard_from: 'reddit', has_channel: true, channel: 'https://youtube.com/@me' });
   const seen = (await call('GET', '/api/admin/users/1/first-answers')).data.answers;
   assert.deepEqual({ ...seen, answered_at: typeof seen.answered_at },
     { heard_from: 'reddit', has_channel: true, channel: 'https://youtube.com/@me', answered_at: 'string' });
