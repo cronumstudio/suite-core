@@ -725,8 +725,8 @@ function moduleListErrors(modules) {
  *   can be skipped: how someone heard of the app (HEARD_FROM) and whether they have a channel, blog
  *   or newsletter. GET /api/modules says `first_questions: true` until they answer or skip
  *   (`PUT /api/me/first-answers`), and the admin sees the answers in the account's dialog
- *   (`GET /api/admin/users/:id/first-answers`). Where the host has affiliates (affiliates.js),
- *   GET /api/modules also says `first_code: true`: the questions may ask for a creator's or a
+ *   (`GET /api/admin/users/:id/first-answers`). Where the host has affiliates (affiliates.js) and
+ *   a payment provider, GET /api/modules also says `first_code: true`: the questions may ask for a creator's or a
  *   referral's code (`code` in the same PUT), which makes the account that code's, as its link
  *   would have. Without it, none of this
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
@@ -1259,8 +1259,8 @@ export async function createHost({
       // Whether the first start still asks them its two questions: once, answered or skipped.
       ...(firstQuestions && user ? {
         first_questions: !suite.database.get('SELECT 1 AS asked FROM host_first_answers WHERE user_id = ?', user.id),
-        // And whether they may give a code there: only where codes exist.
-        ...(suite.affiliates ? { first_code: true } : {}),
+        // And whether they may give a code there: only where codes exist and something is sold.
+        ...(suite.affiliates && suite.billing?.enabled ? { first_code: true } : {}),
       } : {}),
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).

@@ -10,8 +10,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   that recommended it, an assistant's directory or the app store, besides Reddit, X or LinkedIn, a
   friend, a search engine and Other, in the order the list gives. The answers kept before keep
   their names. The texts are the kit's (`kit.firstQuestions.heard.*`), in the five languages.
-- **The first questions take a code** where the host has affiliates (`affiliates.js`): GET
-  /api/modules says `first_code: true`, and `PUT /api/me/first-answers` takes `code`, a creator's
+- **The first questions take a code** where the host has affiliates (`affiliates.js`) and a
+  payment provider: GET /api/modules says `first_code: true`, and `PUT /api/me/first-answers` takes `code`, a creator's
   or a referral's. The account is then that code's (`claim`, an attribution `given`), as its link
   would have made it, so a checkout of theirs gets its discount: it wins over the link they came
   by and never over a code they paid with. One the host doesn't know (404
