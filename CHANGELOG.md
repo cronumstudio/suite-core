@@ -146,8 +146,8 @@ a payout's date on the person's own day.
   `keptBanners()` lets a frame drawn again in another language show it again. Options as an object work as
   before.
 - **Settings**: `aboutExtra` takes `{ text, tips }`, catalog keys the kit draws as every module drew them (a
-  function still works), and **`summaryOf(parts)`** joins what a copy holds by Intl's list of units («2
-  proyectos y 8 tareas»), leaving out the empty ones.
+  function still works), and **`summaryOf(parts)`** joins what a copy holds by Intl's list of units ("2
+  projects and 8 tasks"), leaving out the empty ones.
 
 ### One's people wait for an answer, in every module
 `createSharing`'s `peopleOf` counts whoever offered the person something only once the person accepted it:
@@ -184,8 +184,8 @@ it changes nothing); `knownTo` is as it was.
 
 ## 0.312.0 — 2026-11-20
 
-- **The look's sizes, one scale said by name** (audit of 6/11: dup-css-13, phase 1 of 2: the kit
-  and the four modules; Work's own sheets are phase 2). `kit.css` `:root` gives every `--look-*`
+- **The look's sizes, one scale said by name** (the first of two steps: the kit and the four
+  modules; Work's own sheets come second). `kit.css` `:root` gives every `--look-*`
   its Cronum value, a short scale: type 21 / 24 / 22 / 19 / 15 / 15 / 14 / 14 / 13 / 12 / 11 px
   (`large-title` to `caption2`, `base` 15), corners `--look-r-xs` 4, `-sm` 8, `-md` 10, `-lg` 12,
   `-xl` 16, room `--look-gutter` 16, `-row-y` 11, `-row-gap` 10, `-head-y` 10, `-item-y` 9,
@@ -203,36 +203,35 @@ it changes nothing); `knownTo` is as it was.
   own with. `web-kit-css.test.js` fails on a look variable with a number beside it, on a physical
   side in the kit's sheets that doesn't say why (the drag's ghost, the round check's tick, a
   window's drop place), and on a layout width other than 640 and 960 but the sign-in's 760.
-- **Breakpoints, as the kit does them** (dup-css-16): `--cr-bp-tablet` is 960 px (it said 860, and
+- **Breakpoints, as the kit does them**: `--cr-bp-tablet` is 960 px (it said 860, and
   the list and its detail have always gone side by side from 960); tokens.css no longer says a
   script reads them; web-kit.md names the two widths and when a component's `@container` may differ.
-- **A module's page stays put under its frame, said once** (dup-css-18): `html` and `body` are fixed
+- **A module's page stays put under its frame, said once**: `html` and `body` are fixed
   to the screen, without overscroll and with `touch-action: manipulation`, when a `.kit-app` is the
   body's (a module on its own page); Tasks, Projects and Next drop their copies. A public page and
   Cronum Work's page are left as they were.
-- **The public page's hero, numbers and sections** (dup-css-9): `public-page.css` draws the hero
+- **The public page's hero, numbers and sections**: `public-page.css` draws the hero
   (mark, name, who shares it, badge), the stats and the sections' titles, over `--sp-color` (the
   list's or the project's colour); Tasks, Projects and Next keep only what is theirs. One measure:
   24 px under the hero (Tasks 24, Projects 8, Next 28), 32 between sections (30 or 34), 22 above
   the stats (22 or 26).
-- `web/icons.js` `stroke-eraser`: Notes' eraser that takes whole strokes, drawn in Notes until now
-  (ux-menus-12).
+- `web/icons.js` `stroke-eraser`: Notes' eraser that takes whole strokes, drawn in Notes until now.
 - **docs/web-kit.md**: rules 14 and 16 (both about `blank()`) are one, rule 14; 17–24 are 16–23. A
   new rule 24: a sheet says the kit's measures by name (the look's scale, `--look-r-*`, logical
   sides, 640 and 960). The kit's comments that named a rule by an old number name the new one.
 
 ## 0.311.0 — 2026-11-20
 
-- **Texts say the same thing the same way in every module** (audit of 6/11: ux-textos-5, -9, -11,
-  -14, -16, -17, -18, -20, -21, ux-acciones-20, ux-compartir-14, ux-compartir-21, ui-dialogos-16).
-  Only additions in the code: what was exported behaves as before. Rule 25 in docs/web-kit.md.
-  - Catalogs, in the five languages: «Avisos» (`kit.notifications.offTitle`, `.turnOn`); «donde
-    entras» for where one signs in; a step «apuntado» and «hecho» (`kit.day.eveningHint`,
-    `kit.plan.benefits.retention*`, `kit.links.done`); «email» for the address and «correo» for the
-    message (`kit.share.email`, `kit.profile.email.provider`, `errors.email_not_found`); the
-    language's own quotes, ’ for an apostrophe and › on a way through menus; American English
-    (color, canceled, recognize); `mail.deletion.body` «Hello {name},»; `kit.notifications.renew`
-    no longer says «service worker»; `kit.retry` «Try again», as the kit's sentences say it.
+- **Texts say the same thing the same way in every module**. Only additions in the code: what was
+  exported behaves as before. Rule 25 in docs/web-kit.md.
+  - Catalogs, in the five languages: one word for notifications (`kit.notifications.offTitle`,
+    `.turnOn`); one phrase for where one signs in; one word each for a step noted and a step done
+    (`kit.day.eveningHint`, `kit.plan.benefits.retention*`, `kit.links.done`); one word for the
+    address and another for the message (`kit.share.email`, `kit.profile.email.provider`,
+    `errors.email_not_found`); the language's own quotes, ’ for an apostrophe and › on a way
+    through menus; American English (color, canceled, recognize); `mail.deletion.body` "Hello
+    {name},"; `kit.notifications.renew` no longer says "service worker"; `kit.retry` "Try again",
+    as the kit's sentences say it.
   - A notice has no full stop when it is one sentence and has them when it is two: the kit's own
     toasts (`kit.share.left`, `kit.plan.*`, `kit.links.*`, `admin.*`…). Errors keep theirs.
   - `kit.public.action`, `kit.public.on`, and the shared page's `kit.public.goneTitle`,
@@ -243,7 +242,8 @@ it changes nothing); `knownTo` is as it was.
   - `share-mail.js` `sharePush({ t, kind, actor, name, role })` → `{ title, body }`: the push of
     something shared, worded once (`kit.share.push.title`, `kit.share.push.<kind>`), for the
     modules' own deliveries, which keep their tag and where a tap goes.
-  - `web/public-page.js`: «Cerrar» is plain; «Activar» is the dialog's one primary button.
+  - `web/public-page.js`: "Close" (`kit.close`) is plain; turning the page on (`kit.public.turnOn`)
+    is the dialog's one primary button.
   - `web/ui.js`: a dialog opened from a menu's entry gives the focus back to the menu's button
     once it closes, where the browser left it on the body (the entry went with the menu).
   - `tools/i18n.mjs` `typography(dir)` (straight quotes and apostrophes, → on a way through menus;
@@ -342,27 +342,27 @@ an AI client sees changes.
 
 ## 0.308.0 — 2026-11-20
 
-- **The pieces every module drew its own way, in the kit** (audit of 6/11: dup-css-2, dup-css-12,
-  ux-acciones-17, ux-acciones-18, ui-dialogos-8). Only additions: what was exported behaves as before.
+- **The pieces every module drew its own way, in the kit**. Only additions: what was exported
+  behaves as before.
   - `web/ui.js` `placeFixed(node, anchor, { at, gap, margin, width, minWidth, above, center })` and
     `fixedRoom(node)`: what `menu()` did to stay inside a window of Cronum Work (whose
     `contain: layout paint` makes `position: fixed` start at the window's corner and cuts off what
     leaves it), for any box that floats: Tasks' quantity editor, Projects' drag label, Next's bubble.
     `menu()` uses it, unchanged.
   - `web/ui.js` `highlight(text, query)` (`<mark class="kit-mark">`, accents and case aside),
-    `searchTitle()` («Resultados»), `searchSection(title, rows, { list })` (a heading with how many)
+    `searchTitle()` ("Results"), `searchSection(title, rows, { list })` (a heading with how many)
     and `searchResults({ query, sections, hint })`, with the kit's blank and the search's icon when
     nothing is found: one results screen, each module drawing its own rows. `kit.search.*`.
   - `web/files.js` (new, in the service worker's kit copy): `attachments({ files, editable, mayRemove,
     fileUrl, upload, onUploaded, remove, restore, max, maxBytes, dropTarget, accept })`, an item's
-    «Archivos»: photos as thumbnails, a PDF as a row with its name and size, added with the button,
+    "Files": photos as thumbnails, a PDF as a row with its name and size, added with the button,
     by dropping a file on the detail or pasting one, one notice for several, the room left said
     first, and taking one away to the trash with Undo. `notYours(file)` keeps the ✕ on someone
     else's file and says whom to ask; `maxBytes` may be a function, asked when the files go up (a
     plan's limit read late). `photoViewer({ photos, start, fileUrl, parent })`, a
     kit dialog with Tasks' zoom (`makeZoomable`), so in Cronum Work it covers the screen.
     `kit.files.*`, `kit.photo.*`; `.kit-files*`, `.kit-file*`, `.kit-viewer*` in kit.css.
-  - `web/i18n.js` `shortDate(value)` («14 mar», with the year when not this one; a YYYY-MM-DD is the
+  - `web/i18n.js` `shortDate(value)` ("Mar 14", with the year when not this one; a YYYY-MM-DD is the
     local day it names), `timeText(value)` (Intl's short time: one way per language),
     `shortStamp(value, { time })` (the time today, the date before) and `timeAgo(value, { short })`.
   - `docs/web-kit.md`: rule 9 adds the results screen; new rules 22 (files), 23 (what floats) and
@@ -370,26 +370,25 @@ an AI client sees changes.
 
 ## 0.307.0 — 2026-11-20
 
-- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 21; audit of
-  6/11: ux-textos-3, ux-textos-8, ui-dialogos-4, ux-acciones-13). Tasks, Notes and Projects each said
-  their trash their own way: «Recuperar» and «Restaurar», «Borrar del todo» and «Borrar para siempre»,
-  «permanently» and «for good», four ways of saying it can't be undone, two Englishes for how long it
-  keeps things, and an emoji in some titles. The kit now has the words, in the five languages:
-  `kit.restore`, `kit.deleteForever` («Borrar para siempre» / «Delete for good»), `kit.cantUndo`
-  («Esto no se puede deshacer.»), and `kit.trash.*`: `title` (no emoji), `empty`, `keepDays`,
-  `keepForever`, `emptyAction`, `emptyAsk`, `emptyConfirm`, and the notices `moved` («"X" a la
-  papelera»), `restored` («"X" ha vuelto»), `deleted` («"X" se ha borrado para siempre») and
-  `emptied` («N elementos borrados para siempre»). New `trashKeeps(days)` says how long a trash keeps
+- **One trash vocabulary for every module** (`i18n`, `web/ui.js`, `docs/web-kit.md` rule 21). Tasks,
+  Notes and Projects each said their trash their own way: two words for restoring and two for
+  deleting for good in Spanish, "permanently" and "for good" in English, four ways of saying it
+  can't be undone, two Englishes for how long it keeps things, and an emoji in some titles. The kit
+  now has the words, in the five languages: `kit.restore`, `kit.deleteForever` ("Delete for good"),
+  `kit.cantUndo` ("This can't be undone."), and `kit.trash.*`: `title` (no emoji), `empty`,
+  `keepDays`, `keepForever`, `emptyAction`, `emptyAsk`, `emptyConfirm`, and the notices `moved`
+  ("“X” moved to the trash"), `restored` ("“X” is back"), `deleted` ("“X” deleted for good") and
+  `emptied` ("N items deleted for good"). New `trashKeeps(days)` says how long a trash keeps
   what is in it, from the plan's days its server sends, or until it is emptied (`null`). Additive: the
   modules move to them and delete their own copies.
-- **Erasing a module's data says it can't be undone in the same words** (`kit.data.eraseText`): «…
-  todo lo que tienes en {app}. Esto no se puede deshacer.» in place of «sin vuelta atrás», in the five
-  languages.
+- **Erasing a module's data says it can't be undone in the same words** (`kit.data.eraseText`):
+  "Everything you have in {app} will be deleted now. This can't be undone.", in place of an older
+  phrase, in the five languages.
 
 ## 0.306.0 — 2026-11-20
 
 - **One palette and one set of icons for every module** (`web/palette.js`, `web/pickers.js`,
-  `kit.css`, `i18n`, `docs/web-kit.md` rule 20; audit of 6/11, ui-dialogos-9). Tasks offered 13
+  `kit.css`, `i18n`, `docs/web-kit.md` rule 20). Tasks offered 13
   colours, Notes 12, Projects 10 and Next 8 by name, in other orders and other blues; Tasks showed
   164 emojis at once, Projects 20, Next 16. Now `KIT_COLORS`: twelve colours by name (blue, cyan,
   teal, green, olive, brown, pink, plum, violet, indigo, steel, slate), each with the hex a module
@@ -397,12 +396,12 @@ an AI client sees changes.
   the `--kit-color-<name>` tokens of a module that keeps names (Next). `suggestedColor(used, { as, except })`
   proposes the first free one, five apart around the wheel. `KIT_ICONS` are twenty in view and
   `KIT_MORE_ICONS` the rest of Tasks' 164 (none lost). `colorPicker()` and `iconPicker()` offer them,
-  each colour named in words for a screen reader (`kit.colors.*`), «Más…» unfolding the icons
+  each colour named in words for a screen reader (`kit.colors.*`), "More…" unfolding the icons
   (`kit.icons.*`), with what a collection has from before kept, offered first and chosen; options for
   a field to type any emoji (`typed`), for no colour or no icon (`none`), for colours a module leaves
   out (`except`: Projects', too close to its accent and its states) and for names instead of
   hexes (`as: 'name'`). New keys in the five languages; nothing that exists changes.
-- **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`; audit of 6/11, dup-css-3):
+- **The kit's states read as text** (`kit.css`, `test/web-kit.test.js`):
   `--kit-ok`, `--kit-warn` and `--kit-danger` in light are a step deeper (`#167548`, `#9A5A00`,
   `#BA3429`, from `#1F8A57`, `#A86200`, `#C8372D`), so that each reads 4.5:1 on the page, a panel
   and its soft tint (the badges'); before, «ok» gave 4.10:1 on the page and «warn» 4.26:1 on its
@@ -414,11 +413,11 @@ an AI client sees changes.
 ## 0.305.0 — 2026-11-20
 
 - **One banner without a signal, the same in every module** (`web/ui.js` `offlineBanner`,
-  `docs/web-kit.md` rule 19; audit of 6/11, ui-dialogos-12, ux-acciones-14). It listens to the
+  `docs/web-kit.md` rule 19). It listens to the
   browser's `offline` and `online` itself, so the banner shows the moment the signal goes, changes
   waiting or not (Notes showed none without them, Tasks only once its probe failed). Offline it
   says what is shown is the last thing loaded and how many changes wait, with a discreet
-  «Reintentar» (`kit.retry`, never primary) when the module passes `retry`; back online, while they
+  "Try again" (`kit.retry`, never primary) when the module passes `retry`; back online, while they
   go, how many are being sent (`kit.offline.pending`); `sent(n)` says they arrived
   (`kit.offline.sent`), or, with `announce`, the piece says it itself once none waits (`announce`
   as a function: and they can go, so none waiting before then isn't taken for sent), less those
@@ -426,54 +425,54 @@ an AI client sees changes.
   `show`/`hide`, and again in a new language. New texts in the five languages: `kit.retry`,
   `kit.offline.pending`, `kit.offline.sent` and `kit.offline.droppedWhat` (the dropped change named,
   as Next says it). Nothing changes for a module that doesn't use it.
-- **«Necesita conexión» as a piece** (`web/ui.js` `offlineNotice`; ui-dialogos-13): what only the
+- **"Needs a connection" as a piece** (`web/ui.js` `offlineNotice`): what only the
   server can show says so in its place, as Settings already did (it uses the piece now); Tasks' and
   Projects' trash use it without a signal.
 
 ## 0.304.0 — 2026-11-20
 
 - **One empty and one loading state in every module** (`web/ui.js`, `web/kit.css`, `i18n`,
-  `docs/web-kit.md` rule 16; audit of 6/11, ux-acciones-6, ux-acciones-11). `blank()` takes
+  `docs/web-kit.md` rule 16). `blank()` takes
   `glyph` (a text in the icon's box: a Tasks list's emoji), `page` (alone in a view, its title an h2),
-  `loading` (the kit's spinner and «Cargando…», new key `kit.loading`), `note`, an `action` with
+  `loading` (the kit's spinner and "Loading…", new key `kit.loading`), `note`, an `action` with
   `href` or `primary: false`, and no `title` for a sentence alone. `.kit-blank strong` and
   `.kit-blank h2` are one size now (`--look-headline`): a page's empty view was 19 px, a list's 15.
   Without the new options `blank()` draws what it drew.
-- **The add bar is the kit's** (`addBar()`, `.kit-add-bar`, new key `kit.add`; rule 17; ux-menus-15,
-  ui-medidas-11): Tasks' card (a +, the field without a frame, «Añadir», the module's own tools between
+- **The add bar is the kit's** (`addBar()`, `.kit-add-bar`, new key `kit.add`; rule 17): Tasks'
+  card (a +, the field without a frame, "Add", the module's own tools between
   them), for Tasks and Projects.
-- **Notices rise above the add bar** (`toast()`, `.kit-toasts`; ui-dialogos-14): each time one shows,
+- **Notices rise above the add bar** (`toast()`, `.kit-toasts`): each time one shows,
   the kit measures the bars in sight under the notices' place and sets `--kit-toast-floor`, also with
   the keyboard up. With no bar they sit where they always did.
-- **The row open in the detail** (`.kit-list-row[aria-current="true"]`, rule 18; dup-css-5, ui-medidas-12):
+- **The row open in the detail** (`.kit-list-row[aria-current="true"]`, rule 18):
   a soft background in the accent, as Notes' had, for Tasks, Notes and Projects.
 - **The detail as a column of its own** (`createShell({ detail: 'column' })`, `shell.setDetailOpen()`,
-  `data-detail-open`; dup-css-11): from 960 px the list takes the whole width while nothing is open and
+  `data-detail-open`): from 960 px the list takes the whole width while nothing is open and
   the item opens as a 340–400 px column on its right, folded or not. Tasks and Projects each had a copy
   of these rules; the default (`'beside'`) is the frame as before.
-- **`inkOn(color)`** (ui-medidas-16): white where it reads 4.5:1 on a colour, otherwise the dark ink
+- **`inkOn(color)`**: white where it reads 4.5:1 on a colour, otherwise the dark ink
   (`INK`), for a button in a list's own colour.
 
 ## 0.303.0 — 2026-11-20
 
-- **Dialogs look the same in every module** (`web/kit.css`, `docs/web-kit.md` rule 13; audit of 6/11,
-  dup-css-1, ui-dialogos-10): the kit's header, body and footer, with no line under the title nor over
-  the buttons (Martin, 14/11), are the only ones; the modules drop their repaints. The two title rules
-  (`__header h2`, `__titles h2`) are one. Rule 10 also says how a collection's settings read («Editar X»,
-  Name first) and that deleting it is in its «…», never in the form.
+- **Dialogs look the same in every module** (`web/kit.css`, `docs/web-kit.md` rule 13): the kit's
+  header, body and footer, with no line under the title nor over the buttons, are the only ones; the
+  modules drop their repaints. The two title rules (`__header h2`, `__titles h2`) are one. Rule 10
+  also says how a collection's settings read ("Edit X", Name first) and that deleting it is in its
+  "…" menu, never in the form.
 - **The small capitals over a group, one measure** (`.kit-eyebrow`, `--kit-eyebrow-size`, `-weight`,
-  `-spacing`; dup-css-14): the sidebar's sections, Settings' groups and Share's headings take them, the
+  `-spacing`): the sidebar's sections, Settings' groups and Share's headings take them, the
   same as before in both looks (Clean's spacing is its variable now, not three rules); the modules' own
   labels use them.
-- **Kit rules that lived in one module** (dup-css-17): no tap flash on a phone and no selection by a long
+- **Kit rules that lived in one module**: no tap flash on a phone and no selection by a long
   press on the frame's controls (Tasks' alone until now), a field's text at 16 px on a touch screen so the
   iPhone doesn't zoom (Notes' alone), and an icon button that is on (`aria-pressed`) in the accent's soft
   colour (Next's alone).
 - **`.kit-label`**: a field's label (13/500) where there is no `field()` around it, a block of an item's
-  detail over several controls (ui-medidas-13).
+  detail over several controls.
 - **Who made an item and who changed it, in shared words** (`stamps()`, `stampTime()` in `web/ui.js`,
-  `kit.stamps.*` in the five languages, `.kit-stamps`; ux-acciones-15): «Creada por Ana · hoy a las
-  15:52», «Modificada por Luis · …», as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
+  `kit.stamps.*` in the five languages, `.kit-stamps`): "Created by Ana · today at 15:52", "Modified
+  by Luis · …", as Tasks said it, now for Tasks and Projects. Rules 11 (an empty place
   has the button that does the first thing) and 12 (an item's detail: the kit's labels, `saveState()`,
   its stamps) in `docs/web-kit.md`.
 - **A field's label over a group** (`field(…, { groupLabel: true })`, a palette of colours or icons): its
@@ -482,10 +481,9 @@ an AI client sees changes.
 ## 0.302.0 — 2026-11-20
 
 - **The sidebar's entries are the kit's in every module** (`web/shell.js`, `web/drag.js`,
-  `web/kit.css`, `docs/web-kit.md` rule 11; audit of 6/11, ux-menus-4, ux-menus-13,
-  ux-compartir-13, ui-dialogos-6, ui-medidas-15, ui-medidas-17). `navItem()` takes `emoji` (a
+  `web/kit.css`, `docs/web-kit.md` rule 11). `navItem()` takes `emoji` (a
   collection's own, in a box as wide as a view's icon, so every label starts in line), `shared`
-  (the kit's one mark, `sharedMark({ owner })`, «Compartido · de {name}» in words), `marks`, `title`,
+  (the kit's one mark, `sharedMark({ owner })`, "Shared · by {name}" in words), `marks`, `title`,
   `style`, `className`, `under` (a node under the name, in its column: a project's progress),
   `countTitle`, and `menu` or `onMenu`: a right-click or a long press opens the same menu as
   the entry's «…» (`menuOnPress(node, open)` in drag.js, which a drag that holds the entry answers
@@ -495,50 +493,49 @@ an AI client sees changes.
   have their own line height (1.45): 36 px in every module, 36.5 in Notes before. A colour is as
   wide as a view's icon (17 px with its margins), so every label starts in line, and the mark after
   a group's name is the same one.
-- **«n» makes a new item in every module** (`createShell({ onNew })`, rule 12; ux-acciones-16): under
+- **"n" makes a new item in every module** (`createShell({ onNew })`, rule 12): under
   the same conditions as «/». Settings › About lists the keys (`kit.about.keys`), and `modKey()`
   (keyboard.js) gives ⌘ or Ctrl for words that tell a shortcut.
-- **The search runs the same way everywhere** (`search: { onSearch, wait, min }`; ux-menus-5): 220 ms
+- **The search runs the same way everywhere** (`search: { onSearch, wait, min }`): 220 ms
   after the last key, from the first letter, at once with Enter, Escape or when emptied;
   `shell.clearSearch()` empties it. A field the module wrote itself away from the results (Notes,
   Next) searches the same words again once typed. `onInput` and `onSubmit` are unchanged.
-- **The open collection's emoji in the head** (`head({ icon })`, `.kit-head__icon`; ux-menus-7,
-  ui-medidas-8, Martin's decision 7): loose before the title, at its size, with no box; `setIcon()`.
+- **The open collection's emoji in the head** (`head({ icon })`, `.kit-head__icon`): loose before
+  the title, at its size, with no box; `setIcon()`.
   `.kit-icon-btn[aria-pressed="true"]` is the kit's (Notes and Next had it each).
-- **In Work's shell, its ☰ folds the sidebar where the sidebar sits beside the views** (ux-menus-10):
+- **In Work's shell, its ☰ folds the sidebar where the sidebar sits beside the views**:
   from 640 to 768 px Work shows its ☰, and as a drawer there it did nothing.
-- **Icons** (`web/icons.js`; ux-menus-3, ux-menus-12): `chevron-up`, `eraser`, `flag`, `fork`,
+- **Icons** (`web/icons.js`): `chevron-up`, `eraser`, `flag`, `fork`,
   `highlighter`, `history`, `marker`, `pen`, `print`, `zoom-in`, `zoom-out`; web-kit.md has a table
   of which icon for what.
 
 ## 0.301.0 — 2026-11-20
 
-Audit of 6/11, sharing: what sharing looks like and says, the same in every module (Martin's choices
-of 14/11).
+Sharing: what sharing looks like and says, the same in every module.
 
 - **An invitation is the kit's card, first in the sidebar, and ☰ says one waits** (`web/invitation.js`,
-  `web/shell.js`, `web/kit.css`; ux-compartir-5, ux-menus-14, dup-css-10).
+  `web/shell.js`, `web/kit.css`).
   `invitationCard({ from, name, icon, color, what, permission, detail, onAccept, onDecline, offline })`
-  and `invitationCards(list, { offline })`: who offers what, what accepting gives («Solo lectura»,
-  «Podrás editarlo», or the app's own line), «Rechazar» and «Aceptar» as wide as each other, both off
+  and `invitationCards(list, { offline })`: who offers what, what accepting gives ("Read only",
+  "You'll be able to edit it", or the app's own line), "Decline" and "Accept" as wide as each other, both off
   while an answer is on its way. Without a signal both stay off, with `kit.offline.actions` above the
   cards, as the modules' own cards have done since 0.296. `.kit-invite` in kit.css; texts
   `kit.invite.*`. `shell.setMark(n)` puts a dot on every ☰ of the frame while `n` invitations wait, and
   says so to a screen reader. The four modules drop their own cards.
-- **The share dialog without a network** (`web/share.js`; ui-dialogos-13): it opens with what `load`
+- **The share dialog without a network** (`web/share.js`): it opens with what `load`
   knows (Tasks has it on the device), one line says it needs a connection (`kit.offline.actions`), and
   Invite, the permissions and taking back are off until the network is back (they turn on by themselves).
-- **A person's colour** (`web/ui.js`, `sharing.js`; ux-compartir-19, ux-acciones-19):
+- **A person's colour** (`web/ui.js`, `sharing.js`):
   `avatar(person | name, { color, size, title })` takes a person and paints the colour they chose
   (`avatar_color`, `#rrggbb` only); `avatar(name)` is as before. The engine's `personOf` (and so the
   share dialog's rows, Settings › Sharing and the invitations) carries `avatar_color` where the users
   table has the column. The share dialog's default avatar and Settings › Sharing use it.
-- **Settings › Sharing in the dialog's order** (`web/shared.js`; ux-compartir-8): «Puede editar» before
-  «Solo lectura»; `kit.shared.canView` says «Solo lectura», as the invitations do.
-- **One set of words for sharing** (`i18n`; ux-compartir-6, -11, -15, -16, ux-textos-12):
-  `kit.share.left` («Has salido de «X».») says it after leaving; `kit.share.action` «Compartir» for the
-  «…»; taking back is «Quitar el acceso a X» («¿Quitar el acceso a X?»), without the thing's gender, in
-  the dialog and in Settings; `errors.owner_only` «Solo el propietario puede hacer eso.»;
+- **Settings › Sharing in the dialog's order** (`web/shared.js`): "Can edit" before
+  "Read only"; `kit.shared.canView` says "Read only", as the invitations do.
+- **One set of words for sharing** (`i18n`): `kit.share.left` ("You left “X”") says it after
+  leaving; `kit.share.action` "Share" for the "…" menu; taking back is "Remove X's access"
+  ("Remove X's access?"), without the thing's grammatical gender, in the dialog and in Settings;
+  `errors.owner_only` "Only the owner can do that.";
   `kit.data.shareNote` with `{ things }` says what happens to what one shares when one's data goes, by
   the rule `pickHeir` keeps (whoever can edit first, then whoever has had it longest).
 - **Rule 10 of «Same in every module»** (`docs/web-kit.md`): sharing reads the same in every module.
@@ -555,7 +552,7 @@ of 14/11).
 
 ## 0.299.0 — 2026-11-19
 
-Affiliates: referral codes and creators' campaigns in one system (Martin's design of 19/11/2026).
+Affiliates: referral codes and creators' campaigns in one system.
 Off until the app says `affiliates.enabled`.
 
 ### Affiliates (`affiliates.js`, suite migration 35)
@@ -620,9 +617,9 @@ Off until the app says `affiliates.enabled`.
 
 ## 0.298.0 — 2026-11-19
 
-- **On a phone, a sideways swipe no longer changes module** (`windows.js`; Martin, 14/11, after a
-  tester on Android: in most views a sideways finger already does something of its own, a row to
-  the trash or its toggle, Next's line, the Gantt, so a swipe between modules served almost
+- **On a phone, a sideways swipe no longer changes module** (`windows.js`: in most views a sideways
+  finger already does something of its own, a row to the trash or its toggle, Next's line, the
+  Gantt, so a swipe between modules served almost
   nowhere and came in by mistake). The tabs at the bottom are the one way to another module; a
   sideways finger in a window is the module's, and nothing keeps its touchmoves from the browser
   any more. Gone with it: the exports `OWN_SWIPE` and `swipeHolds()` (Work's shell and the modules
@@ -678,31 +675,30 @@ Notices to whoever runs the install of new accounts and payments, set in /admin 
 
 ## 0.295.0 — 2026-11-17
 
-Audit of 6/11, data: what happens to an account's things when it goes, copies, and what is shared.
-Martin's decisions of 14/11 are in the entries that follow them.
+Data: what happens to an account's things when it goes, copies, and what is shared.
 
 ### Whose it is, and who inherits
-- **One hand-over for every module** (`ownership.js` `handOver`, `heirOf`; dup-srv-1, ownership-20,
-  sc-data-22): what someone leaving shared passes to its heir the same way everywhere: its owner is
+- **One hand-over for every module** (`ownership.js` `handOver`, `heirOf`): what someone leaving
+  shared passes to its heir the same way everywhere: its owner is
   the heir, `owner_since` is now (what the module's sweeps count from), its public page goes off, and
   the module adds its part through `set` and `moved`. Needs `db.all` and `db.run`.
 - `pickHeir` puts an account nobody can use (disabled, or waiting to be deleted) last; `heirOf` reads
-  it from `users` (portable-17).
-- **Deletion notices braked** (`tellGone`; sc-data-10, sc-data-23): once a day per sender and person,
+  it from `users`.
+- **Deletion notices braked** (`tellGone`): once a day per sender and person,
   whatever was deleted (deleting and restoring again is one notice); a nameless thing is "Untitled" in
   the push too; `id` gives each thing's push its own tag. `createGoneBrake`, option `brake`.
 - `suite.ownership` (in the host, one per module in its words), `suite.shareBrake` (one brake on offers
   for the whole install, 40 an hour: `SUITE_OFFERS_PER_HOUR`) and `suite.goneBrake`.
-- `requireOwner(…, { action: 'close' })` → `not_yours` with `action`, which the kit says «ask Ana to
-  close it» (`errors.not_yours_close`; ownership-15).
-- Kit: `tellNotYours(owner)` for a button pressed by someone who may not (ownership-5);
+- `requireOwner(…, { action: 'close' })` → `not_yours` with `action`, which the kit says "ask Ana to
+  close it" (`errors.not_yours_close`).
+- Kit: `tellNotYours(owner)` for a button pressed by someone who may not;
   `askCopy`/`moving(…, { files: false })` say the copy goes without its files
-  (`kit.ownership.copyTextNoFiles`; ownership-17).
+  (`kit.ownership.copyTextNoFiles`).
 
 ### Sharing
-- **Inherited invitations by address are masked** (`sharing.js` `maskAddress`, `addressFor`; Martin,
-  14/11/2026): an heir sees `m•••@domain.com` for the addresses its former owner typed; the offer stays.
-- **Picked by id, or typed** (kind option `byId`; Martin, 14/11/2026): with a module's `by_id` column, a
+- **Inherited invitations by address are masked** (`sharing.js` `maskAddress`, `addressFor`): an
+  heir sees `m•••@domain.com` for the addresses its former owner typed; the offer stays.
+- **Picked by id, or typed** (kind option `byId`): with a module's `by_id` column, a
   share waits behind an offer by address only while nobody picked the person by id, and an offer by
   email to someone who has it already waits under the address like one to an address without an
   account. Two leaks close: picking a known person after typing an address no longer tells whether
@@ -712,111 +708,108 @@ Martin's decisions of 14/11 are in the entries that follow them.
 ### Copies
 - **One pending import per person and mode**, the account imports' folder capped (`limits.pending`,
   2 GB), bytes no row names refused (`limits.unreferenced`, 4 MB), the busy slot taken once the upload
-  is on disk (sc-data-13, portable-11, sc-data-25).
-- The install's copy carries `mail_suppressions` (`suite/mail-suppressions.json`; sc-data-19).
+  is on disk.
+- The install's copy carries `mail_suppressions` (`suite/mail-suppressions.json`).
 - An account already here keeps its language, time zone, theme and locale whichever module's copy
-  comes in (`ACCOUNT_PREFS`; portable-14).
+  comes in (`ACCOUNT_PREFS`).
 - A whole install's copy names its install and run with or without organizations: the modules of one
-  run put each account where the first one did and give no plan twice (portable-13).
-- A table's `dropped: [...]` columns are read past in old copies (portable-18).
+  run put each account where the first one did and give no plan twice.
+- A table's `dropped: [...]` columns are read past in old copies.
 - Settings › Your data says what a copy left out because it is shared (`kit.data.leftOut`) and, in the
-  plan, what "replace" passes on (portable-15).
+  plan, what "replace" passes on.
 
 ### Invitations to addresses without an account, and the database
 - **Migration 32** `stranger-invites-keep`: `mail_stranger_invites.inviter_id` is `ON DELETE SET NULL`;
-  an email already sent keeps its link to stop them when its sender's account goes (sc-data-18).
-- A send that fails takes its row back (`strangers.forget`; sc-data-20); rows go after a year
-  (`STRANGER_KEEP_DAYS`, `strangers.purge`, in the suite's purge; Martin's #56).
-- **Migration 33** `users-email-index`: `users(email COLLATE NOCASE)` (sc-data-25).
-- `PRAGMA synchronous = NORMAL` with WAL (sc-data-25).
+  an email already sent keeps its link to stop them when its sender's account goes.
+- A send that fails takes its row back (`strangers.forget`); rows go after a year
+  (`STRANGER_KEEP_DAYS`, `strangers.purge`, in the suite's purge).
+- **Migration 33** `users-email-index`: `users(email COLLATE NOCASE)`.
+- `PRAGMA synchronous = NORMAL` with WAL.
 - An account that goes takes what `idp_connections` kept of its AI clients; a disconnected one stays
-  refused (portable-20). In a host, the modules' empty `mcp_tokens` goes (`dropLeftovers`; portable-18).
-- docs/architecture.md: who deletes what they made in each module, the hand-over, the brakes (ownership-19).
+  refused. In a host, the modules' empty `mcp_tokens` goes (`dropLeftovers`).
+- docs/architecture.md: who deletes what they made in each module, the hand-over, the brakes.
 
 ## 0.294.0 — 2026-11-15
 
-Audit of 6/11: Cronum Work's shell, the browser kit, the installed app (PWA) and the phone app.
+Cronum Work's shell, the browser kit, the installed app (PWA) and the phone app.
 
 ### Work's shell and the kit's frame
-- **Work's shell, its modules in their colours** (`web/tokens.css`, `web/kit.css`; work-web-3): tokens.css
+- **Work's shell, its modules in their colours** (`web/tokens.css`, `web/kit.css`): tokens.css
   gives Cronum Work (`data-app="work"`) its ultramarine, and inside Work each module's windows and the
   pieces it hangs on the page (`data-module`, `data-owner`) keep the module's accent; kit.css works the
   kit's accent out again there, light, dark and Clean.
-- **A module's page opens the host's shell from anywhere** (`web/native.js`, `web/shell.js`;
-  work-web-7): `hostShellAddress` now also sends a module's page to `/?open=…` in a browser's tab and in
+- **A module's page opens the host's shell from anywhere** (`web/native.js`, `web/shell.js`):
+  `hostShellAddress` now also sends a module's page to `/?open=…` in a browser's tab and in
   the host's own installed app (`markShellWindow()`), never a page asked alone (`?alone`, kept for the
   tab: `aloneAddress()`) or a module installed on its own; `?billing=` comes with the shell's address.
   The rail's mark links the shell where there is one, and Settings › Modules installs each module alone.
-- **Back closes layers** (`web/ui.js`, `web/settings.js`; work-web-8): `backLayer(onBack)` gives a layer
+- **Back closes layers** (`web/ui.js`, `web/settings.js`): `backLayer(onBack)` gives a layer
   an entry in the history while it is open, so the system's Back closes it and the page under it hears
   nothing; `close()` takes the entry back and `afterBackLayers(fn)` waits for it. Settings use it in
   Work's shell, from a section to the list on a phone, then out.
 - Settings › Modules and About say «modules», and how Work's shell moves between them, in the five
-  languages (work-web-13).
+  languages.
 - `web/live.js` `liveSource()`: the channel's machine (EventSource, last id, waits, hello), shared by the
-  kit's own channel and Work's one channel (sc-shell-22).
+  kit's own channel and Work's one channel.
 - `web/keyboard.js` `rideKeyboard()` and formDialog `typing`: a sheet's field in the iPhone app is
-  focused without the slide and the sheet rides on the keyboard; it was Work's Feedback's alone
-  (sc-shell-19).
+  focused without the slide and the sheet rides on the keyboard; it was Work's Feedback's alone.
 - `web/signal.js`: one «is there a signal again?» for the whole kit. `watchSignal({ ask, answered,
   onBack, active, again, firstMs, maxMs, url, patienceMs })` asks /version after 3 s, then twice as long
   up to 30 s, at once on `check()`, and tells nobody after `stop()`; nothing on import. Tasks, Projects,
   Notes and Next ask through it, each with its own waits, client and what counts as an answer, and so
-  does Settings' `connection` (settings-queue.js), as before (sc-shell-22). In the worker's kit files.
-- **The drawer closes on Back**, and in Work's shell when its window goes out of view (`web/shell.js`;
-  ui-movil-7). A button chip takes a finger's tap 37 px tall (`web/kit.css`; ui-movil-12).
-- Gone: mount.js `standaloneCtx`, windows.js's `{ slots }` layouts, `restore()` and `recent`
-  (sc-shell-17).
+  does Settings' `connection` (settings-queue.js), as before. In the worker's kit files.
+- **The drawer closes on Back**, and in Work's shell when its window goes out of view
+  (`web/shell.js`). A button chip takes a finger's tap 37 px tall (`web/kit.css`).
+- Gone: mount.js `standaloneCtx`, windows.js's `{ slots }` layouts, `restore()` and `recent`.
 
 ### The service worker and notices
 - **In a host's copy every file it installed is code** served from the copy, Work's `/w/` files
-  included, and the network only fills its holes, never replacing what it holds (`web/sw-core.js`;
-  sc-shell-9). What is only nice to have offline comes from the old copy while its hash is the same
-  (sc-shell-13).
+  included, and the network only fills its holes, never replacing what it holds (`web/sw-core.js`).
+  What is only nice to have offline comes from the old copy while its hash is the same.
 - A notice of a module installed as an app of its own opens in that app when no window is open
-  (`web/worker.js` `markInstalledAlone`, cache `/.suite-alone`; pwa-7).
-- The host's worker keeps the root `/js/app-version.js` and not the modules' own (`host.js`; pwa-8).
+  (`web/worker.js` `markInstalledAlone`, cache `/.suite-alone`).
+- The host's worker keeps the root `/js/app-version.js` and not the modules' own (`host.js`).
 - `web/push.js` `ensureSubscription()`: the one way to turn notices on for a person; Settings'
-  `subscribePush()` uses it, and so does Tasks (pwa-13).
+  `subscribePush()` uses it, and so does Tasks.
 
 ### Settings, the admin panel, Markdown and sharing
-- **Settings no longer freeze when other modules' catalogs fail** (`web/settings.js`; sc-ui-1): another
+- **Settings no longer freeze when other modules' catalogs fail** (`web/settings.js`): another
   module's catalog is asked for once while Settings are open, failing or not, and the catalogs that
   arrive in the same moment trigger one repaint between them. One that failed is asked again the next
   time Settings open. Two failing catalogs used to repaint tens of thousands of times and hold the tab
   for seconds.
-- **About's cards get their line** (sc-ui-4): `moduleCard` called `paintCards`, out of its scope.
-- **Signed out, the queue of preferences stays** (`web/settings-queue.js`; sc-ui-3): `/api/auth/me`
+- **About's cards get their line**: `moduleCard` called `paintCards`, out of its scope.
+- **Signed out, the queue of preferences stays** (`web/settings-queue.js`): `/api/auth/me`
   answers `{ user: null }`, not 401, and `sendKept()` took that for someone else.
-- **Settings › Plan after a new plan** (sc-ui-9): what the other modules include and what is used are
+- **Settings › Plan after a new plan**: what the other modules include and what is used are
   asked again with it; an older answer never paints over a newer one (`yourUsage().read()`).
-- **Settings start lighter** (sc-ui-11): `agents.js` and `usage-view.js` are imported when they are
+- **Settings start lighter**: `agents.js` and `usage-view.js` are imported when they are
   drawn, once per page; without a signal they come from the worker's kit as before.
-- **Installing from Work installed** (pwa-6): inside Work's own window (`installed()`) Settings ›
+- **Installing from Work installed**: inside Work's own window (`installed()`) Settings ›
   Modules talks as in the suite's app: no button for Work, and the module opens in the browser
   (`kit.modules.installPickInstalled` for a click).
-- **Admin: one view at a time** (`web/admin.js`; sc-ui-5): a view is drawn apart and put in only while
+- **Admin: one view at a time** (`web/admin.js`): a view is drawn apart and put in only while
   it is still the last one asked for.
-- **Admin: words for every audit action** (sc-ui-7), and a test that checks every action the server
+- **Admin: words for every audit action**, and a test that checks every action the server
   records.
-- **Admin asks first** (sc-ui-11): making someone an admin or not, turning an account off, setting a
+- **Admin asks first**: making someone an admin or not, turning an account off, setting a
   password, and «Close their sessions», which ends their tokens, assistants and phones too and now says
   so before and after. `saveButton`'s `save` may answer false.
-- **Markdown in linear time** (`web/markdown.js`; sc-ui-10): a mark with no close is looked for once,
+- **Markdown in linear time** (`web/markdown.js`): a mark with no close is looked for once,
   brackets are paired in one pass, a link's destination reads at most a few times the text, and quotes,
   lists, marks and links past 32 levels are text. 200,000 characters of `*a ` take ~0.1 s (60,000 took
   15 s); `>` 10,000 times or 5,000 nested links no longer throw.
-- **Pictures only from the app's own files** (sc-ui-11): `safeImage` takes a path ending in
+- **Pictures only from the app's own files**: `safeImage` takes a path ending in
   `files/<id>`; `![](/api/admin/export)` is a link, never a request.
-- **Sharing speaks one way** (`web/share.js`, `web/shared.js`; sc-ui-2): the dialog asks before taking
+- **Sharing speaks one way** (`web/share.js`, `web/shared.js`): the dialog asks before taking
   it back from someone who accepted it in Settings › Sharing's words, and Settings › Sharing takes back
   an unanswered invitation at once, as the dialog does. The same words in both, in every language.
-- Gone, unused (sc-ui-11): `aiExtra` and a module's `settings.ai` (`moduleSettings` no longer answers
+- Gone, unused: `aiExtra` and a module's `settings.ai` (`moduleSettings` no longer answers
   `ai`), `toggleTask` and `renderMarkdown`'s `onTaskToggle`, and the keys `kit.settings.moduleAi*`,
   `admin.confirm`, `admin.areYouSure`. `sharedPage` stays exported (Projects' tests draw it alone).
 
 ### The phone app
-- **Links to the site open the app** (`app-links.js`; app-19, Martin's decision of 14/11): suite.config.js
+- **Links to the site open the app** (`app-links.js`): suite.config.js
   `appLinks: { paths, exclude?, apple: { bundleId, teamId? }, android: { package, sha256? } }`, with the
   install's `APPLE_TEAM_ID` (else `APNS_TEAM_ID`) and `ANDROID_CERT_SHA256` (Play's app-signing
   certificate, comma-separated for several). `/.well-known/apple-app-site-association` and
@@ -824,16 +817,16 @@ Audit of 6/11: Cronum Work's shell, the browser kit, the installed app (PWA) and
   `Cache-Control: public, max-age=3600`, at a host's root only. A file whose values are missing stays the
   404, and the start warns. The APIs, `/auth/*`, OAuth's endpoints, `/mcp*`, `/admin*`, `/devices/*`,
   `/.well-known/*` and any `?billing=` address never open the app.
-- **The device token names its account** (`devices.js`; Martin's decision of 14/11):
+- **The device token names its account** (`devices.js`):
   `POST /api/devices/token` also answers `user_id`, so the app can tell the same account signing in again
   from another one and keep its unsent changes.
 
 ## 0.293.0 — 2026-11-15
 
-Audit of 6/11: the host's runtime, mail, push, the configuration and what was left of billing.
+The host's runtime, mail, push, the configuration and what was left of billing.
 
-- **A group left with nobody stops renewing** (`organizations.js`, `billing.js`, `app.js`; Martin's
-  decision of 13/11). When an account's deletion leaves a group of a kind kept when empty
+- **A group left with nobody stops renewing** (`organizations.js`, `billing.js`, `app.js`). When an
+  account's deletion leaves a group of a kind kept when empty
   (`onEmpty: 'archive'`) with nobody in it, the group was archived and its own subscription went on
   renewing, with nobody to cancel it. Now its live subscriptions stop at the end of the period they
   paid for, asked of the provider once the deletion's transaction is over and by the hourly sweep if
@@ -841,14 +834,14 @@ Audit of 6/11: the host's runtime, mail, push, the configuration and what was le
   `empty`; each stop asked is `billing.organization.stop` in the log). The archive itself is in the
   log too (`org.archive`, `reason: 'empty'`). `organizations.whenArchived(hook)` is new. Only with
   `modules.organizations`, and a provider that can stop one.
-- **A relinked login keeps its renewals** (`billing.js`, billing-16). Someone whose WorkOS id changed
+- **A relinked login keeps its renewals** (`billing.js`). Someone whose WorkOS id changed
   (WorkOS forgot it, and the same verified email signed in again) had their subscription's renewals
   waiting forever for the old id, and lost Pro after the grace days while still paying. An event
   whose identity nobody has here now goes, before waiting, to the person its subscription (or
   purchase) is known for here, else to the person its customer is linked to. Someone who hasn't
   opened this app yet still waits, as before.
-- **Back from a checkout in Work's shell** (`billing.js`, `app.js`, `host.js`, `web/plan-return.js`,
-  billing-8). Buying from a module's window sent the browser back to `/<module>/?billing=done`, the
+- **Back from a checkout in Work's shell** (`billing.js`, `app.js`, `host.js`, `web/plan-return.js`).
+  Buying from a module's window sent the browser back to `/<module>/?billing=done`, the
   module's page on its own, outside the shell. In a host with a page at its root (Cronum Work's
   shell), a module's checkout now comes back to `/?open=/<module>/&billing=done` and its portal to
   `/?open=/<module>/`: the shell opens that module's window and thanks (its `billingReturn()` at the
@@ -856,44 +849,44 @@ Audit of 6/11: the host's runtime, mail, push, the configuration and what was le
   `billingReturn: { checkout, portal }` and registerBillingApi's `returnUrls` say it. The kit keeps
   the plan from before a checkout under one key for the origin (`host.billing`; `<app>.billing`,
   the key before, is still read once), so the shell knows it after a module's window began it.
-- **Plan names in every language** (`i18n/*.json`, `web/api.js`, billing-9, billing-11): `Free` and
-  `Team` are keys of the five catalogs («Gratis», «Gratuit»…, as the web says them), and the errors
+- **Plan names in every language** (`i18n/*.json`, `web/api.js`): `Free` and `Team` are keys of
+  the five catalogs (translated as the website says them), and the errors
   `plan_feature` and `plan_limit` say the plan by that name. `errors.already_subscribed` names the
   button Settings has now, «Change or cancel plan» (`kit.plan.change`), not «Manage subscription».
-- **/health reads the database file** (`app.js`, work-srv-1). `SELECT 1` read nothing: with the file
+- **/health reads the database file** (`app.js`). `SELECT 1` read nothing: with the file
   broken or unreadable underneath, /health still said 200. It now reads a page of the schema, and
   once more through a read-only connection of its own, since the server's connection keeps its
   pages in memory: a broken file is a 503. `/version` keeps the modules' versions (deployments are
   checked with it).
-- **STARTTLS has a deadline, and nothing in clear rides past it** (`mail.js`, sc-host-2). A server
+- **STARTTLS has a deadline, and nothing in clear rides past it** (`mail.js`). A server
   that went quiet during the TLS handshake kept the send (and its socket) waiting forever; now the
   handshake has the same deadline as every reply. A reply sent in the clear behind "220 go ahead"
   stops the conversation (`MailError`) instead of answering the first encrypted command.
-- **A silent APNs connection is replaced** (`native-push.js`, sc-host-3). A request that timed out
+- **A silent APNs connection is replaced** (`native-push.js`). A request that timed out
   left its HTTP/2 session in use, and every next notice to an iPhone timed out on it, 10 s each,
   until the system dropped the TCP. The session is now destroyed at the timeout, and the next send
   connects again. `createApnsSender({ timeoutMs })`, 10 s by default.
-- **A module's start can't stop the host, and its jobs reach the alerts** (`host.js`, sc-host-4,
-  work-srv-4). A `start()` that throws is logged and emailed (`<mount> start`) and the other modules
+- **A module's start can't stop the host, and its jobs reach the alerts** (`host.js`). A `start()`
+  that throws is logged and emailed (`<mount> start`) and the other modules
   are served. `start()` gets `failed(name)` (for a promise's catch) and `safely(name, fn)` (for a
   timer) besides `day` and `uses`: what a module's own job throws is logged and emailed as the
   host's jobs are, as `<mount> <name>` (docs/architecture.md, section 21).
-- **The phone's connect page under Work's shell** (`host.js`, sc-host-9): back from a provider's
+- **The phone's connect page under Work's shell** (`host.js`): back from a provider's
   sign-in at `/` with the request's cookie, the browser goes to the connect page again; a host
   whose own page is its root answered `/` with that page first, and the request was lost.
-- **One runtime for an app and a host** (`runtime.js`, `app.js`, `host.js`, sc-host-12). The server
+- **One runtime for an app and a host** (`runtime.js`, `app.js`, `host.js`). The server
   around the handler, the install's jobs (clean-ups, OAuth, account deletion, WorkOS, the groups'
   stops), the process signals and the lines said on listening were written twice and had started
   to differ; both use the same ones now. A module's `createApp()` in a host no longer makes an
   `http.Server` it never listens on (`app.server` makes it when first asked for).
-- **`rateLimits` takes every limit the limiter has** (`config.js`, sc-host-6): the defaults and the
+- **`rateLimits` takes every limit the limiter has** (`config.js`): the defaults and the
   names come from `rate-limit.js`'s `DEFAULT_LIMITS`; `rateLimits: { billing: 20 }` stopped the
   start ("not a limit").
-- **ADMIN_EMAIL with WorkOS** (`config.js`, work-srv-10): a warning at the start when it is empty,
+- **ADMIN_EMAIL with WorkOS** (`config.js`): a warning at the start when it is empty,
   since nobody who signs in becomes an administrator. The text for `EARLY_ACCESS_UNTIL` says what
   the code does: the first day after the early access (2027-01-01 keeps 31 December in it), as
   Work's `.env.example` says; it said "the date the early access ends".
-- **Removed, nobody called them** (sc-host-5, sc-host-7): `push.sendTo` and the module wrappers'
+- **Removed, nobody called them**: `push.sendTo` and the module wrappers'
   `send` and `sendTo` (`host-worker.js`; a module's push has `deliver` only, and no unmarked `send`
   spread from the host's); `reload` and `replayed` in the small body that replays an answer too big
   to keep (`idempotency.js`: `{ id }`, or `{}`; the `Idempotent-Replayed` header says it is a
@@ -901,71 +894,70 @@ Audit of 6/11: the host's runtime, mail, push, the configuration and what was le
 
 ## 0.292.0 — 2026-11-15
 
-- **The MCP layer, after the audit of 6/11** (`mcp.js`, `host.js`, `calendar.js`, `links.js`,
-  `mcp-files.js`, `oauth.js`, `mcp-kit.js`, `web/agents.js`; sc-mcp-6, -10, -11, -12, -15, -16,
-  -17, -19, -20, -22, -23, claims-ai-4).
-  - **Arguments reach a tool as its schema says them** (`coerceArguments`, sc-mcp-6): the check
+- **The MCP layer** (`mcp.js`, `host.js`, `calendar.js`, `links.js`, `mcp-files.js`, `oauth.js`,
+  `mcp-kit.js`, `web/agents.js`).
+  - **Arguments reach a tool as its schema says them** (`coerceArguments`): the check
     let `"false"`, `"true"`, `0`/`1` through for a boolean and `"30"` for a number, and the tools
     read `args.apply === true` and `Number.isInteger(args.days)`: `projects_reschedule
     { apply: "false" }` moved the dates and `tasks_get_agenda { days: "30" }` was a week. Now they
     become `false` and `30`, in nested objects and lists too. A number where a text goes stays as it
     came (some tools tell an id from a title by its type), and so does what the schema doesn't name
     or names with `anyOf`. With `checkArgs: false`, nothing changes.
-  - **`GET /mcp` answers 405** (sc-mcp-15), after the token as before (a client without one still
+  - **`GET /mcp` answers 405**, after the token as before (a client without one still
     gets the 401 that starts the sign-in): it held an SSE channel and a 25 s timer open for good per
     request, with nothing ever sent on it. Streamable HTTP lets a server say it has no such channel.
     The `sessions` map, written and never read, and `bearerToken`'s unused `url` are gone;
     `Access-Control-Allow-Methods` and `Allow` say `POST, DELETE, OPTIONS`.
-  - **An unexpected error says nothing of itself** (sc-mcp-20): the assistant read the internal
+  - **An unexpected error says nothing of itself**: the assistant read the internal
     message (SQLite's, with tables and columns); now «Something went wrong running X; it was noted.
     Tell the user, and don't retry it as it is.», the error in the log. `params: null` is no params
     (it gave an HTTP 500), params that aren't an object are `-32602`, and a method that throws is
     that message's `-32603`, not a 500 for the whole batch.
-  - **The host's own tools answer in sentences** (sc-mcp-11): `hostMcp` gives a `describeError` over
+  - **The host's own tools answer in sentences**: `hostMcp` gives a `describeError` over
     the suite's catalog (`errors.<code>` in English), for what neither a module nor the host
     described; `work_calendar` had `field_invalid` for a span of over 366 days or a date that isn't
     one. Its `from` and `to` carry `format: 'date'`, and it says what it takes («"to" must be on or
     after "from" and at most 366 days from it»).
-  - **A module's answers name its tools with the host's prefix** (sc-mcp-12, with `namesInText`):
+  - **A module's answers name its tools with the host's prefix** (with `namesInText`):
     «give it one with edit_step» is `next_edit_step`, in what a tool answers and in its errors, as
     in its description already. Not in what a tool that only reads answers: that carries the
     person's own words (a note's body, a step's detail), which may go back whole in an edit.
-  - **The instructions that don't fit are named** (sc-mcp-17): `hostInstructions` takes
+  - **The instructions that don't fit are named**: `hostInstructions` takes
     `onLeftOut(mounts)`, `hostMcp` gives `instructionsLeftOut(principal?)`, and a host says at start
     which modules' part it leaves out (`[mcp] warning: the instructions leave out …`). Cronum Work's
     are 2 038 of 2 048 characters today, every module in.
-  - **Upload links have a ceiling per account** (`MAX_UPLOAD_LINKS_PER_USER`, 10; sc-mcp-16): one
+  - **Upload links have a ceiling per account** (`MAX_UPLOAD_LINKS_PER_USER`, 10): one
     account asking a hundred times made everyone else's pending links go; now it only pushes out its
     own. The module's ceiling (100) stays.
-  - **Limits in the host's schemas** (sc-mcp-22): `work_link_item`'s `create.title` (500) and
+  - **Limits in the host's schemas**: `work_link_item`'s `create.title` (500) and
     `create.place` (200); the door's `names` takes as many as there are behind it (it said 30 with 31
     there), and its two tools' own arguments go through the check as any tool's.
-  - **Built-in OAuth** (`AUTH_PROVIDER=local` only; sc-mcp-19, the 23/10's sc-oauth-mcp-3 to -7):
+  - **Built-in OAuth** (`AUTH_PROVIDER=local` only):
     the sign-in posted to `/oauth/authorize` without a session is taken only from this site's pages
     (`Sec-Fetch-Site`, else `Origin`: login CSRF); a Basic header that doesn't decode is
     `invalid_client`, not a 500 and an alert; a grant's `last_used_at` is written once a minute at
     most; a refresh token once used is kept a week, not its 60 days; a client document (CIMD) that
     has to be fetched counts against the address as a registration does, and one that couldn't be
     read isn't fetched again for a minute.
-  - **`mcp-kit.js` without what nobody used** (sc-mcp-23): `tool()` and `S.number` are gone (no
-    module, Work, Focus or Tracker called them), and its header no longer counts tokens.
-  - **Your AI offers the web's agents** (`web/agents.js`, claims-ai-4): Grok and Perplexity, with the
-    steps cronumstudio.com/work/ gives; Gemini is gone (web#60: custom connectors only for adults
-    with a personal account in the US). Claude's and ChatGPT's steps are the web's of 11/11
+  - **`mcp-kit.js` without what nobody used**: `tool()` and `S.number` are gone (no module and no
+    app called them), and its header no longer counts tokens.
+  - **Your AI offers the website's agents** (`web/agents.js`): Grok and Perplexity, with the
+    steps cronumstudio.com/work/ gives; Gemini is gone (custom connectors only for adults
+    with a personal account in the US). Claude's and ChatGPT's steps are the website's of 11 November
     (Customize › Connectors; Plugins › Add custom MCP server), ChatGPT's last one too.
     `kit.agents.grok.*`, `kit.agents.perplexity.open` and `kit.agents.addSignIn` in five languages;
     `kit.agents.gemini.*` and `kit.agents.paste` gone.
-  - **Settings › Your AI's switch says what the door does without counting** (`kit.ai.toolsHint`,
-    sc-mcp-10): «about a quarter less» was a third, and the list in brackets had drifted (sharing
+  - **Settings › Your AI's switch says what the door does without counting** (`kit.ai.toolsHint`):
+    "about a quarter less" was a third, and the list in brackets had drifted (sharing
     is not behind it since 0.243.0).
 
 ## 0.291.0 — 2026-11-15
 
-Daily summary, calendar and links findings of the 6/11 audit. Additive for every module: what a
+Daily summary, calendar and links. Additive for every module: what a
 module gives today keeps working as it does.
 
-- **The daily notices read only who has a device** (`day.js`, `push.js`, `host.js`; sc-feat-1,
-  sc-host-1). Every minute the scheduler read every account, its preferences and zone, and asked
+- **The daily notices read only who has a device** (`day.js`, `push.js`, `host.js`). Every minute
+  the scheduler read every account, its preferences and zone, and asked
   for the devices of everyone in a window, phone or not. Now `push.peopleWithDevices()` (one query:
   browsers subscribed, phones with a token on a device not revoked) says whose rows to read; each
   zone's minute and day are read once; the host looks every five minutes (`createDayNotices({
@@ -975,44 +967,44 @@ module gives today keeps working as it does.
   day, after `DAY_LOG_DAYS` = 3 days (it was 60, every minute). Without `peopleWithDevices` (a
   push of another shape) the scheduler reads every account, as before. One check, 5 % of accounts
   with a device, on this PC: 1 000 accounts 135 → 5 ms, 10 000 accounts 1 170 → 39 ms.
-- **Whether someone uses a module is one row** (`host.js`, `day.js`; sc-host-11). `uses()` read
+- **Whether someone uses a module is one row** (`host.js`, `day.js`). `uses()` read
   all of `/api/modules` (five queries, a JSON parse and a sort) for each module asked; it reads its
   row of `host_modules` now, with the same answer. The summary and each notice ask it once a module
   (GET /api/day asked it of every module three times over).
-- **Today's things no longer vanish behind 200 overdue ones** (`day.js`; sc-feat-5). The host
+- **Today's things no longer vanish behind 200 overdue ones** (`day.js`). The host
   kept a module's 200 oldest of everything, so with 200 overdue nothing of today was left and the
   notice counted 200. It keeps the 200 oldest overdue and today's (up to 200) apart, and a module
   may answer `{ items, overdueTotal }`: `overdueTotal`, how many it has overdue past its own cap,
   goes into `GET /api/day`'s new `overdue_total` and the morning notice's count. A list, as
   before, still works.
-- **The caps go to the modules** (`day.js`, `calendar.js`; sc-feat-14): `agenda` and `done` get
+- **The caps go to the modules** (`day.js`, `calendar.js`): `agenda` and `done` get
   `limit` (DAY_MODULE_MAX) in their args, the calendar's `range` its `limit`
   (CALENDAR_MODULE_MAX), so they need not repeat them. `time.js` `isoInstant(stamp)` (Tasks' and
   Projects' `isoOf`) and `links.js` `likeOf(text)` (the LIKE escaping in three cards.js), for the
   modules to adopt. (`dayStart`/`daySpan` came with 0.277.0.)
-- **No more time of day** (`day.js`, `calendar.js`; sc-feat-8). No module gives one: `time` is no
+- **No more time of day** (`day.js`, `calendar.js`). No module gives one: `time` is no
   longer kept from an agenda or calendar item, the summary no longer sorts by it, and
   `work_calendar` no longer says "at HH:MM". The summary's items also leave out `mine`, which no
-  page reads (sc-feat-17); the calendar keeps it.
-- **Linking a pair linked already says so** (`links.js`, `web/links.js`; sc-feat-11). `POST
+  page reads; the calendar keeps it.
+- **Linking a pair linked already says so** (`links.js`, `web/links.js`). `POST
   /api/links` answers 200 `{ link, existed: true }` for it (201 `{ link }` for a new one, as
   before), and `linkItems()` gives `{ link, existed }`; `links.connect()` on the server.
-- **Places only for "Add to…"** (`links.js`, `web/links.js`; sc-feat-15). `GET
+- **Places only for "Add to…"** (`links.js`, `web/links.js`). `GET
   /api/links/search?places=0` leaves out the places to create in (`places: []`), and the kit's
   "Link existing…" sends it: it asked them at every key and never showed them. Without it, as
   before.
-- **Titles of deleted things** (`links.js`, `host.js`; sc-feat-16). `links.prune()` runs a minute
+- **Titles of deleted things** (`links.js`, `host.js`). `links.prune()` runs a minute
   after the host starts and every six hours, not only when an account goes; and a side's title is
   kept as whoever linked it sees it (`createLinks({ userOf })`): a rename after they lost sight of
   it never reaches them when it is deleted.
-- **Unused options out** (`day.js`, `links.js`; sc-feat-17): `day.any()`, `ask()`'s `max`, and
+- **Unused options out** (`day.js`, `links.js`): `day.any()`, `ask()`'s `max`, and
   `cardOf`, `cardsOf`, `parseRef`, `formatRef` on what `createLinks()` returns (`parseRef` and
   `formatRef` stay exported from `links.js`). `?date=` stays: Work's tests read another day.
 
 ## 0.290.0 — 2026-11-14
 
 - **An address nobody has is a 404 page, not the app's page drawing nothing** (`app.js`, `host.js`,
-  `brand.js`, `web/not-found.html`; audit prod-9). `/nope`, `/tasks/nope/deep` or `/.git/config`
+  `brand.js`, `web/not-found.html`). `/nope`, `/tasks/nope/deep` or `/.git/config`
   answered 200 with the app's page; a deep one asked for its files under the wrong path and stayed
   blank, and `/api` and `/tasks/api` were HTML where a client expects JSON.
   - `createApp({ clientRoutes })`: the paths its page answers that are no file. Any other path
@@ -1023,17 +1015,17 @@ module gives today keeps working as it does.
     query, Notes and Next the hash). Without the option, as before.
   - For every app: `/api` itself is the JSON `not_found`, and a path with a part that starts with
     a dot (`/.env`) is a plain 404, never the page.
-- **`/.well-known/`: only OAuth's say "No OAuth here", and security.txt** (`app.js`, `config.js`;
-  audit prod-10). `/.well-known/openid-configuration`, `security.txt` and the rest answered the
+- **`/.well-known/`: only OAuth's say "No OAuth here", and security.txt** (`app.js`, `config.js`).
+  `/.well-known/openid-configuration`, `security.txt` and the rest answered the
   OAuth sentence; now `{ "error": "not_found" }`, but for `oauth-protected-resource` and
   `oauth-authorization-server` (and `/register`, `/authorize`, `/token`, `/oauth`), as before.
   `/.well-known/security.txt` (RFC 9116): `Contact` from `SECURITY_CONTACT`
-  (`mailto:hello@cronumstudio.com` when empty), `Expires` a little under a year ahead, worked out
+  (Cronum Studio's contact address when empty), `Expires` a little under a year ahead, worked out
   on each request, `Preferred-Languages: en, es` and `Canonical`.
-- **The host's /sw.js answers 304** (`host.js`; audit prod-13): `ETag: W/"<fingerprint>-<hash>"`,
+- **The host's /sw.js answers 304** (`host.js`): `ETag: W/"<fingerprint>-<hash>"`,
   as `/js/app-version.js` has its own; every check took the whole script again.
 - **An import says how big it may be, before and when it is too big** (`config.js`,
-  `portability.js`, `app.js`, `host.js`, `web/settings.js`, `web/api.js`; audit prod-14).
+  `portability.js`, `app.js`, `host.js`, `web/settings.js`, `web/api.js`).
   Settings said nothing useful for a copy over 100 MB: Cloudflare cuts it with a page of its own
   before the server sees it, while the import took up to 512 MB.
   - `IMPORT_MAX_MB`: the most an import takes over HTTP, someone's own and the admin's; when empty,
@@ -1043,7 +1035,7 @@ module gives today keeps working as it does.
     where it was `body_too_large` ("Too much text"). `GET /api/auth/config` says
     `app.imports.max_bytes`, and Settings says it before sending the file.
   - The kit's client (`web/api.js`): a 413 without the server's code is `upload_too_large`.
-- **Sharing and public pages in the audit log** (`sharing.js`, `public-page.js`; audit authz-8).
+- **Sharing and public pages in the audit log** (`sharing.js`, `public-page.js`).
   Only what an assistant did reached /admin › Activity (`mcp.tool`); from the web, sharing
   something or making it public left nothing.
   - `createSharing({ audit, module })`: `share.offer` (a new offer, or one made again while
@@ -1057,22 +1049,21 @@ module gives today keeps working as it does.
     whose page doesn't go through it yet.
   - The modules pass `audit: suite.audit` (and their name) to have them: without it, as before.
   - Their names in Activity, in the five languages (`admin.actions.share_*`, `public_*`).
-- **CONVENTIONS §4: a version tag publishes no image** (deps-ci-9): Cronum Work is built by its
+- **CONVENTIONS §4: a version tag publishes no image**: Cronum Work is built by its
   deployment from its repository; the modules' ghcr images were private and nothing pulled them.
   §5 names `SECURITY_CONTACT` and `IMPORT_MAX_MB`.
 
 ## 0.289.0 — 2026-11-14
 
-Sign-in and account security (audit of 6/11: sc-auth-5, -6, -7, -10, -11, -12, -13, authz-9,
-sc-mcp-2, deps-ci-11, -12).
+Sign-in and account security.
 
-- **Straight to the provider, two cases fixed** (`web/signin.js`, `web/signin-form.js`; sc-auth-5).
+- **Straight to the provider, two cases fixed** (`web/signin.js`, `web/signin-form.js`).
   «No, let it go» on the card of an account waiting to be deleted shows the usual card instead of
   going straight back to AuthKit, which still had a session and brought them to the same card; and
   with the site's data blocked, merely naming `sessionStorage` threw before the `try`, so `signIn()`
   failed instead of drawing the card: it is read inside it now.
 - **One state cookie per sign-in, for 30 minutes** (`http.js` `signInFlowCookies`,
-  `workos-accounts.js`, `oidc.js`; sc-auth-6). Every page without a session starts a sign-in by
+  `workos-accounts.js`, `oidc.js`). Every page without a session starts a sign-in by
   itself since straightToProvider, and the one `<app>_auth` cookie (10 minutes) let a second tab
   take the first one's place, and an AuthKit page left open over 10 minutes come back to «could
   not be completed». Each sign-in has `<app>_auth_<first 8 characters of its state>` (Path=/auth,
@@ -1080,13 +1071,13 @@ sc-mcp-2, deps-ci-11, -12).
   `state` names. `<app>_auth` is still written with the newest one and read when a flow's own is
   missing: a sign-in started before this version comes back, and an app's tests that read
   `<app>_auth=` keep working. `tools/test-kit.mjs` `fakeWorkos().signIn` sends both, as a browser.
-- **A malformed state cookie is a failed sign-in, not a 500** (`workos-accounts.js`, `oidc.js`;
-  sc-auth-10). Their own copies of `cookieValue`, `addCookie` and `safeEqual` are gone for the
+- **A malformed state cookie is a failed sign-in, not a 500** (`workos-accounts.js`, `oidc.js`).
+  Their own copies of `cookieValue`, `addCookie` and `safeEqual` are gone for the
   suite's `parseCookies`, `appendHeader` and `crypto.js` `safeEqual`; `localPath` lives in `http.js`
   for both. `Cookie: work_auth=%E0%A4%A` threw before the callback's `try`, answered 500 to anyone
   and counted towards the error-burst alert: now `/?auth_error=failed`.
 - **The shortest password with WorkOS is the app's** (`workos-security.js`, `app.js`, `api.js`,
-  `web/settings.js`, `web/api.js`, i18n; sc-auth-7). `registerWorkosSecurityApi` takes
+  `web/settings.js`, `web/api.js`, i18n). `registerWorkosSecurityApi` takes
   `minPasswordLength` (createApp passes `config.accounts.minPasswordLength`; 8 when nobody says, as
   before) for Settings' new password and the admin's: Settings said «at least 8» where Work and
   WorkOS's policy ask for 10. `password_rejected` carries `n`, its sentence says it (`{n}` in
@@ -1094,42 +1085,42 @@ sc-mcp-2, deps-ci-11, -12).
   from before), and when WorkOS refused it, WorkOS's reason after it (`kit.security.providerSays`).
   `/api/auth/config` gives `password_min` with WorkOS too (still null with OIDC), and a login the
   admin makes for a new account takes the same shortest (`logins.minPasswordLength`).
-- **Every action of the log is a sentence in Activity** (i18n; sc-auth-11):
+- **Every action of the log is a sentence in Activity** (i18n):
   `auth.revoke_everything`, `oauth.connection.revoke`, `billing.customer_unvouched`,
   `billing.customer_conflict`, and the others nobody had written (`admin.early_access.keep`,
   `calendar_feed.*`, `billing.refunded`, `.unchanged`, `.unsigned`), plus `org.archive` for the
   pull request that records it. `test/audit-actions.test.js` reads every action the server code
   records and checks each has its sentence in every language.
 - **The log by action has an index** (`audit.js`, `schema.js`, suite migration 31
-  `audit-action-index`; sc-auth-12): `ix_audit_action ON audit_log (action, id)`, which Activity's
+  `audit-action-index`): `ix_audit_action ON audit_log (action, id)`, which Activity's
   list of actions and one action's newest entries read instead of the whole table.
-- **WorkOS: the second step's codes braked, password checks with their address** (`workos-security.js`;
-  sc-auth-13). `confirmCode` (turning the second step off, the admin's own code) has the limiter's
+- **WorkOS: the second step's codes braked, password checks with their address** (`workos-security.js`).
+  `confirmCode` (turning the second step off, the admin's own code) has the limiter's
   `checkCode`/`codeFailed`/`codeSucceeded`, as a local code has: 429 `too_many_attempts` after five
   wrong ones. `checkPassword` is told `clientIp(req)` (`trustProxy` from createApp), which went to
   WorkOS as null. `crypto.js` `decryptText` takes only a whole 16-byte tag (`authTagLength`).
 - **Before what can't be undone, the WorkOS password too; a replacing import asks as erasing does**
   (`api.js` `identityCheck`, `workos-security.js` `confirmIdentity`, `portability.js`, `app.js`,
-  `web/settings.js`; authz-9). With WorkOS an open session alone erased everything, the bin
+  `web/settings.js`). With WorkOS an open session alone erased everything, the bin
   included: erasing one's data and deleting one's account now ask for the password the person has
   at WorkOS (not of whoever signs in with Google & co., as before), with the brake of sign-in.
   `POST /api/me/import/:id` with `replace: true` asks for `confirm: true` and the password, as
   `/api/me/erase` does, and Settings asks for it with the same dialog (the word typed, the password).
   `identityCheck` is async now; its callers await it.
-- **A shared login with the MCP doesn't start without `WORKOS_MCP_AUDIENCE`** (`config.js`;
-  sc-mcp-2). With `accounts.sharedIdentity` and `modules.mcp`, a missing (or blank)
+- **A shared login with the MCP doesn't start without `WORKOS_MCP_AUDIENCE`** (`config.js`).
+  With `accounts.sharedIdentity` and `modules.mcp`, a missing (or blank)
   `WORKOS_MCP_AUDIENCE` is a configuration error instead of a warning: a token someone gave a client
   for another product of the same WorkOS environment opened this MCP. Without sharedIdentity, the
   warning as before. The variable is the one `workos.js` reads and production sets.
-- **Test data and ignored files** (deps-ci-11, -12): `test/web-admin-filters.test.js` (and
+- **Test data and ignored files**: `test/web-admin-filters.test.js` (and
   `web-admin-new-account.test.js`) use example data (`tester@example.com`) instead of a real
-  alias; `.gitignore` adds `.claude/`, `CLAUDE.local.md`, `.cloudflare/`, `.dev.vars*`, `*.log`,
+  alias; `.gitignore` adds `.claude/`, the local notes for AI agents, `.cloudflare/`, `.dev.vars*`, `*.log`,
   `*.stackdump`, `tmp/` and `data/`.
 
 ## 0.285.0 — 2026-11-14
 
 - **One catalog per language, with English under it** (`web/i18n.js`, `app.js`, `i18n.js`,
-  `page-hints.js`, `host-worker.js`, `host.js`; audit of 6/11, perf-web-5). Every copy of the kit
+  `page-hints.js`, `host-worker.js`, `host.js`). Every copy of the kit
   asked for English and then the person's language, one after the other, though English only
   stood in for a key the language lacked: in Cronum Work, two catalogs per module, most of their
   bytes the kit's texts twice.
@@ -1149,7 +1140,7 @@ sc-mcp-2, deps-ci-11, -12).
     with the four modules and the shell, 5 catalogs and 428 KB where there were 10 and 838 KB.
 - **A module's start no longer evaluates the sign-in screen, Settings' plan and the worker**
   (`web/signin.js`, `web/signin-form.js`, `web/plan.js`, `web/plan-return.js`, `web/shell.js`,
-  `web/update.js`, `web/sw-core.js`; audit of 6/11, perf-web-4). Each module mounted in Cronum Work
+  `web/update.js`, `web/sw-core.js`). Each module mounted in Cronum Work
   loads the kit from its own address and evaluated its own copy whole, with code that inside Work
   never runs or runs only on a tap.
   - The sign-in screen is `signin-form.js`, which `signIn()` loads when it draws it: a page with a
@@ -1167,24 +1158,23 @@ sc-mcp-2, deps-ci-11, -12).
     to 308 in Next, 1 577 to 1 289 KB with the four; the shell's own copy from 299 to 288 KB. In the
     test Chrome, with no worker, cold: Tasks' window 27 kit files and 372 KB where it was 28 and 422
     (the four, 108 files and 1 674 KB → 101 and 1 446 KB; parsed, 1 595 → 1 372 KB).
-- **Docs: live notices while a module is put away** (`docs/architecture.md` §21.6; audit of 6/11,
-  perf-web-2): the mount contract says what the shell does with a hidden module's notices since Work
+- **Docs: live notices while a module is put away** (`docs/architecture.md` §21.6): the mount
+  contract says what the shell does with a hidden module's notices since Work
   0.109.0 (held, then one `onResync()` after `resume()`), and that a paused module doesn't reload on
   `visibilitychange`.
 
 ## 0.284.0 — 2026-11-14
 
-Server performance (audit of 6/11: perf-srv-1, -5, -6, -9, -10, -11, -14). Same answers, same
-routes; measured on the audit's database (301 accounts, ~37 000 tasks, 14 000 notes), numbers in
-the pull request.
+Server performance. Same answers, same routes; measured on a database of 301 accounts, ~37 000
+tasks and 14 000 notes.
 
-- **Time zones read once** (`time.js`, `day.js`; perf-srv-1): `knownTimeZone()` built a formatter
+- **Time zones read once** (`time.js`, `day.js`): `knownTimeZone()` built a formatter
   to check a zone each time it was asked, ~100–250 µs, and every `dayIn()`, `daysSince()` and
   request asks: it keeps what each name resolves to (500 names at most, the oldest going first;
   `prefs.tz` is the client's). `dayIn()` 102 → 1.6 µs. The check of the daily notices every minute
   reads each person's preferences once and the minute and day once a zone, not once a person:
   1 000 accounts 103 → 2 ms, 10 000 1.5 s → 17 ms, during which nobody else was answered.
-- **Statements kept prepared, and statistics for the planner** (`db.js`; perf-srv-6):
+- **Statements kept prepared, and statistics for the planner** (`db.js`):
   `all/get/run` prepared their SQL every time, up to half of a route's CPU. Each handle keeps the
   last 500 texts of reads and writes (never a PRAGMA nor DDL) prepared; a call binds every
   parameter anew, SQLite prepares one again when the schema changes, and `close()` lets them go.
@@ -1194,30 +1184,30 @@ the pull request.
   statistics yet), run with the clean-ups, at the start and every 6 hours (`host.js`, `app.js`).
   Never sampled (`analysis_limit`): sampled statistics made My Day's queries ten times slower.
   `synchronous` is as it was.
-- **Usage without the dates nobody sees** (`usage.js`, `host.js`; perf-srv-5): `active_at` is
+- **Usage without the dates nobody sees** (`usage.js`, `host.js`): `active_at` is
   shown only in the admin's dialog of one account (`GET /api/admin/users/:id/usage`, which asks
   with `{ activity: true }`). Settings › Plan (`/api/me/usage`) and the admin's list
   (`/api/admin/usage`) ask the modules' `usage(id, { activity: false })` and
   `usageAll(ids, { activity: false })`, and answer `active_at: null`: a module may skip the MAX of
   dates over whole tables that was ~90 % of both routes. The modules don't read the option yet;
   until they do, they still compute it.
-- **The admin's list of accounts in a few queries** (`api.js`, `entitlements.js`, `accounts.js`;
-  perf-srv-9): `GET /api/admin/users` asked four or more queries an account (905 for 301), now 6
+- **The admin's list of accounts in a few queries** (`api.js`, `entitlements.js`, `accounts.js`):
+  `GET /api/admin/users` asked four or more queries an account (905 for 301), now 6
   for all of them, with the same answer: `entitlements.plansOfMany(users)` (of() and sourceOf()
   of each, from ofMany()'s queries) and `accounts.providersOfMany(ids)`.
-- **One session check a heartbeat for each stream of every module** (`live.js`, `host.js`;
-  perf-srv-10): the host's `GET /api/events?all` was asked about by every module's heartbeat, the
+- **One session check a heartbeat for each stream of every module** (`live.js`, `host.js`): the
+  host's `GET /api/events?all` was asked about by every module's heartbeat, the
   same session four times. `createLiveAll({ stillIn })` opens them (`subscribe()`) and asks each
   once a heartbeat itself, and at once when that person's sessions close (`recheck(userId)`); the
   modules' relays are opened with `checked: false`, so their heartbeats leave them out (`dropUser`
   still keeps the session kept). `subscribeAll()` takes `stillIn` and `onEnd` and returns
   `{ userId, recheck }`; without `stillIn` it is as it was. 9 tabs, 55 s: 72 → 18 checks.
 - **Erasing one's data or importing with "replace" reloads only who it concerns**
-  (`portability.js`; perf-srv-11): the `resync` went to every connected tab. Now to the person,
+  (`portability.js`): the `resync` went to every connected tab. Now to the person,
   everyone their rows share something with (whom their lists are shared with, who shared one with
   them, the other members of their groups: `peopleNear()`, read before anything is handed over),
   and with groups that changed, their members. A whole install's import still tells everyone.
-- **Exporting lets everyone else in** (`portability.js`; perf-srv-14): a copy was read whole in
+- **Exporting lets everyone else in** (`portability.js`): a copy was read whole in
   one synchronous transaction, and its tables turned into JSON in one go. `prepareExportAsync()`
   (what `/api/me/export` and `/api/admin/export` use) reads on a second, read-only connection, in
   its own read transaction (one moment of the data, whatever is written meanwhile), pausing between
@@ -1229,15 +1219,15 @@ the pull request.
 ## 0.283.0 — 2026-11-14
 
 - **Settings › Sharing takes an app's own roles, as its share dialog does** (`web/shared.js`,
-  `docs/web-kit.md`; audit of 6/11, projects-web-10). `sharedSection` (and `sharedPage`) take an
+  `docs/web-kit.md`). `sharedSection` (and `sharedPage`) take an
   optional `permissions`: the same `[{ value, label, offered? }]` list `shareDialog` takes, broadest
   first, or a function of the item when the roles differ from one item to another. With two roles
   they are buttons, with more a list to pick from; a role with `offered: false` is shown in words, never
   given, changed or taken back there (a project's manager, to whoever isn't its owner). Without the
   option nothing changes: can view, can edit. Projects uses it for its three roles.
-- **Projects' limit in Settings › Plan is of open projects** (`i18n`; audit of 6/11,
-  claims-projects-10). `features.projects.max` said «Active projects», and the limit counts active and
-  paused ones: «Open projects» now, in the five languages.
+- **Projects' limit in Settings › Plan is of open projects** (`i18n`). `features.projects.max` said
+  "Active projects", and the limit counts active and paused ones: "Open projects" now, in the five
+  languages.
 
 ## 0.279.0 — 2026-11-14
 
@@ -1257,9 +1247,9 @@ the pull request.
 
 ## 0.277.0 — 2026-11-13
 
-- **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`;
-  audit of 6/11: tasks-srv-22, tasks-web-16, notes-srv-13, notes-web-13, next-srv-16). Tasks, Notes,
-  Next and Projects each had their own copy of the read-only link, and they had drifted apart.
+- **One public page for every module** (`public-page.js`, `web/public-page.js`, `web/public-page.css`).
+  Tasks, Notes, Next and Projects each had their own copy of the read-only link, and they had
+  drifted apart.
   `createPublicPage({ db, entitlements, table, publicUrl, find, ownerOf, changed })` now keeps it in
   one place: the token, on and off, a read that never turns it on, the plan's `publish` checked again
   when the page is served, an owner whose account is disabled (`disabled_at`) answering 404,
@@ -1277,7 +1267,7 @@ the pull request.
 ## 0.274.0 — 2026-11-12
 
 - **The admin's deletion ends what the person pays, as their own does** (`api.js`,
-  `account-deletion.js`, `billing.js`, `web/admin.js`; audit of 6/11, billing-2).
+  `account-deletion.js`, `billing.js`, `web/admin.js`).
   `DELETE /api/admin/users/:id` took the account at once and left their subscription renewing at
   the provider: the next renewal charged someone with no account here, and nowhere to cancel it.
   Where the install ends subscriptions with the account (`accounts.endSubscriptions`, Cronum Work),
@@ -1316,7 +1306,7 @@ the pull request.
     the store already renews no more and isn't said. What they pay unknown, nothing is asked. The
     sweep's `account.delete` notes `subscriptions_ended` too.
 - **An admin's sign-in again is a fresh one** (`workos-security.js`, `workos.js`,
-  `workos-accounts.js`, `web/admin.js`; audit of 6/11, sc-auth-3). An admin with no password to give
+  `workos-accounts.js`, `web/admin.js`). An admin with no password to give
   (Google, Apple, a company's sign-in) was confirmed by any session opened in the last 10 minutes,
   and the panel sent them to `/auth/login`, where AuthKit signs the browser in again without a word
   while its own session lasts: the question answered itself. Admins who sign in with a password
@@ -1355,14 +1345,14 @@ the pull request.
   0.269.0, every password Settings asks for has the kit's eye inside it (`revealable()`) to see
   what was typed before sending it: the current and the new one when changing it (here or at
   WorkOS), the one asked before turning two-step verification on or off, and the one asked before
-  erasing one's data or deleting the account. Martin, 12/11/2026. The sign-in page's are as they
+  erasing one's data or deleting the account. The sign-in page's are as they
   were.
 
 ## 0.272.0 — 2026-11-12
 
 - **Any shape of windows from the rail, each with its bars as they were left** (`web/windows.js`;
-  docs/architecture.md §21.6): Martin found his way to one window beside two stacked by dragging and
-  couldn't get it back, and wants to choose such views. `columns(n)` takes, besides 1–4 and '2x2',
+  docs/architecture.md §21.6): one window beside two stacked could be reached by dragging, but not
+  chosen nor got back. `columns(n)` takes, besides 1–4 and '2x2',
   a shape: the windows each column stacks, `[1, 2]` (one window, two stacked beside it), `[2]` (one
   above the other) and so on, up to four columns and four windows. It fills by rows, as 2×2 did, so
   windows side by side stay so. A shape comes back with the shares its bars had the last time it
@@ -1378,13 +1368,13 @@ the pull request.
 ## 0.271.1 — 2026-11-12
 
 - **Settings › Modules › On the bar: the daily summary's switch says «Daily summary»** (`web/settings.js`,
-  `i18n/*.json`), the name of the page it shows or hides, which holds the evening's summary too (Martin).
+  `i18n/*.json`), the name of the page it shows or hides, which holds the evening's summary too.
   `kit.day.show` goes; the switch says `kit.day.title`.
 
 ## 0.271.0 — 2026-11-12
 
 - **«Open in Apple Calendar» in the phone app** (`calendar-feed.js`, `web/settings.js`, `web/native.js`;
-  docs/architecture.md §21.3.1): on Martin's iPhone, in the app, the button did nothing. It is a
+  docs/architecture.md §21.3.1): on an iPhone, in the app, the button did nothing. It is a
   `webcal:` link, and the app opens only http, https, mailto, tel and sms outside. Now
   `openExternal` takes `webcal:` too, for the app's builds that say they open it (capability
   `webcal`, Cronum Work's app 0.6.5); for older ones the button goes to the link's new `subscribe`
@@ -1395,17 +1385,17 @@ the pull request.
 ## 0.270.0 — 2026-11-12
 
 - **Settings in a host: the host's group in a new order** (`web/settings.js`; docs/architecture.md
-  §21.1), as Martin asked: Language and theme, Modules, Daily summary, Calendar, Notifications, Your
+  §21.1): Language and theme, Modules, Daily summary, Calendar, Notifications, Your
   AI, and Administration last. Nothing else moves; the sections keep their ids.
 
 ## 0.269.0 — 2026-11-12
 
 - **An eye in the admin panel's password fields** (`web/ui.js`, `web/icons.js`, `web/kit.css`,
-  `web/admin.js`, `i18n/*.json`): Martin wants to see what he typed before sending it. Every
+  `web/admin.js`, `i18n/*.json`), to see what was typed before sending it. Every
   password of the admin panel —a new account's, the one set for someone (here or at WorkOS), and the
-  admin's own when it is asked again (the «Confirma que eres tú» dialog, deleting a login)— has a
-  button inside it, at its end, that shows the text and hides it again (`aria-pressed`, «Mostrar
-  contraseña» / «Ocultar contraseña»), and puts the cursor back in the field.
+  admin's own when it is asked again (the "Confirm it's you" dialog, deleting a login)— has a
+  button inside it, at its end, that shows the text and hides it again (`aria-pressed`, "Show
+  password" / "Hide password"), and puts the cursor back in the field.
   - The kit's `revealable(input)` wraps any password input with it, to hand to `field()` in the
     input's place; `field()` labels what a wrapper names in `labelTarget`, so its label and hint
     still point at the input. New icons `eye` and `eye-off`, texts `kit.password.show` and
@@ -1456,12 +1446,12 @@ the pull request.
   turned off leaves the calendar page and its filters, the link for calendar apps and the assistants' tool:
   it isn't asked. `GET` and `PUT /api/me/calendar/modules[/:mount] { shown }`, host migration 10
   (`host_calendar_modules`, a row for each module chosen; none, it shows), `host.calendarModules` in every
-  module's config. The link (Pro's) follows under them, titled «Calendar subscription». Asked by Martin.
+  module's config. The link (Pro's) follows under them, titled "Calendar subscription".
 
 ## 0.266.0 — 2026-11-12
 
 - **New accounts in a row ask for the admin's password once** (`workos-security.js`, `api.js`,
-  `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): Martin makes several reviewers'
+  `web/admin.js`, `i18n/*.json`; docs/architecture.md §15): an admin makes several reviewers'
   accounts at a time. Users › New account no longer has the admin's own password in the form.
   When the server wants it, a dialog of its own asks for it over the form (and the code, with a
   second step), says a wrong one inside it, and sends the account again; given up, the form stays
@@ -1546,35 +1536,35 @@ the pull request.
 ## 0.260.0 — 2026-11-11
 
 - **Invitations tell nobody's email, nor who has an account** (`sharing.js`, `stranger-invites.js`,
-  `mail.js`, `web/share.js`; the audit's card «Invitaciones», 30/10 and 6/11):
+  `mail.js`, `web/share.js`):
   - By id (`user_id`) one names only one's people: whoever accepted something of theirs, offered them
     something, or has what they accepted (`knownTo(userId)`, a Set, now exported), or someone this
     thing was already offered to by id. An account only offered something by email is no longer one
-    of them: after an offer by email, trying ids told whether the address had an account, and its id
-    (sc-data-1). `peopleOf` is those people, by name and without emails, as the modules' chips were.
+    of them: after an offer by email, trying ids told whether the address had an account, and its id.
+    `peopleOf` is those people, by name and without emails, as the modules' chips were.
   - A kind that keeps its offers by email under their address says where: `addresses: { table, key }`
     (a table with an `email` column). Then `sharesOf` for its owner shows every account by its name,
     never its email, and leaves out an account still waiting behind one of those offers, which the
-    module lists; picking someone's chip told the owner their email, also once they accepted (next-1,
-    sc-data-9, next-srv-1). By its id, such an account is a share that isn't there: `setPermission`
+    module lists; picking someone's chip told the owner their email, also once they accepted. By
+    its id, such an account is a share that isn't there: `setPermission`
     answers 404, and so does `remove`, or done with `strictRemove: false`, changing nothing; unless
     the module changes its offer (`setPermission(…, { byAddress: true })`; `remove` after the module
     dropped the offer). Its own decline and leave are as before. Without `addresses`, nothing changes.
   - The brake counts every offer to someone who hasn't accepted it, by id as by email: a new one, one
     made again and, in `setPermission`, a change of what they may do. Each of those tells them (the
     kind's `offered` or `changed`), and one counted offer by id, made again and again, made their tabs
-    reload without limit (sc-data-6, sc-data-2). What a member accepted changes as freely as before.
+    reload without limit. What a member accepted changes as freely as before.
     `countOffer(userId)`, new, counts one for a module that changes an offer by address itself: it
     counts it before it changes anything, whether an account waits behind the offer or none, and
     `setPermission(…, { byAddress: true })` doesn't count it again.
   - `remove()` of a share that isn't there runs no hook: with `strictRemove: false` it still answers
     done, and nobody is told. Its `removed` told whoever the id named, and Tasks' tabs reload on that,
-    so anyone could make anyone's reload without limit (sc-data-6, sc-data-2); every notice a removal
+    so anyone could make anyone's reload without limit; every notice a removal
     sends now needs a share, and every share an offer the brake counted.
   - An offer by email takes a bare address only (`mail.js` `bareAddress()`): anything else is 400
     `field_invalid` (`email`), before anything is looked for or counted. `"x" <someone@…>` matched no
     account, went on as an address without one, and was delivered to someone@… under that name, past
-    their blocking invitations and the limits per address (sc-data-7, sc-data-3). Nor the same address
+    their blocking invitations and the limits per address. Nor the same address
     spelt another way a mail server delivers all the same: a dot at the end of the domain or an empty
     label in it, an invisible character (`\p{Cf}`, default ignorables), a letter NFKC changes.
     `check()` of stranger-invites.js answers `nobody` to anything but a bare address. Rows written
@@ -1582,7 +1572,7 @@ the pull request.
     address they reached: when `createStrangerInvites()` starts, a block is added for that address and
     a sent invitation is written as it, so an old «stop» still stops it and old sends still count.
   - The share dialog says one person invited by the name it showed (the chip's, or the address
-    typed), never by another the answer brings (ui-dialogos-15).
+    typed), never by another the answer brings.
 
 ## 0.259.0 — 2026-11-11
 
@@ -1592,55 +1582,55 @@ the pull request.
   - A provider adapter, web or store, may give `dashboardUrl({ ref, customer })`: its dashboard for a
     subscription, for the install's staff. No call is made, and an answer that isn't https is none.
     Stripe's gives the subscription's page (a one-off's payment, else the customer's), in test mode
-    with a test key. The hosted suite's Paddle and RevenueCat adapters give theirs from cronum-cloud.
+    with a test key. The Paddle and RevenueCat adapters of the hosted service's closed parts give theirs.
   - `billing.dashboardUrl(subject, ref)` and the stores' alike; `billingForAdmin(user, { instances })`
     and `GET /api/admin/users/:id/payments` (instance admin only, registered whenever the web's or the
     stores' payments are on): every subscription of the account's and of the groups it owns or
     administers, in both instances, live or over, newest first, with `ref`, `store`, `sandbox`,
     `live` and `dashboard_url`. Unlike `/api/billing/overview`, which the payer reads, it names the ref.
-  - The account's dialog has a fold «Payments» («Pagos») right after its plan: how many are live;
+  - The account's dialog has a fold "Payments" right after its plan: how many are live;
     a row each (the kit's list, so on a phone its button stays in sight down to 320 px) with its plan
     and where (the store bought in, or the provider; «test» for a sandbox), its group, product, state
-    and date, and «Manage charges» («Administrar cargos») at its end, which opens the provider's page
+    and date, and "Manage charges" at its end, which opens the provider's page
     apart. One without a link says where to look and its ref. An install without payments has no
     such fold.
 
 ## 0.256.1 — 2026-11-11
 
-- **«Ver planes» from a form, and only where there is a plan** (`web/api.js`, `web/shell.js`; audit of 6/11,
-  billing-6, checked in a local Cronum Work after 0.254.0). The form that met the plan's limit («Libreta
-  nueva», «Lista nueva») is modal, so Settings opened behind it, out of sight, until it was closed: «Ver
-  planes» now closes it first (what it held couldn't be saved anyway) and Settings › Plan is in front. And
+- **"See plans" from a form, and only where there is a plan** (`web/api.js`, `web/shell.js`; checked in
+  a local Cronum Work after 0.254.0). The form that met the plan's limit ("New notebook", "New list")
+  is modal, so Settings opened behind it, out of sight, until it was closed: "See plans"
+  (`kit.plan.see`) now closes it first (what it held couldn't be saved anyway) and Settings › Plan is in front. And
   the button is offered only in a host's module (`createShell` with a `mount`), where Settings has the
   plan: an app on its own under `/` opened Settings at Profile.
 
 ## 0.256.0 — 2026-11-11
 
-- **Whoever only sees something can't change its links** (`links.js`, `web/links.js`; audit of 6/11, sc-feat-2):
+- **Whoever only sees something can't change its links** (`links.js`, `web/links.js`):
   a link is written on both its sides, but its permissions asked only to see one. With a list shared to view,
   someone removed its owner's links, turned «done together» on so that the owner's tick completed a project
   task they can't open, and hung chips of their own on the owner's tasks. A module's `cards` may say
   `editable(user, id)` (they may change it, not only see it): linking and «done together» need it on both
   sides, adding something new from a side that side, unlinking to have made the link or to change one of its
   sides; otherwise 403 `forbidden`. `GET /api/links` says `can_link` and each link's `can_change`, worked out
-  from what is read already, and the row offers «+ Vincular», «A la vez» and «Quitar» only then. A module
+  from what is read already, and the row offers "+ Link", "Complete together" and "Remove link" only then. A module
   without `editable` keeps seeing as enough. `links.canLink(user, ref)`.
 
 ## 0.255.0 — 2026-11-11
 
 - **A device's notices go with the session they were turned on in** (`push.js`, `sessions.js`, `api.js`,
-  `app.js`, `web/settings.js`; audit of 6/11, pwa-2): closing a session from Settings › Where you're signed in
+  `app.js`, `web/settings.js`): closing a session from Settings › Where you're signed in
   left that browser getting task titles and list names on its locked screen, and so did a session that ended
   on its own. `push_subscriptions` keeps the session it was turned on in (`session_key`, the public key of
   sessions.js, new column; null for rows from before or made with a device token) and loses the row when that
   session is revoked (`DELETE /api/me/sessions/:key`), signed out of (also without `push_endpoints`) or ended
   (the suite's clean-up, `push.purgeSessions()` after `sessions.purge()`). `POST /api/push/subscribe` says
   `user_id`. Settings › Notifications removes any one device (`DELETE /api/push/devices/:id`, a person's own
-  only, «Quitar» on each row, `kit.notifications.remove`), this browser's marked «Este dispositivo» and letting go
+  only, "Remove" on each row, `kit.notifications.remove`), this browser's marked "This device" and letting go
   of its subscription too. `createPush` adds `removeDevice`, `forgetSession` and `purgeSessions`;
   `registerPushApi` takes `sessionKeyOf`; `registerProfileApi` takes `push`; `sessions.keyFor(token)`.
 - **Signing out and in again keeps the notices true** (`web/signin.js`, `web/push.js`, `web/settings.js`,
-  `web/worker.js`, `web/sw-core.js`; pwa-3): the server forgot the device and the browser kept its
+  `web/worker.js`, `web/sw-core.js`): the server forgot the device and the browser kept its
   subscription, so Tasks said «This device receives notifications» and nothing came. `signOutHere({ forgetPush:
   true })` lets go of the browser's subscriptions once the server has heard (a host's, where nobody shares
   them; Cronum Work's shell passes it). Who turned notices on in this browser is kept per person
@@ -1651,10 +1641,10 @@ the pull request.
 
 ## 0.254.0 — 2026-11-11
 
-- **A refund ends the subscription too** (`billing.js`; audit of 6/11, billing-5). A full refund or a
+- **A refund ends the subscription too** (`billing.js`). A full refund or a
   chargeback took the plan back at once, but the subscription went on renewing at the provider: the
   person was charged again the next period, and meanwhile the web's checkout said
-  `already_subscribed` and Settings showed «Se renueva el…». Now a refund that says `subscription`
+  `already_subscribed` and Settings showed "Renews on…" (`kit.plan.renewsOn`). Now a refund that says `subscription`
   (Paddle's adjustments) also asks the provider to end it now (`cancelSubscription(ref, { now: true })`).
   Asked once: a row `stop:refund:<ref>` of `billing_events`, `pending` in the refund's transaction,
   asked right after it and, if the provider fails, again by the hourly `sendStops()`
@@ -1662,43 +1652,43 @@ the pull request.
   this install has and that still renews, or one waiting for its person: every destination hears
   every refund of the account, another product's too. Audited as `billing.refund.stop`
   (`admin.actions.billing_refund_stop` in the five catalogs). `sendRefundStops()` is new.
-- **The host's own MCP tools go by the plan when called by their name** (`host.js`; audit of 6/11,
-  sc-mcp-14, sc-mcp-5 of 30/10). `<host>_linked_items`, `<host>_link_item` and `<host>_calendar`
+- **The host's own MCP tools go by the plan when called by their name** (`host.js`).
+  `<host>_linked_items`, `<host>_link_item` and `<host>_calendar`
   were left out of someone's list when they couldn't use them, but a client that remembered a name
   still ran them. `allows` now answers them as `visible` does, with a sentence of why and where to
   change it; the links never reach into a module whose tools the plan leaves out (`item`, `from`,
   `to`, `create`), and that module's prompts are left out too. Today every plan of Cronum Work has
   `mcp`, so nothing changes there.
 - **A plan's limit met in a module shows the way to Pro** (`web/api.js`, `web/ui.js`, `web/shell.js`;
-  audit of 6/11, billing-6; Martin, 11/11: the notice with «Ver planes»). `offerPlan` was only used by
+  the notice with "See plans"). `offerPlan` was only used by
   Settings: a Free account that made its 21st list, uploaded a photo without room or saved a
-  template read «Tu plan (Free) permite 20 y ya tienes 20.», without saying of what nor where to
+  template read "Your plan (Free) allows 20, and you already have 20.", without saying of what nor where to
   go. Now a 402 met by any call of the kit's `api` is kept for ten seconds by its sentence, and the
-  error notice that says it gets «Ver planes», which opens Settings › Plan (`createShell` gives
+  error notice that says it gets "See plans" (`kit.plan.see`), which opens Settings › Plan (`createShell` gives
   `onSettings('plan')` through the new `setPlanOpener`). Once, and only for those words, in all four
   modules without a change of theirs: each says its errors with the kit's `errorMessage` and `toast`.
-  `errorMessage` names what `plan_limit` limits, as Settings › Usage counts it («20 listas», «20
-  libretas», «10 proyectos», «50 MB de espacio»).
-- **An account that goes takes its usage with it** (`entitlements.js` `forgetUsage`, `app.js`; audit
-  of 6/11, billing-12). Its rows of `entitlement_usage` (the calls of an assistant counted for a
+  `errorMessage` names what `plan_limit` limits, as Settings › Usage counts it ("20 lists", "20
+  notebooks", "10 projects", "50 MB of storage").
+- **An account that goes takes its usage with it** (`entitlements.js` `forgetUsage`, `app.js`).
+  Its rows of `entitlement_usage` (the calls of an assistant counted for a
   week's limit) name it by id alone and stayed for good: they go in the removal's transaction now,
   whatever `billing.forgetOnRemove` says.
 
 ## 0.250.0 — 2026-11-11
 
-- **Nothing made without a signal is lost to a busy server** (`web/outbox.js`, `web/api.js`; audit of 6/11,
-  sc-shell-11): a 429 (and a 408 or 425) dropped the change it answered as a refusal, and the next one
+- **Nothing made without a signal is lost to a busy server** (`web/outbox.js`, `web/api.js`): a 429
+  (and a 408 or 425) dropped the change it answered as a refusal, and the next one
   got the same and went too; with the signal back the page, the new worker and the queue start at once,
   and something before the server answers such a burst with 429. Now it waits like a 5xx, and a queue
   that listens tries again once, after the server's `Retry-After` (read into the error as
   `retryAfter`, in ms; `retryAfterMs(value)` reads seconds or a date) or half a minute, never more
   than five; a 503 only when it says when. A queue an app stopped to send itself (Tasks) gets no timer of its own. `waits(error)` is
   the outbox's own test, exported.
-- **The first change kept asks for the storage to be kept** (`web/outbox.js`, pwa-10): the browser may
+- **The first change kept asks for the storage to be kept** (`web/outbox.js`): the browser may
   clear a site's data when the disk fills up, and Safari after a week unused in a tab, and a queued
   change is the only copy of itself. `navigator.storage.persist()` once per page, unless already kept.
-- **`sendWhileAway({ local, owner, send, idOf, onCreated, skip, lockName })`** (`web/outbox.js`,
-  sc-shell-3): what an app left in its queue, sent while the app isn't on the page, for Cronum Work's
+- **`sendWhileAway({ local, owner, send, idOf, onCreated, skip, lockName })`** (`web/outbox.js`):
+  what an app left in its queue, sent while the app isn't on the page, for Cronum Work's
   modules not on screen (each one's `fresh.js`): ticks made on a phone in Tasks and then left for
   Notes waited until Tasks was opened again on that phone. Only what goes through cleanly, oldest
   first; a creation swaps its provisional id in the stored queue and `onCreated` hears it. The first
@@ -1706,11 +1696,11 @@ the pull request.
   with the person in front: no signal, a busy or failing server, a conflict, a refusal, another
   account's change, a provisional id with no creation, or one `skip(op)` keeps for the app. Under the
   outbox's lock. → `{ sent, left, stopped }`.
-- **What is written in a form isn't thrown away by a tap outside or Escape** (`web/ui.js`,
-  ux-acciones-5): a tap above a phone's sheet is how one puts the keyboard away, and it closed Next's
+- **What is written in a form isn't thrown away by a tap outside or Escape** (`web/ui.js`): a tap
+  above a phone's sheet is how one puts the keyboard away, and it closed Next's
   sheet with its three fields. Once a field of a `formDialog` (or an `openDialog` with
   `keepTyped: true`) holds something other than what it had when it first took the focus, a tap on the
-  backdrop only takes the focus off it and Escape asks «¿Descartar lo escrito?» (`kit.dialog.*`). The
+  backdrop only takes the focus off it and Escape asks "Discard what you wrote?" (`kit.dialog.*`). The
   ×, Cancel and the app's own close are a choice and close at once. `keepTyped: false` for a form
   whose fields save themselves; `openDialog` keeps its old way unless asked. A read-only or disabled field
   never counts. `onDiscard` is told when the person says yes to throwing it away (a draft the
@@ -1719,9 +1709,9 @@ the pull request.
 ## 0.249.0 — 2026-11-11
 
 - **The sidebar's search, the same in every module** (`web/shell.js`, `web/kit.css`, `i18n/*.json`;
-  consistency; Martin's rule 9, docs/web-kit.md «Same in every module»):
-  - Its field reads the kit's «Buscar» (`kit.side.search`: «Search», «Rechercher», «Suchen», «Cerca»)
-    in every module. The module's own words (`search.label`: «Buscar tareas», «Buscar en las notas»)
+  rule 9 of docs/web-kit.md's "Same in every module"):
+  - Its field reads the kit's "Search" (`kit.side.search`, in each language)
+    in every module. The module's own words (`search.label`)
     stay its `aria-label`; as the words in it, two of them were cut short. `search.placeholder` still
     replaces the word, and no module of the suite gives one.
   - Those words are in the kit's faint colour (`--kit-faint`, at full opacity), light and dark and in
@@ -1745,8 +1735,7 @@ the pull request.
 ## 0.248.0 — 2026-11-11
 
 - **An item's detail and a row's swipe, the same in every module** (`web/shell.js`, `web/swipe.js`,
-  `web/drag.js`, `web/kit.css`; consistency; Martin's rules 5 and 6, docs/web-kit.md «Same in every
-  module»):
+  `web/drag.js`, `web/kit.css`; rules 5 and 6 of docs/web-kit.md's "Same in every module"):
   - `shell.head({ pane: 'detail' })` ends with the kit's × (`.kit-head__close`, `kit.close`) where the
     list and the detail sit side by side (`panes: 'split'` from 960 px, folded or not), where ← doesn't
     show; both call `onBack` (by default `showList()`). `close: false` leaves it out, for a detail that
@@ -1757,7 +1746,7 @@ the pull request.
     that has the keyboard: `createShell({ active })`, `ctx.active` in Work's shell, always on a page of
     its own. The modules' own Escape for the detail can go.
   - `rowSwipe(row, { content, left, right, ignore })` → `{ destroy }`: Tasks' swipe made the kit's. To
-    the left the item to the trash (`trashAction(run)`, «Borrar» in red), to the right the module's
+    the left the item to the trash (`trashAction(run)`, "Delete" in red), to the right the module's
     quick toggle; one action or two a side (`{ label, iconName, tone, run }`, or a function asked as the
     swipe starts), reached at 82 and 168 px, harder past 230; tones `danger`, `accent`, `sun`, `done`, in
     both themes. Touch only, not from the start edge, a control inside the row (`SWIPE_IGNORE`) or chips
@@ -1774,15 +1763,15 @@ the pull request.
 
 ## 0.247.1 — 2026-11-10
 
-- **Pro for good reads for good in Settings › Plan** (`planStatus` in `web/plan.js`; Martin, 10/11).
+- **Pro for good reads for good in Settings › Plan** (`planStatus` in `web/plan.js`).
   With two gifts of the plan shown, the card took the newest: the early access's Pro until 31/12,
   given after a Pro for good, made it read "Given to you until December 31, 2026". It takes the one
   that lasts longest now, no end before any date, as `entitlements.js` shows the plan.
 
 ## 0.247.0 — 2026-11-10
 
-- **The sidebar and the heads, the same in every module** (`web/shell.js`, `web/ui.js`, `web/kit.css`,
-  audit of 6/11, consistency; Martin's four rules, docs/web-kit.md «Same in every module»):
+- **The sidebar and the heads, the same in every module** (`web/shell.js`, `web/ui.js`, `web/kit.css`;
+  the first four rules of docs/web-kit.md's "Same in every module"):
   - `createShell({ create })` is the floating + at every width: beside the views it sits at the bottom
     end corner of the list's pane (never over the detail beside it; the view's with `panes: 'single'`),
     inside the frame, so in Cronum Work inside the module's window. The sidebar's button that created
@@ -1792,36 +1781,35 @@ the pull request.
     with the room over a phone's bottom edge under it. A + that makes a collection at its start
     (`{ onClick }`, or `{ items }` for a menu over the drawer), the trash at its end (`{ onClick }`, or
     `{ href, current }` for a view of its own); each closes the drawer as an entry does. Their words are
-    `kit.side.create` («Crear») and `kit.side.trash` («Papelera») unless given. `shell.foot` is
+    `kit.side.create` ("Create") and `kit.side.trash` ("Trash") unless given. `shell.foot` is
     `{ element, create, trash }`, and `setCurrent()` marks the trash too.
   - `navGroup({ name, color, icon, iconName, count, open, keep, onToggle, onName, empty, extra, data,
     headData, bodyData, children })`: a group of collections with one look (`.kit-nav-group`: its
     colour's border, tint and text, plain in the Clean look). The chevron folds it (`kit.side.groupFold`,
     `kit.side.groupUnfold`); the name opens its menu (`onName`, `kit.side.groupOptions`). It replaces
     Tasks' `.list-group-*` and Notes' `.nav-group__*`, whose own + goes into the group's menu.
-  - `moreButton(items, { label })`: «…», `kit.more` («Más opciones»), the one button of a view's head.
+  - `moreButton(items, { label })`: "…", `kit.more` ("More options"), the one button of a view's head.
     `shell.head()` no longer ends a list's head with anything that creates.
   - `menu()` leaves out falsy items and separators with nothing to separate, so a module writes
     `cond ? item : null`.
 
 ## 0.246.0 — 2026-11-10
 
-- **Deleting and asking, the same in every module** (`web/ui.js`, audit of 6/11, consistency; Martin,
-  9 and 10/11). What goes to a trash is deleted at once and leaves an Undo; what can't come back asks
-  first, «¿Borrar «X»?» in red:
+- **Deleting and asking, the same in every module** (`web/ui.js`). What goes to a trash is deleted at
+  once and leaves an Undo; what can't come back asks first, "Delete “X”?" in red:
   - `deleteDialog(name, { text, detail, title, confirm, parent })`: that question, with `kit.deleteAsk`
-    and `kit.delete` (a red Borrar).
-  - `undoToast(text, onUndo)`: the notice with `kit.undo` («Deshacer»), 8 s, as `toast`'s action.
+    and `kit.delete` (a red "Delete").
+  - `undoToast(text, onUndo)`: the notice with `kit.undo` ("Undo"), 8 s, as `toast`'s action.
   - `confirmDialog` is 420 px wide on a computer (`QUESTION_WIDTH`) unless given a `width`: a question
     is narrower than a form (560 px). Without `text` the title alone asks.
 - **Taking something back from someone in the share dialog asks first** when they had accepted it
-  (`kit.share.removeAsk`, «¿Quitárselo a X?»); an invitation not answered yet still goes at once. An
+  (`kit.share.removeAsk`, "Remove X's access?"); an invitation not answered yet still goes at once. An
   app's `confirmRemove` replaces it (Projects). Leaving it asks with the question as the title
-  (`kit.share.leaveAsk`, «¿Dejar «X»?»), as every question does now.
+  (`kit.share.leaveAsk`, "Leave “X”?"), as every question does now.
 
 ## 0.245.0 — 2026-11-10
 
-- **The share dialog for an app with roles of its own** (`web/share.js`, audit of 6/11, consistency):
+- **The share dialog for an app with roles of its own** (`web/share.js`):
   Projects shares with it instead of a dialog of its own. New options, all optional, so every app that
   shares today stays as it is:
   - `permissions`: `[{ value, label, offered? }]` instead of can edit and read only; with more than two,
@@ -1855,45 +1843,45 @@ For selling Cronum Work Pro in the App Store and Google Play. Nothing changes wi
 ## 0.243.2 — 2026-11-10
 
 - **Settings › Plan says how much a year saves.** A yearly product's row has a badge with how much
-  less it costs than twelve months of the same plan's monthly product, rounded down: "25% off", or
-  "59% off" with a founder's price. `yearlySaving()` in `web/plan.js`. Only where the web sells, so
+  less it costs than twelve months of the same plan's monthly product, rounded down ("N% off"), more
+  with a founder's price. `yearlySaving()` in `web/plan.js`. Only where the web sells, so
   never in the app on a phone.
 
 ## 0.243.1 — 2026-11-09
 
-- **The same words and the same margin in every module** (audit of 6/11, ux-textos-1 and -4,
-  ui-medidas-9). Settings › Usage says notebooks in Spanish («Libretas», it said «Cuadernos») and
-  steps in every language for what Next counts, where it said entries. «Borrar» for the two texts
-  of the kit that still said «eliminar». `--look-gutter` is 16 px in the Cronum look, as a token:
+- **The same words and the same margin in every module**. Settings › Usage names notebooks in
+  Spanish with the word the rest of the suite uses, and steps in every language for what Next
+  counts, where it said entries. The two texts of the kit that still used another Spanish verb for
+  deleting now use the kit's. `--look-gutter` is 16 px in the Cronum look, as a token:
   each module fell back on its own number (26, 24, 16 or 14).
 
 ## 0.243.0 — 2026-11-09
 
-The medium findings of the audit of 6/11 that were still open:
+Other fixes:
 
-- **A window out of view takes its dialogs with it** (`windows.js`, ui-movil-1): a modal dialog stays modal
+- **A window out of view takes its dialogs with it** (`windows.js`): a modal dialog stays modal
   when its window is hidden, and the page behind it inert. A notice tapped or Back with Tasks' Configure list
   open left all of Work on screen and answering nothing.
-- **The worker gives the copy instead of the server's error page** (`sw-core.js`, sc-shell-6): a navigation
+- **The worker gives the copy instead of the server's error page** (`sw-core.js`): a navigation
   answered with a 5xx (a deploy's 502, Cloudflare's 52x) gets the copy when there is one.
 - **A module's own path opens from the copy at once** (`sw-core.js`, `codeFirst`): `/tasks/list/12` is what
   the server answers for any path without an extension, the module's page, so it no longer waits up to 4 s
   for the network on a weak signal.
-- **A reset at WorkOS leaves what was opened after it** (`workos-events.js`, `revokeEverything({ before })`,
-  sc-auth-1): heard up to a minute later, it closed the session the person had just opened with the new
+- **A reset at WorkOS leaves what was opened after it** (`workos-events.js`, `revokeEverything({ before })`):
+  heard up to a minute later, it closed the session the person had just opened with the new
   password. Sessions, API tokens, phones and AI clients are ended as of the event's time.
-- **Deleting someone's login with the account asks for the admin again** (`DELETE /api/admin/users/:id?identity=1`,
-  sc-auth-2): the admin's password (and code), or a recent sign-in, as for changing a password or taking off the
+- **Deleting someone's login with the account asks for the admin again** (`DELETE /api/admin/users/:id?identity=1`):
+  the admin's password (and code), or a recent sign-in, as for changing a password or taking off the
   second step, and only where the install owns the identities (`accounts.adminIdentity`; elsewhere 403
   `identity_not_here`, and the panel doesn't offer it). `registerWorkosSecurityApi` answers `{ confirmAdmin }`.
-- **The MCP door opens only for what it lists** (`mcp.js`, sc-mcp-1): it ran any tool, so a tool the client had
+- **The MCP door opens only for what it lists** (`mcp.js`): it ran any tool, so a tool the client had
   blocked could be run through it. A tool with `destructiveHint` is never kept behind it, and it no longer calls
   itself destructive.
 
 ## 0.242.0 — 2026-11-09
 
-- **The founder's offer comes up on starting a host's shell** (audit of 6/11, billing-15; Martin,
-  9/11). `offerFounder({ user, busy })` (web/plan.js): a dialog with the price, the regular one and
+- **The founder's offer comes up on starting a host's shell**. `offerFounder({ user, busy })`
+  (web/plan.js): a dialog with the price, the regular one and
   the last day, all from the server, with Buy, the same checkout as Settings' Upgrade, and Not now.
   At most once a week for the account: `founder_notice_at` in `users.prefs` (billing.js
   `FOUNDER_NOTICE_PREFS`, a part of a host's preferences when it has payments), stamped by the server
@@ -1903,8 +1891,8 @@ The medium findings of the audit of 6/11 that were still open:
 
 ## 0.241.1 — 2026-11-09
 
-- **Settings › Daily summary: each notice's time is an hour and its minutes, every five** (Martin,
-  9/11). The time field took any minute on an iPhone (its wheel has no steps), and the server keeps
+- **Settings › Daily summary: each notice's time is an hour and its minutes, every five**. The time
+  field took any minute on an iPhone (its wheel has no steps), and the server keeps
   only steps of five: 16:37 was kept as 16:35 with nothing said. Now there are two lists side by
   side, the hours as the language writes them (`08`, `08 AM`) and the minutes `00`, `05` … `55`.
   Either one changed saves the time they make together; refused, both go back. New texts
@@ -1919,7 +1907,7 @@ The medium findings of the audit of 6/11 that were still open:
 
 ## 0.240.0 — 2026-11-09
 
-- **About says the version of the app on the phone** (Martin, 9/11: on iPhone and Android it only
+- **About says the version of the app on the phone** (on iPhone and Android it only
   named Cronum Work's, which is the page the app shows). Inside the app, a line «iOS app» or
   «Android app» under the version in use, with the number the app tells the page
   (`nativeInfo().version`). Nothing new in the bridge, so the builds already on people's phones
@@ -1927,8 +1915,8 @@ The medium findings of the audit of 6/11 that were still open:
 
 ## 0.239.0 — 2026-11-09
 
-- **The early access's plan, kept past its end for whoever was in it** (audit of 6/11, billing-1 and
-  claims-notes-2; Martin, 9/11). The plan of an early access is the default one, with no grant
+- **The early access's plan, kept past its end for whoever was in it**. The plan of an early access
+  is the default one, with no grant
   behind it, so when its date passed what Free doesn't keep went in the next sweep: `cutoff()` had
   no end to count from. `entitlements.keepEarlyAccess(users, { endsAt })`, and Admin › Plans with
   `GET /api/admin/early-access` and `POST /api/admin/early-access/keep`, give each account made
@@ -1936,10 +1924,10 @@ The medium findings of the audit of 6/11 that were still open:
   'early-access'`. Pressed again it gives nobody a second one, nor one to an account the admin took
   it off, and never one to an account made after the early access; a different date moves the end
   of those still standing. To be done before `EARLY_ACCESS_UNTIL` passes.
-- **`FOUNDER_JOIN_UNTIL`: more time to join at a founder's price** (Martin, 9/11: Black Friday).
+- **`FOUNDER_JOIN_UNTIL`: more time to join at a founder's price**.
   Accounts made before it, past the end of the early access, are founders too; nothing else moves.
   It can't come before `EARLY_ACCESS_UNTIL` nor after `FOUNDER_OFFER_UNTIL`.
-- **Deleting the account in a host offers every module's copy** (audit of 6/11, portable-2): the
+- **Deleting the account in a host offers every module's copy**: the
   dialog offered only the module Settings was opened from, and whoever pressed it in Tasks believed
   they had everything. Now a link for each module, those turned off too.
 - **`shareMail.notice`: a word by email about something of the person's own**, in the module's
@@ -1948,14 +1936,14 @@ The medium findings of the audit of 6/11 that were still open:
 
 ## 0.238.0 — 2026-11-09
 
-- **In Cronum Work there is one way out** (audit of 6/11, work-web-1 and sc-shell-1). A module's
+- **In Cronum Work there is one way out**. A module's
   Settings › Sign out called the kit's `signOut` on its own: no question, and every module's queue
   on the device gone without a word (the shell's `leave()`, which asks and saves first, ran only
   from the account's Settings with no module in the window). Now `signOut()` is the shell's when
   there is one (the registry's `signOut`; also from a frame of the shell), and `signOutHere()` the
   kit's own; the module's `local` and `before` go along, and `before` still runs only once the
   server has heard. New in the registry: `signOut`.
-- **"Replace" no longer takes away what someone shares** (audit of 6/11, portable-3). Importing
+- **"Replace" no longer takes away what someone shares**. Importing
   one's own copy with "Replace" emptied the account, and with it what other people were using,
   without a word. Now it hands it over first (`declaration.handOver`, as erasing does): the people
   using it keep it with what they wrote since, and the person gets their copy, theirs alone. Only
@@ -1963,15 +1951,15 @@ The medium findings of the audit of 6/11 that were still open:
   `shared(userId)` names what will pass on; the plan says it (`shared`) and the question before
   replacing too (`kit.data.sharedPassesOn`, five languages). A replace now tells `onErased` too, so
   a host's links forget what went.
-- **`after`, a new hook of the declaration** (audit of 6/11, notes-srv-1): with every row in and
+- **`after`, a new hook of the declaration**: with every row in and
   inside the transaction, `after({ ids, rows, mode, user })` lets the app rewrite what no reference
   can say, a text that names another row's id. Its failure undoes the import.
   `portabilityFor` takes `onErased`.
 
 ## 0.237.2 — 2026-11-08
 
-- **A host's worker opens the pages it holds from its copy, at once** (audit of 6/11, pwa-5; Martin,
-  8/11: Work stayed blank on a phone with weak coverage). Since `codeFirst` the copy is the
+- **A host's worker opens the pages it holds from its copy, at once** (Work stayed blank on a phone
+  with weak coverage). Since `codeFirst` the copy is the
   release, its pages too, yet a navigation still went to the network first and only fell back to
   the copy after four seconds: with a weak signal, four blank seconds on every start of Work and of
   every module installed on its own, and after a deploy the new page with the copy's old code. Now
@@ -1982,7 +1970,7 @@ The medium findings of the audit of 6/11 that were still open:
   from the root page's `root.except`: `/?modules` stays network first. `/auth/`, `/devices/session`
   and `/devices/connect` never reach the worker, as before. A page the copy lacks comes from the
   network as before, and one of the shell's is kept. New releases come as before, with a new worker.
-- **A host's release that loses the signal half way isn't installed** (audit of 6/11, pwa-1). The
+- **A host's release that loses the signal half way isn't installed**. The
   install swallowed each file that failed, noted `.suite-hashes` anyway and took over, and its
   activation erased the whole copy before it: the pages that always travel (`/`, `/w/`, each
   module's, the manifests, the scoped sheets, `js/app-version.js`) failed together and Work no
@@ -1997,8 +1985,8 @@ The medium findings of the audit of 6/11 that were still open:
 
 ## 0.237.1 — 2026-11-08
 
-**The app's bridge has two new messages, for Cronum Work's panels** (Martin, 7/11: in the iPhone
-app a swipe to the right in the daily summary took him to Notes, or to whatever module was open
+**The app's bridge has two new messages, for Cronum Work's panels** (in the iPhone
+app a swipe to the right in the daily summary went to Notes, or to whatever module was open
 before it). `panel { open }`, from the web: one of the host's panels over the desk (the day's
 summary, the calendar) opened, or the last one closed. While one is open the app (0.5.11) keeps
 going back from leaving it: iOS's swipe from the edge is off, and Android's back comes to the page
@@ -2008,8 +1996,8 @@ name them. An older app ignores `panel`, and a web that never sends it leaves go
 
 ## 0.237.0 — 2026-11-05
 
-**Signing in with WorkOS or OpenID Connect goes straight to the provider's page** (Martin, 5/11,
-from a Work user: the app's card with one button, then the provider's page of another colour, read
+**Signing in with WorkOS or OpenID Connect goes straight to the provider's page** (the app's
+card with one button, then the provider's page of another colour, read
 as one redirection too many). With nothing to say first, `signIn()` sends the page to
 `/auth/login` (with `return=` as the button did) in place of the card, so Back from the provider's
 page doesn't land on it. The card still comes up after a failed return (`auth_error`), with the
@@ -2022,17 +2010,17 @@ Without sessionStorage, the card as before. And the card's button says «Sign in
 
 ## 0.236.0 — 2026-11-05
 
-**In the suite's app, Settings › Notifications says when notifications are turned off** (Martin,
-5/11). Off on the phone, a notice says so and leads to the phone's settings: «Notifications are
-turned off», «Turn them on in the <app> app's notification settings», and the button «Go to
-settings». Never asked yet, the button is «Turn on notifications» and the app shows the system's
-prompt. On, it stays «Open the app's settings». The state is the app's `push-state`, as before,
-and the line «are turned off in the phone's settings» (`kit.notifications.appDenied`) is gone.
+**In the suite's app, Settings › Notifications says when notifications are turned off**. Off on
+the phone, a notice says so and leads to the phone's settings: "Notifications are
+turned off", "Turn them on in the <app> app's notification settings", and the button "Go to
+settings". Never asked yet, the button is "Turn on notifications" and the app shows the system's
+prompt. On, it stays "Open the app's settings". The state is the app's `push-state`, as before,
+and the line "are turned off in the phone's settings" (`kit.notifications.appDenied`) is gone.
 
 ## 0.235.0 — 2026-11-05
 
 **Admin › Accounts says how many devices each account has connected, and its dialog which**
-(Martin, 5/11: in Activity, «device 4» to «device 14» for the testers' shared account read as 14
+(in Activity, "device 4" to "device 14" for an account shared by several testers read as 14
 phones, while that number is the connection's id among every account's). With `modules.devices`,
 Accounts has a Devices column, after the last sign-in: the ones that still work, not revoked nor
 unused for longer than `idleDays` (`devices.activeCounts()`, one query for every account, and
@@ -2045,7 +2033,7 @@ In the five languages.
 
 ## 0.233.1 — 2026-11-05
 
-**A sign-in through WorkOS or OIDC is in the log with the address it came from** (Martin, 5/11).
+**A sign-in through WorkOS or OIDC is in the log with the address it came from**.
 `auth.login` was recorded without the request when the provider brought someone back
 (`sessions.open` in createSuite), so Activity showed nothing under From for every sign-in in an
 install with WorkOS, while a password's sign-in, a failed one and a phone's connection had theirs.
@@ -2054,9 +2042,9 @@ Now it goes with the request, its address read as every other entry's is (`TRUST
 ## 0.233.0 — 2026-11-05
 
 **The admin panel finds one account: a search in Accounts, and Activity by account, by action and
-by days** (Martin, 5/11, to check that the Play testers, who share one account, signed in from
+by days** (to check, for one, that the testers who share one account signed in from
 Android). Accounts has a search that narrows the list as it is typed, by email, username or name,
-every word anywhere, without capitals or accents ("benjamin" finds Benjamín); Enter opens the one
+every word anywhere, without capitals or accents ("zoe" finds Zoë); Enter opens the one
 account left, and the search stays when the list is drawn again (an account saved). An account's
 dialog has «See their activity», which opens Activity at `#/audit?actor=<id>`. Activity has an
 account (typed by email or username, offered in a datalist, or its name pressed in a row: the
@@ -2075,7 +2063,7 @@ opened the dialog and, its default kept, the same key pressed the dialog's ×, w
 
 ## 0.232.1 — 2026-11-05
 
-**The share dialog says an address with no account is invited too** (Martin, 5/11). Since 0.215.0
+**The share dialog says an address with no account is invited too**. Since 0.215.0
 an email with no account gets an invitation to create one, with the offer waiting under the address
 (`stranger-invites.js`), but `kit.share.emailHint` still said "If that email has an account, they'll
 get the invitation". Now, in the five languages: "If they don't have an account yet, they'll get an
@@ -2085,7 +2073,7 @@ address has one.
 ## 0.232.0 — 2026-11-05
 
 **Settings › Daily summary: choose the modules of each notice, and a section that sits right on a
-phone** (Martin, 5/11). Each notice has a switch for every module in use that gives it something
+phone**. Each notice has a switch for every module in use that gives it something
 («Includes»: Tasks and Projects in the morning; Tasks, Projects, Next and Notes in the evening),
 when there are two or more: `prefs.day.<notice>.modules` keeps the ones taken out (`{ notes: false
 }`), so a module that comes later is in, and one taken out is left out of that notice and of its
@@ -2099,7 +2087,7 @@ row of its own as wide as a time, the modules, and a button with a sun or a moon
 ## 0.231.0 — 2026-11-04
 
 **A host's daily summary: what everyone has for today, and what they did, in every module, with a
-notice in the morning and one in the evening** (Martin, 4/11). `createHost({ day: '/today/' })`
+notice in the morning and one in the evening**. `createHost({ day: '/today/' })`
 (day.js, architecture §21.3.2): each module says what it has with `createModule().day`, `agenda(user,
 { today })` (open things dated on or before today, overdue being before it, and what was planned
 for today without a date) and `done(user, { day })` (completed, logged or written that day), and the
@@ -2111,8 +2099,8 @@ on at 08:00 and 19:00 (the morning off for whoever had turned off Projects' summ
 › Daily summary, in the host's group (switch, time every five minutes, a link to the page). With
 push, the host checks them every minute: from its time until three hours after it, on the person's
 day, claimed in the new `host_day_notices` (host migration 8) before anything is built or sent, and
-not sent when there is nothing to say: «☀️ Mira lo que tienes para hacer hoy», «3 vencidas · 5 para
-hoy: «A», «B» y 3 más» at `/today/`; «🌙 Lo que has hecho hoy», «7 tareas, 2 pasos en Next y 1 nota»
+not sent when there is nothing to say: "☀️ Here's what you have to do today", "3 overdue · 5 for
+today: “A”, “B” and 3 more" at `/today/`; "🌙 What you did today", "7 tasks, 2 steps in Next and 1 note"
 at `/today/?v=done`, in the person's language (`kit.day.*`, every catalog). A module's suite says
 `daySummary: true` (and `config.host.day` the page, in the browser too), for Projects to leave out
 its own 08:00 summary inside Work; `/api/modules` says `host.day`. The page may be framed by the
@@ -2124,7 +2112,7 @@ none of it.
 **In the app, a module's page on its own opens in Work's shell instead.** A notice tapped on the
 phone opens its module's address (`/projects/?project=5`, `/tasks/`: host-worker.js `hostedPush`),
 and the app's web view loaded it as a page of its own: the module alone, its switcher under the
-logo and none of Work's tabs at the foot (Martin, 4/11, the daily summary of Projects). Now
+logo and none of Work's tabs at the foot (Projects' daily summary, for one). Now
 `createShell()` replaces such a page with `/?open=<its path>`, which the shell opens in its window
 as it does for a notice tapped on the web: from the host's answer of last time at once (before the
 rail is drawn), else from the one that comes. `hostShellAddress(host)` in native.js says where, or
@@ -2134,7 +2122,7 @@ and a module installed alone, are as before. Nothing changes in the app, and no 
 
 ## 0.229.0 — 2026-11-04
 
-**Whose it is, the same in every module** (Martin, 03/11; audit of 30/10, `compartir.md`). What
+**Whose it is, the same in every module**. What
 someone shares stays theirs: whoever edits it can't destroy it or take it away. `ownership.js`:
 `requireOwner` / `requireOwnerOrAuthor` / `mayDelete` answer 403 `not_yours` with the owner's
 name ("This isn't yours: ask Ana to remove it or delete it", in the five languages), with
@@ -2150,7 +2138,7 @@ Additive: nothing changes for a module that doesn't use them.
 
 - **Work's phone tabs come back where they belong when the keyboard goes down.** The field loses
   the focus as the keyboard starts going down, while the app's web view is still short, and the
-  tabs came back then: for a moment over where the keyboard had been, then at the foot (Martin's
+  tabs came back then: for a moment over where the keyboard had been, then at the foot (on an
   iPhone, 0.226.0). `watchKeyboard()` now tells the keyboard down only once the page has its room
   back. A page still short a second after the focus left, with nothing typed in, isn't a
   keyboard's, and the tabs come back then. `keyboardShortens()` takes `up`.
@@ -2160,15 +2148,15 @@ Additive: nothing changes for a module that doesn't use them.
 **A host's worker installs its copy 12 files at a time, not all at once.** The first time
 someone signed in to Work on a device, its worker asked for Work's 200-odd files at the same time
 as the page loaded its modules, and some of them came back 429: a module whose code was one of them
-didn't open ("Importing a module script failed"), and only closing the app brought it (Martin,
-3/11). Measured on Work, 12 at a time installs as fast as all at once, or faster. A file that fails
+didn't open ("Importing a module script failed"), and only closing the app brought it. Measured on
+Work, 12 at a time installs as fast as all at once, or faster. A file that fails
 is still left out, and the rest still come. An app on its own installs as before.
 
 ## 0.226.0 — 2026-11-03
 
 **Work's tabs on a phone step aside while typing, when the keyboard makes the page shorter.** In
 Work's iPhone app the web view stops above the keyboard, so the bar of modules sat on it, taking
-room and of no use while typing (Martin, 3/11). keyboard.js has `watchKeyboard(onChange)` and
+room and of no use while typing. keyboard.js has `watchKeyboard(onChange)` and
 `keyboardShortens()`: up while a field or a frame has the focus and the root is more than 120 px
 shorter than its tallest at that width (in Safari `innerHeight` shrinks with a keyboard that only
 covers the page, the root doesn't). windows.js gives the desk `data-keyboard` with it and
@@ -2178,8 +2166,8 @@ nothing changes.
 
 ## 0.225.0 — 2026-11-02
 
-- **A write whose answer is too big to keep replays a small JSON body** (audit of 30/10:
-  projects-srv-7, projects-web-1). Over 256 KB the key was kept with an empty body: the same key
+- **A write whose answer is too big to keep replays a small JSON body**. Over 256 KB the key was
+  kept with an empty body: the same key
   answered 200 with nothing in it, so a creation sent again never learnt its id (the outbox kept the
   provisional one, and what came after it was dropped as `lost_creation`) and the client read
   `null`. Now it replays `{ id, replayed: true, reload: true }` (`id` when the answer named one at
@@ -2188,7 +2176,7 @@ nothing changes.
 ## 0.224.0 — 2026-11-02
 
 **No button for the person at the sidebar's foot: the app's icon opens Settings.** In an app on
-its own (Tasks, Projects, Next, Notes, Tracker at their site's root, or installed from Work on their
+its own (Tasks, Projects, Next, Notes or any other app at its site's root, or installed from Work on their
 own) the person's button at the sidebar's foot is gone, and with it `.kit-side__foot` and
 `.kit-account`. The app's icon and name at the sidebar's head are a button from the start, with
 Settings' icon in place of the arrow, that opens Settings; with `accountItems` (or without
@@ -2199,8 +2187,7 @@ sidebar's list keeps clear of the phone's bottom edge in every frame now, not on
 
 ## 0.222.0 — 2026-11-02
 
-Changes made without a signal, on leaving and on another account signing in (audit of 30/10:
-sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
+Changes made without a signal, on leaving and on another account signing in.
 
 - **Signing out without a signal deletes nothing.** `signOut()` ignored a logout that didn't reach
   the server: it deleted every `*-local` copy, with the changes waiting in it, and reloaded, while the
@@ -2228,53 +2215,53 @@ sc-shell-1, sc-shell-2, sc-ui-1, sc-ui-2, sc-ui-6).
   forgetting it; and without `localStorage` the queue is kept on the page instead of nowhere.
 ## 0.221.0 — 2026-10-31
 
-From the audit of 30/10 (billing-1, -3, -4, -5; sc-host-12; work-1, work-8).
+Payments, `/health` and the CLA check.
 
-- **A customer the checkout didn't name is never linked, not even one nobody here has**
-  (billing-1). The fix of 0.128.0 kept another account's customer from going to whoever paid a
+- **A customer the checkout didn't name is never linked, not even one nobody here has**.
+  The fix of 0.128.0 kept another account's customer from going to whoever paid a
   checkout made without one (`customerUnsigned`), but a customer linked to nobody here was linked
-  all the same: the same Paddle account sells Tracker, so someone paying with a Tracker buyer's
+  all the same: the same Paddle account sells other apps, so someone paying with another app's buyer's
   email could end up with their customer, and open their portal (invoices, address, the card's
   last digits). Now that link isn't made either, and the audit says so
   (`billing.customer_unvouched`); the plan is still theirs, since they paid. New
   `errors.email_unverified`, for a provider that refuses a checkout without a verified email
-  (cronum-cloud's Paddle, so its checkouts always name the customer).
-- **Tests of what guards the payments** (billing-3): the `unsigned` and `customerUnsigned`
-  branches were only tested in cronum-cloud, pinned to an older suite-core. Now billing.test.js
+  (the Paddle adapter of the hosted service's closed parts, so its checkouts always name the customer).
+- **Tests of what guards the payments**: the `unsigned` and `customerUnsigned`
+  branches were only tested in the hosted service's closed parts, pinned to an older suite-core. Now billing.test.js
   covers them, so a change here that breaks them fails here.
-- **Checkout and portal braked per account** (billing-4): 10 in 15 minutes, `429
+- **Checkout and portal braked per account**: 10 in 15 minutes, `429
   too_many_requests` past that. Each asks the payment provider, whose API quota other apps of the
   same account share. New `limiter.allowFor(kind, userId)` and `limits.billing`;
   `registerBillingApi` takes `limiter`.
-- **An account whose subscription never stopped renewing waits up to a week** (billing-5): when
+- **An account whose subscription never stopped renewing waits up to a week**: when
   the provider failed both when the person asked to go and on the day the account goes, it went
   and the subscription went on charging. Now the account waits for the next sweep while
   `billing.stillRenews(userId)` (new; also in `combinedBilling`) says so, a week at most past its
   day; then it goes all the same, logged loud.
-- **`/health` without `uptime`, and only up when the database answers** (sc-host-12, work-8):
+- **`/health` without `uptime`, and only up when the database answers**:
   `{ ok: true, version: { app, version, built } }`, or `503 { ok: false }`. In a host it is the
   host's own, with the fingerprint `/version` gives (it gave the root app's, which never matched).
   New `healthOf(database, versionOf)` in app.js.
-- **CLA check pinned by commit** (work-1): the shared workflow at a commit of cronumstudio/.github
+- **CLA check pinned by commit**: the shared workflow at a commit of cronumstudio/.github
   instead of `@main`, with the write permissions on its job alone; it now runs on GitHub's machines
   and pins its action by commit.
 
 ## 0.220.0 — 2026-10-31
 
-From the audit of 30/10 (service worker, the host, Work's shell):
+The service worker, the host and Work's shell:
 
-- **A scoped sheet is kept once per file** (sc-host-11). The host kept each module's sheet with
+- **A scoped sheet is kept once per file**. The host kept each module's sheet with
   `@scope` (`scopedSheets`) under the address as asked, so `/tasks/css//styles.css?scope=work`,
   `/tasks/c%73s/…` and any other spelling of the same file each kept a copy (some 43 KB) for good,
   without a session: anyone could fill Work's memory. Now the key is the file's own address, which
   also gives every spelling the same ETag and the same url()s; and at most 200 are kept.
-- **A newer worker taking a page over is said to the page** (sc-shell-3). New `watchNewCode()` in
+- **A newer worker taking a page over is said to the page**. New `watchNewCode()` in
   `web/update.js`: `stale()` once a worker other than the page's first took it over without
   `applyUpdate()` here (another window reloaded, a notice came). What such a page loads late comes
   from the new copy, and joined to the old code it already runs it may not load at all (Settings
   importing a name the old `base.js` doesn't export). A page that lives for days asks before
   loading code late and brings the new version instead.
-- **A notice tapped with Work's shell open opens there** (sc-shell-4). The host's worker gets
+- **A notice tapped with Work's shell open opens there**. The host's worker gets
   `holds` (`['/', '/w/']` with a root page, `pages[].root`): one of those pages open gets
   `{ type: 'notification-open', url }` and the focus, instead of being navigated to the module on
   its own with every window in it; with none open, a new window opens `/?open=<the module's
@@ -2282,27 +2269,27 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 - **`framedModules`**, a host option: the modules' pages may be framed by the host's own pages
   without a split view (Work's shell opens a module it can't mount in a frame). `split` still
   implies it.
-- **`@keyframes` carry the module's name** in a scoped sheet (sc-host-1): `fade-in` in Tasks and
+- **`@keyframes` carry the module's name** in a scoped sheet: `fade-in` in Tasks and
   in Next were one name in the shell's one document, the last sheet loaded winning. A module's
   own `@keyframes` become `<mount>--<name>`, with its `animation`s; the kit's sheets and the
   kit's names (`kit-…`) stay. `SCOPE_FORMAT` 3.
-- **How the server rewrites the sheets is part of the version** (sc-host-8): a release that only
+- **How the server rewrites the sheets is part of the version**: a release that only
   changes `scope-css.js` is a new worker, so installed copies don't keep the old sheets.
-- **A module's stop is waited for** when the host closes, three seconds at most (dead-dup-4): a
+- **A module's stop is waited for** when the host closes, three seconds at most: a
   module's `start()` may return a stop that returns a promise (the notices it groups, sent now).
-- **Two modules' tables are compared before the second's migrations run** (sc-host-9): its
+- **Two modules' tables are compared before the second's migrations run**: its
   migrations are tried first on an empty database, and a table a module joined before declares
   (`portable.tables`) stops the start without touching the real one. The check once every module is
   in stays for the rest.
-- **A body over the limit closes the connection** (sc-host-3): after the 413 the server no longer
+- **A body over the limit closes the connection**: after the 413 the server no longer
   reads the rest for ever. `requestTimeout` is ten minutes instead of none (receiving a request, not
   answering it: live channels stay open).
 - **A static file gone halfway cuts its response** instead of an uncaught error that stopped the
-  process (sc-host-2, `pipeline`).
+  process (`pipeline`).
 
 ## 0.219.0 — 2026-10-30
 
-- **Public pages free, embedding them Pro's** (Martin: Projects, Notes and Tasks get a public page
+- **Public pages free, embedding them Pro's** (Projects, Notes and Tasks get a public page
   of their own, like Next's; its link for everyone, putting it in another website for Pro, and
   then without the Cronum Work mark). `publish` goes on in Free in the cronum-work catalog. New
   common feature `embed` (off in Free, on in Pro; without `PLANS`, allowed), named in the plan's
@@ -2311,7 +2298,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.218.0 — 2026-10-30
 
-- **Pages any site may embed** (Martin: a Next project's public page, in an `<iframe>` on someone's
+- **Pages any site may embed** (a Next project's public page, in an `<iframe>` on someone's
   own website). Every page answered `frame-ancestors 'none'` and `X-Frame-Options: DENY`, so the
   browser showed nothing. New `embeds` option of `createApp`, a list of paths: those pages go
   with `frame-ancestors *` and without `X-Frame-Options` (which can't say "any site"); the rest of
@@ -2323,7 +2310,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.217.0 — 2026-10-30
 
-- **One layout of Cronum Work's windows for every width** (Martin, the installed app on his PC:
+- **One layout of Cronum Work's windows for every width** (the installed app on a computer:
   making the window narrower, Next alone became Tasks and Notes side by side, and a phone's single
   window below that). `windows.js` kept a layout per screen class (`wide` ≥ 1280 px, `mid`
   ≥ 768 px, `narrow`) and crossing from one to another brought back that class's, so the modules
@@ -2337,7 +2324,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.216.0 — 2026-10-30
 
-- **A phone's first sign-in goes back to the app** (Martin, Cronum Work's app on Android: signing in
+- **A phone's first sign-in goes back to the app** (Cronum Work's app on Android: signing in
   for the first time, the Custom Tab stayed on Work's home page; the second time, already signed
   in, Allow went back to the app). The provider's callback (WorkOS and OIDC) always went to `/`,
   where `devicePages.back()` found the connect cookie and sent the browser back to
@@ -2355,9 +2342,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.215.0 — 2026-10-30
 
-- **An address without an account gets the invitation by email too** (Martin: "si se quiere
-  invitar a alguien que no tiene cuenta, ¿cómo se haría?"). Something offered by email already
-  waited under the address for whoever signs up with it; now that address is told, once. New
+- **An address without an account gets the invitation by email too**. Something offered by email
+  already waited under the address for whoever signs up with it; now that address is told, once. New
   `stranger-invites.js` keeps it from looking like spam: only where an account can be made (WorkOS,
   or sign-up open) and only from someone whose email is confirmed; once per address and person,
   never sent again; at most 10 a day from one person, 3 in 30 days to one address and 100 a day
@@ -2375,7 +2361,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.214.0 — 2026-10-30
 
-- **The status bar in the page's ground** (Martin, Notes installed on an iPhone: a blank band at
+- **The status bar in the page's ground** (Notes installed on an iPhone: a blank band at
   the foot of the screen, which moved when dragged beside the open drawer). With the see-through
   status bar (`black-translucent`) and `viewport-fit=cover`, iOS 26 shows an installed app shorter
   than the screen by the status bar (WebKit 301108); an app takes the opaque one (`default`), as
@@ -2386,15 +2372,15 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.213.0 — 2026-10-30
 
-- **The invitation email knows a project of Next** (Martin: "we must be able to invite people to
-  Next too"). `suite.shareMail` takes a new kind, `plan`: a Next project offered to follow, to
+- **The invitation email knows a project of Next**. `suite.shareMail` takes a new kind, `plan`: a
+  Next project offered to follow, to
   read (every step taken and the next one) or to log its steps too, with `mail.share.plan.*` in
   the five languages. Its name is `plan` because `project` is already a place in a team of
   Projects, given with a role.
 
 ## 0.212.0 — 2026-10-29
 
-- **Emails in the product's clothes, and one invitation email for every module** (Martin: the
+- **Emails in the product's clothes, and one invitation email for every module** (the
   email of a list shared with you said only that, in plain text, with no Cronum Work, no logo and
   nothing about what it is; Projects sent none). New `mail-layout.js`: one HTML layout for every
   message the suite sends —the product's icon and name over a cream sheet, a big heading ending in
@@ -2410,7 +2396,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   invitation, a deletion) go in the same layout, their link as the button (`mail.*.button`).
   New in suite.config.js: `app.mail` — `icon` (a PNG on the app; `/icons/apple-touch-180.png` by
   default), `colorOnDark`, `signature` and `about` by language — checked on start.
-- **An invitation always comes by email, and by push too** (Martin: whoever is invited in any
+- **An invitation always comes by email, and by push too** (whoever is invited in any
   module should get the email besides the notice). `sharing.js` sent the push alone to whoever had
   a device that takes it, and the email only to whoever had none; now the email goes to everyone
   and the push as well where it reaches, still once a day per pair. One that fails leaves the other.
@@ -2418,7 +2404,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 ## 0.211.0 — 2026-10-29
 
 - **A login shared with other apps goes with the account only when nobody needs it elsewhere**
-  (Martin: deleting a test account in Work kept its WorkOS user, so signing up again asked for no
+  (deleting a test account in Work kept its WorkOS user, so signing up again asked for no
   code; and someone leaving Work for good should be able to leave everything). With
   `accounts.sharedIdentity`, each app that signs in with the same WorkOS users notes itself on
   the person's user (`app_<id>` in its metadata, with the app's name): when they sign in, and
@@ -2437,14 +2423,14 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   `identity` (true or false), migration 28 (`users.delete_identity`, `user_identities.marked_at`),
   `createWorkosAccounts`' `mark` and `confirmDialog`'s `more`. It can't go with
   `deleteAtProviders`, which always deletes the login.
-- **«Erase my data» says the account stays, and where deleting it is** (Martin). Its confirmation
+- **"Erase my data" says the account stays, and where deleting it is**. Its confirmation
   adds that only the data goes and the account stays active, and, to delete the account too, to
   go to Settings › Delete my account (in a host) or to use it further down (an app on its own).
 
 ## 0.210.2 — 2026-10-29
 
-- **An assistant is named in a few letters: «vía Claude», not «vía AnthropicClaudeAI»** (Martin,
-  testing 0.207.0). Claude's web and desktop apps call themselves `Anthropic/ClaudeAI`, which the
+- **An assistant is named in a few letters: "via Claude", not "via AnthropicClaudeAI"**. Claude's
+  web and desktop apps call themselves `Anthropic/ClaudeAI`, which the
   list of known assistants didn't have, so their label was the name cleaned of its signs. The
   known names are compared now without case, spaces or signs (`Anthropic/ClaudeAI`, `claude-ai`
   and `Claude AI` are «Claude»; `claude-code` and `Claude Code` «Claude Code»…); an unknown one is
@@ -2454,16 +2440,16 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.210.1 — 2026-10-29
 
-- **On a phone, a task's row keeps its swipe and every module swipes to the next** (Martin, #47
-  in his test list: swiping a task deleted it and brought the next module in too; from Projects,
+- **On a phone, a task's row keeps its swipe and every module swipes to the next** (swiping a task
+  deleted it and brought the next module in too; from Projects,
   Next or Notes the swipe did nothing). The swipe of Cronum Work's windows (`windows.js`) now gives
   way to whatever has a sideways gesture of its own and says so with `data-own-swipe` (Tasks marks
   its rows from 1.124.1). And once a finger goes more across than down it keeps the touch's moves
   from the browser: in a module's list (a scroller) the browser took the sideways pan for itself
   whatever the desk's `touch-action` said, and cancelled the swipe; only Tasks, whose lists say
   `pan-y`, swiped. Up and down still scrolls, and what slides sideways itself still does.
-- **Inviting an email answers the same whether it has an account or not, also the second time**
-  (#693). Offered again before it was accepted, an address with an account answered `invited:
+- **Inviting an email answers the same whether it has an account or not, also the second time**.
+  Offered again before it was accepted, an address with an account answered `invited:
   false` and one without `true`, and only the second kind ever ran into the hourly limit. Now an
   offer by email not yet accepted is `invited` and counted each time, as an address without an
   account is; and one's people (`peopleOf`, the share dialog's chips) name someone known only
@@ -2480,14 +2466,14 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.210.0 — 2026-10-29
 
-- **A Save in an account's dialog in /admin says it saved** (Martin: the changes were kept, but
+- **A Save in an account's dialog in /admin says it saved** (the changes were kept, but
   the window did nothing). Its notice was there, under the dialog: a modal dialog is drawn over the
   whole page. The kit's notices (`toast`) go to the browser's top layer while a dialog is open, over
   it, in every app. And the dialog's Save of the profile and of the plan is grey until something
   differs from what was saved, says "Saving…" and then "Saved" beside it, and is grey again until
   the next change; the fold's summary says what was saved. The plan of an account that follows the
   default plan can still be saved as its own from the start, as before.
-- **/admin › Plans shows every module's limits in a host** (Martin: in Cronum Work only the calls
+- **/admin › Plans shows every module's limits in a host** (in Cronum Work only the calls
   from assistants a week showed). Those were the host's catalog; each module's (own lists, sharing,
   photos and files, storage, notebooks, active projects…) were in force but not shown. The host
   answers `GET /api/admin/plans/modules`, and the page draws a table per module under the host's,
@@ -2496,8 +2482,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.209.0 — 2026-10-29
 
-- **Paddle and RevenueCat leave the open repository** (Cronum core #8, step 5). `paddle.js` and
-  `revenuecat.js`, with their tests, are now the hosted suite's, registered from outside before
+- **Paddle and RevenueCat leave the open repository**. `paddle.js` and `revenuecat.js`, with their
+  tests, are now in the hosted service's closed parts, registered from outside before
   the app starts (`providers.js`, 0.208.0); this copy registers Stripe and `remote`, and no store
   provider. An install that names `BILLING_PROVIDER=paddle` or `STORE_BILLING=revenuecat` without
   them registered doesn't start, and is told which providers the image has. Migration 19 and the
@@ -2513,8 +2499,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.208.0 — 2026-10-29
 
-- **Payment providers by registration, never by name** (Cronum core #8: what only the hosted
-  suite uses leaves the open repositories). `BILLING_PROVIDER` and `STORE_BILLING` name what
+- **Payment providers by registration, never by name** (what only the hosted
+  service uses leaves the open repositories). `BILLING_PROVIDER` and `STORE_BILLING` name what
   `providers.js` has registered (`registerBillingProvider`, `registerStoreProvider`): each
   provider reads its own variables (`fromEnv`), its own settings of suite.config.js `billing`
   (`rules`, such as Paddle's `paddleProductIds`), the side of a price given per environment
@@ -2535,17 +2521,17 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.207.0 — 2026-10-29
 
-- **What an assistant does says which assistant it was** (Martin: «el registro de actividad dice
-  que yo he hecho todo, cuando casi todo lo hace el agente vía MCP»). Each MCP server hands its
+- **What an assistant does says which assistant it was** (the activity log said the person did
+  everything, when an agent did most of it through the MCP). Each MCP server hands its
   tools `principal.via`: the assistant the call comes from («Claude Code», «ChatGPT», «Codex»…),
   as its client named itself when the session began (`clientInfo`, `clientLabel()`). It travels
   in the session's id, so a deployment doesn't lose it; a call without a session has none. A host's
   `recordChanges` writes it in each `mcp.tool` line (`meta.via`), and the admin's Activity shows
-  it with the person: «@martin · vía Claude Code». Nothing changes for an app that doesn't read it.
+  it with the person: "@ana · via Claude Code" (`admin.audit.via`). Nothing changes for an app that doesn't read it.
 
 ## 0.206.2 — 2026-10-28
 
-- **A module installed on its own has Settings of its own too** (Martin, with Notes installed on
+- **A module installed on its own has Settings of its own too** (with Notes installed on
   its own: its switcher no longer offered the other modules, but Settings still listed their
   sections). Settings ask the same as the switcher (`installedAlone`, now in `base.js` for both):
   in a module's page installed as an app of its own, never a window of Work's shell nor a frame
@@ -2555,9 +2541,9 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.206.1 — 2026-10-28
 
-- **A phone's swipe between modules leaves alone what slides sideways itself** (Martin, in Work
+- **A phone's swipe between modules leaves alone what slides sideways itself** (in Work
   installed on an iPhone: Next's line moved and came back instead of showing what came before,
-  and swiping the Gantt took him to another module). The swipe of Cronum Work's windows
+  and swiping the Gantt went to another module). The swipe of Cronum Work's windows
   (`windows.js`) took any sideways finger in the window, and moved the window with it while the
   line or the chart tried to scroll. Now a swipe that begins on a box with more to show across
   (Next's line, a row of chips) or on one that takes sideways pans as its own (`touch-action:
@@ -2566,8 +2552,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.206.0 — 2026-10-28
 
-- **A module installed on its own shows only itself** (Martin, with Notes installed from Settings:
-  «el que solo quiera un módulo, no debería ver los otros»): its switcher offered the other
+- **A module installed on its own shows only itself** (someone who wants one module shouldn't see
+  the others): its switcher offered the other
   modules, so closing the app on one of them opened it there the next time. In an app window
   (`display-mode: standalone`, or an iPhone's home screen) a module's page whose host opens its
   app on a page of its own (`pages[].root`, Work's one-document shell, now `host.shell` in
@@ -2578,7 +2564,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.205.1 — 2026-10-28
 
-- **The confetti is seen over a dialog, and stays when it closes** (Martin, trying it in Next and
+- **The confetti is seen over a dialog, and stays when it closes** (trying it in Next and
   Projects: the confetti should come as Done or Save is pressed, not once saving is over): the burst
   goes in the browser's top layer (a manual popover) in the module's root, so a dialog's Save can
   celebrate as it is pressed, and the dialog closing doesn't take the confetti with it. Without
@@ -2586,11 +2572,11 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.205.0 — 2026-10-28
 
-- **Settings without a signal** (Martin: some parts of Settings wouldn't open offline in Cronum
+- **Settings without a signal** (some parts of Settings wouldn't open offline in Cronum
   Work, they gave an error). Settings are drawn from the install's config of last time, kept on
   this device for each app's path (`settingsConfig()`): offline each module got no
   `/api/auth/config` and drew itself as an app on its own, without Modules, deleting the account,
-  the other modules' groups or About of the whole app. Then, as Martin chose for each kind:
+  the other modules' groups or About of the whole app. Then, for each kind:
   - **What only the server knows** (Password and sign-in, Your AI, Notifications, Plan, where the
     session is open) says «Needs a connection» in its place instead of a toast and an empty
     section, and is drawn again, fresh, once the server answers.
@@ -2608,17 +2594,17 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.204.2 — 2026-10-28
 
-- **The plan's list in a host says the host's calls by the week** (Martin, testing 0.203.0: «pone
-  1000 llamadas al dia en plan pro»): Settings › Plan opened from a module listed its own features
+- **The plan's list in a host says the host's calls by the week** (in 0.203.0 Pro showed 1,000
+  calls a day): Settings › Plan opened from a module listed its own features
   and those of the other modules in use, never the host's, so Cronum Work's 2,000 calls a week
   didn't show and Next's own daily 1,000 did. The list now asks the host's root too, and by the
   week the daily line is left out (0.203.0).
 
 ## 0.204.1 — 2026-10-28
 
-- **A module installed on its own stays in its app after signing in** (Martin, from his iPhone:
-  Notes installed from Settings opened Cronum Work whole, with Tasks failing to open, «Lo ideal
-  sería que mostrase Notes sin lo demás de Work»): WorkOS's `/auth/callback` always went to `/`,
+- **A module installed on its own stays in its app after signing in** (on an iPhone, Notes
+  installed from Settings opened Cronum Work whole, with Tasks failing to open, where it should have
+  shown Notes alone): WorkOS's `/auth/callback` always went to `/`,
   which in Cronum Work is its one-document shell, outside an installed module's scope, so iOS
   showed it in a sheet over the module. The sign-in screen's buttons now say where they were
   (`/auth/login?return=/notes/`, the whole window's page when framed), WorkOS keeps it in its state
@@ -2627,7 +2613,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.204.0 — 2026-10-28
 
-- **The celebration when something is done is the suite's** (Martin asked for Tasks' option to be
+- **The celebration when something is done is the suite's** (Tasks' option made
   a general one, for every module and Cronum Work's calendar): `web/celebrate.js`, taken from Tasks, with
   `celebrate(origin, { root })` —confetti from what was ticked and the "ding"— and `playStep()`
   for a part done. Its confetti is animated with the
@@ -2640,35 +2626,34 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.203.1 — 2026-10-28
 
-- **Cronum Work opens on its shell offline, not on the home** (Martin, with the phone app in
-  airplane mode: «tengo el mismo problema»): offline, a navigation that the network didn't answer
+- **Cronum Work opens on its shell offline, not on the home** (the phone app in
+  airplane mode): offline, a navigation that the network didn't answer
   got `/index.html` from the copy before the page kept at its own path. In a host whose start is a
   page of its own (Work's shell at `/`, `pages[].root`), `/index.html` is the home that chooses
   modules, so the installed app and the phone app, which open `/`, got the home, which needs the
-  server, and showed «Algo ha fallado». The page kept at the path asked for comes first now; an app
+  server, and showed "Something went wrong" (`errors.generic`). The page kept at the path asked for comes first now; an app
   on its own keeps the same page at both, and a module's route without a page of its own still
   gets its module's index.
 
 ## 0.203.0 — 2026-10-28
 
-- **Calls from assistants by the week** (Martin: «estoy viendo que quizas podriamos cambiar a "uso
-  por semana" como hacen los planes de IA … 100 llamadas al dia es muchisimo y nadie querria pasar
-  al plan pro porque nunca llegarian»): a new common feature, `mcp.calls_per_week`, counted from
+- **Calls from assistants by the week** (as AI plans count them: 100 calls a day was so many that
+  nobody would reach it and move to Pro): a new common feature, `mcp.calls_per_week`, counted from
   Monday 00:00 UTC. An app that declares it is counted by the week instead of by the day
   (`countWeekly()`, and `weeklyLimitText()` for the assistant when they are used up). Its uses are
   kept by the day under `mcp.calls_per_day`'s key, so a host that moves to it keeps the days it
   already counted. In `cronum-work`, Free has 100 a week and Pro and Team 2,000; `mcp.calls_per_day`
-  stays as it was (100, 1,000) for whoever still declares it, and Focus and Tracker are untouched.
+  stays as it was (100, 1,000) for whoever still declares it, and the other catalogs are untouched.
   New: `entitlements.countWeekly()`, `better()`, `usedThisWeek()` and `weekStart()`.
 - **The usage panel by the week**: with the calls counted by the week, `GET /api/me/usage` and the
   admin's add `period: 'week'`, `week` (this week's) and `more` (the next plan with more, or null).
-  Settings › Plan › Your usage shows this week only: «Esta semana», «Se renueva el lunes» and a bar
+  Settings › Plan › Your usage shows this week only: "This week", "Starts again on Monday" and a bar
   for each day, Monday to Sunday, with their initials and the days still to come empty, without an
   average. The limit shows while a bigger plan has more to offer, or from 75 % of it: on the top
   plan a bar almost empty would only say how little it is used, so it says the calls alone. The
   admin sees the limit always and the last four weeks from Monday, a gap before each, with the
-  average a week since the account was made. A plan's list says «100 llamadas a la semana desde tu
-  IA», and leaves out the daily calls a module of the host still declares. By the day everything
+  average a week since the account was made. A plan's list says "100 calls a week from your AI",
+  and leaves out the daily calls a module of the host still declares. By the day everything
   is as it was.
 
 ## 0.202.3 — 2026-10-28
@@ -2684,14 +2669,14 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   signal showed the modules without their styles. With `scopedSheets` the host's one worker keeps
   them from the start, with no hash of their own: the kit writes them too, so they always travel
   again.
-- **Installing says every module works offline**: Settings › Modules' «Instalar en tu dispositivo»
+- **Installing says every module works offline**: Settings › Modules' "Install on your device"
   said only Tasks and Notes went on offline; Projects and Next do too now (Projects 0.82.0, Next
   0.59.0), so its third step says the work goes on without a connection, whichever module it is.
 
 ## 0.202.2 — 2026-10-28
 
-- **The MCP works on a computer with Avast** (Martin: «esto se puede arreglar para no tener ese
-  fallo?», about the suite's tests failing on his PC): Avast's Web Shield, with its MCP detection,
+- **The MCP works on a computer with Avast** (the suite's tests failed on such a computer):
+  Avast's Web Shield, with its MCP detection,
   rewrites any answer to a path ending in `/mcp` (or a GET ending in `/sse`) that has a
   `Content-Length` into one that says `transfer-encoding: chunked` and isn't, so the client fails
   with «Invalid character in chunk size». It happened to every MCP client on such a computer,
@@ -2703,26 +2688,24 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.202.1 — 2026-10-28
 
-- **A third step for installing** (Martin: «me faltaria un tercer paso en las instrucciones, algo
-  asi como: la app instalada guarda los datos en local y puedes usarla sin conexion»): Settings ›
-  Modules' «Instalar en tu dispositivo» ends with what installing gives: it opens like any other
+- **A third step for installing**: Settings › Modules' "Install on your device" ends with what
+  installing gives: it opens like any other
   app and keeps what was already seen on the device, to look at without a connection; in Tasks and
   Notes the work goes on offline too, sent when the connection is back (Next and Projects show
   what they last had, but don't change offline).
 ## 0.202.0 — 2026-10-28
 
-- **The calls from assistants averaged over the days the account has** (Martin: «si solo lleva x
-  dias de alta, el numero que sale no es representativo … que solo cuente desde ese momento y diga
-  "ultimos x dias: Y llamadas"»): in /admin › Users › Usage and in Settings › Plan › Your usage,
-  an account younger than a month says «Últimos 3 días: 91 llamadas, 30,3 al día de media» (and
-  «Primer día: …» on the day it is made); from its 30th day, the last 30 as before. The usage's
+- **The calls from assistants averaged over the days the account has** (for an account only a few
+  days old, the number shown said nothing): in /admin › Users › Usage and in Settings › Plan › Your usage,
+  an account younger than a month says "Last 3 days: 91 calls, 30.3 a day on average" (and
+  "First day: …" on the day it is made); from its 30th day, the last 30 as before. The usage's
   `mcp` carries `since`, the day of `users.created_at`, and `countedDays(mcp)` (usage-view.js)
   counts from it, or from the first call if that is earlier (an account brought from an app).
   The chart is still the month, today the last, the days before the account an empty slot.
-- **Each bar of the month says its day and calls** («al pasar el raton por encima de una barra te
-  diga las llamadas de ese dia»): every day is now a column as tall as the chart, so a quiet day
+- **Each bar of the month says its day and calls** (pointing at a bar should say that day's
+  calls): every day is now a column as tall as the chart, so a quiet day
   is as easy to point at as a busy one, and pointing at it, or tapping it on a phone, shows
-  «29 oct 2026: 5 llamadas» above the chart, kept inside it at both ends. It replaces the
+  "Oct 29, 2026: 5 calls" (`kit.usage.dayCalls`) above the chart, kept inside it at both ends. It replaces the
   browser's `title`, which only showed on the bar itself and never on a phone.
 - Texts: `kit.usage.month` is now `kit.usage.lastDays` (`{n}` the days, `{calls}`, `{avg}`; a
   plural), with `kit.usage.calls`; `kit.usage.dayCalls` takes `{calls}` instead of `{n}`. An app
@@ -2730,16 +2713,15 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.200.0 — 2026-10-28
 
-- **Each person puts the modules in their own order** (Martin: «seria posible que el usuario
-  reordene los modulos segun su preferencia? … asi en la barra los iconos se muestran en el orden
-  escogido»): in Settings › Modules each row has a grip, dragged up or down, or pressed for «Move
-  up» and «Move down» (the keyboard and a screen reader too). `PUT /api/me/modules/order` keeps
+- **Each person puts the modules in their own order**, and the bar shows their icons in that
+  order: in Settings › Modules each row has a grip, dragged up or down, or pressed for "Move
+  up" and "Move down" (the keyboard and a screen reader too). `PUT /api/me/modules/order` keeps
   it (`host_module_order`, migration 7 of the host), and `GET /api/modules` lists the modules in
   that order, so the rail, a phone's tabs, Settings and the host's home all follow; one the host
   adds later comes last. The order isn't which they use: a module turned off keeps its place.
-- **Installing on this device, step by step** (Martin: «no se entiende bien porque puede parecer que
-  se refiere a la pantalla de inicio de work»): Settings › Modules' «Iconos en la pantalla de
-  inicio» is now «Instalar en tu dispositivo». On the web: install the host or each module on its
+- **Installing on this device, step by step** (the old title could be read as Work's own home
+  screen): Settings › Modules' section of icons on the home screen is now "Install on your
+  device". On the web: install the host or each module on its
   own, 1) click or tap the one you want (its button, now just its name), 2) this device's way
   (\`installKind\`: an iPhone or iPad, Android, Safari on a Mac, Chrome or Edge, or that Firefox
   installs nothing on a computer). In the suite's app, which is the host installed already, only
@@ -2747,8 +2729,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.199.0 — 2026-10-28
 
-- **A module turned off leaves Cronum Work's windows at once** (Martin: «desmarcar modulos no hace
-  que dejen de verse sus iconos en la barra lateral o inferior»): windows.js `drop(module)` takes
+- **A module turned off leaves Cronum Work's windows at once** (a module unticked kept its icon in
+  the side or bottom bar): windows.js `drop(module)` takes
   its window out of the layout, as it shows and as it is kept on the device, and its tab out of a
   phone's bar; the windows that stay take its room (with none left, the first module shows), and
   the shell gets it back through `onEvict` to unmount it.
@@ -2759,9 +2741,9 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.198.0 — 2026-10-28
 
-- **Maximize and restore without a stretched window** (Martin: «al estar en una ventana mas pequeña
-  queda distorsionado … No se puede buscar otra transicion? no del contenedor, que eso esta bien,
-  sino del contenido»): the window's box still grows or shrinks to its place, and in it what it
+- **Maximize and restore without a stretched window** (in a smaller window the content looked
+  distorted; the box's transition was right, the content's was not): the window's box still grows
+  or shrinks to its place, and in it what it
   shows now comes in over what it showed, each drawn at its own size from the top corner, never
   scaled (a view transition: windows.js `crossfade`, windows.css `cw-win-max`). The other windows
   fade with the page. Browsers without view transitions, and a restore that is part of another
@@ -2770,14 +2752,14 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.197.1 — 2026-10-27
 
-- **"Desactivado"** in Spanish under Settings › Modules' "Mostrar el calendario", not "Apagado". And
-  suite-core's own tests now check that no Spanish text says "apagar": until now only Tasks'
+- **One Spanish word for "Off"** under Settings › Modules' "Show the calendar", the one the rest of
+  the suite uses. And suite-core's own tests now check that no Spanish text uses the other: until now only Tasks'
   smoke test did, so a word written here failed later, in the app that bumped the submodule.
 
 ## 0.197.0 — 2026-10-27
 
-- **The calendar, framed by the host's own pages** (Martin: «quizas el calendario podria ser una
-  ventana como las de los modulos»): a host with a calendar and `pages` of its own lets those
+- **The calendar, framed by the host's own pages** (so the calendar can be a window like the
+  modules'): a host with a calendar and `pages` of its own lets those
   pages frame the calendar's page (`frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`), so
   Cronum Work's shell can open it in a window. Every other page of the root is still framed by
   nobody, and a host without `pages` keeps its calendar unframed. `createApp({ frames })` takes a
@@ -2785,8 +2767,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.196.0 — 2026-10-27
 
-- **Two questions the first time** (Martin, for the beta: «un par de preguntas cuando se abre work
-  por primera vez estaria bien»): with `createHost({ firstQuestions: true })` the host's first
+- **Two questions the first time** (for the beta, when Work is opened for the first time): with
+  `createHost({ firstQuestions: true })` the host's first
   start may ask, once and skippable, how someone heard of the app (`HEARD_FROM`: reddit, social,
   friend, search, other) and whether they have a channel, blog or newsletter, with its address.
   `GET /api/modules` says `first_questions: true` until they answer or skip
@@ -2797,8 +2779,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.195.0 — 2026-10-26
 
-- **The calendar's button, for whoever wants it** (Martin: «así la vista no se le complica a quien
-  quiera una UI simple»): Settings › Modules has a switch, "Show the calendar", off to begin with.
+- **The calendar's button, for whoever wants it** (so the view stays simple for whoever wants a
+  plain interface): Settings › Modules has a switch, "Show the calendar", off to begin with.
   On, the rail has the Calendar button (on a phone, the modules' menu); off, the rail is as it was.
   `GET /api/modules` says `host.calendar` only to whoever has it on, and `calendar_shown` to
   everyone where the host has a calendar; `PUT /api/me/calendar { shown }` changes it (new host
@@ -2817,8 +2799,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.193.4 — 2026-10-26
 
-- **Rows don't light up as a fold moves under a still pointer** (Martin: «como si se seleccionase
-  muy brevemente el panel»): switching groups in Settings slid the list under the mouse, and each
+- **Rows don't light up as a fold moves under a still pointer** (as if the panel were selected for
+  an instant): switching groups in Settings slid the list under the mouse, and each
   row passing beneath it took the hover colour for an instant, then the one left under it lit up
   at the end. While a fold moves, and until the pointer moves again, the root says so
   (`data-kit-folding`) and Settings' rows, the sidebar's entries and its fold headings keep their
@@ -2826,7 +2808,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.193.3 — 2026-10-26
 
-- **No blink or jump when one fold closes as another opens** (Martin, in Settings): each motion
+- **No blink or jump when one fold closes as another opens** (in Settings): each motion
   holds its last frame until the fold is put as it ends, so no frame shows the closing one whole
   for an instant (Safari drew one between the end and the hiding); and a fold's padding shrinks
   with it, so the one closing goes all the way to nothing instead of stopping at 6 px and
@@ -2834,7 +2816,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.193.2 — 2026-10-26
 
-- **Folds move so it shows** (Martin: «no veo que se abran de forma fluida»): the slide lasts
+- **Folds move so it shows** (they didn't seem to open smoothly): the slide lasts
   320 ms on an even curve (it used to cover two thirds of the way in the first 45 ms, which read
   as instant), and what a fold holds fades in and out with it. Where the person asks for less
   motion a fold no longer jumps: what it holds fades in or out in 160 ms, without sliding. The
@@ -2842,7 +2824,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.193.1 — 2026-10-26
 
-- **Two-step verification says whether it is on** (Martin; `web/settings.js`, `web/kit.css`,
+- **Two-step verification says whether it is on** (`web/settings.js`, `web/kit.css`,
   `i18n/*.json`). Its block in Settings › Password and sign-in now opens with a badge, **On** (green,
   with a tick) or **Off**, instead of leaving it to the first word of the text and the Turn off
   button. The texts under it lose that first word (`kit.twoFactor.off`, `.on`, `.onNoCodes`); new
@@ -2860,7 +2842,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.192.2 — 2026-10-26
 
-- **About shows Cronum Work's version again, from every module** (Martin): a module mounted in a
+- **About shows Cronum Work's version again, from every module**: a module mounted in a
   window of Work's shell starts no update watcher of its own (the shell's is the whole app's), so
   its Settings › About had none: «—» for the version, no module's version on its card, and «Check
   for updates» answered that the server couldn't be asked, though the shell's notice of a new
@@ -2868,7 +2850,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   (`workRegistry().updates`, and its `applyUpdate`, which waits for the whole app's worker).
 ## 0.192.1 — 2026-10-26
 
-- **Cronum Work installs from its split view too** (Martin): installing it from an address like
+- **Cronum Work installs from its split view too**: installing it from an address like
   `/?w=tasks:…|notes:&f=notes`, Chrome said the page had no manifest, though it has one. Chrome
   asked for the page outside a navigation (in its console, the FetchEvent of that address), and the
   worker took it for a file: its fetch failed with no copy to give, and the error was the answer. A
@@ -2877,7 +2859,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.192.0 — 2026-10-26
 
-- **One test kit for every app** (`tools/test-kit.mjs`, audit tests-4 / A18): the helpers each
+- **One test kit for every app** (`tools/test-kit.mjs`): the helpers each
   module's smoke test and Work's tests had their own copy of, drifting apart, are the suite's:
   `createHarness()` (`check`, `section`, `started`, `fail`, the report written in one go with the
   failures repeated last, `assertPassed()` under `node --test`), `client()` (its session cookie,
@@ -2892,7 +2874,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.191.3 — 2026-10-26
 
-- **Menus stay inside their window in Cronum Work** (Martin): with the windows side by side, a menu
+- **Menus stay inside their window in Cronum Work**: with the windows side by side, a menu
   opened near a window's end (the category to pin in Tasks' bar, a list's ⋯) went past it and was
   cut off, as a window keeps what it holds inside it, though it had room on the screen. `menu()`
   now fits in the window it hangs in (`.cw-win__body`), as it fits in the screen elsewhere, and
@@ -2900,7 +2882,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.191.2 — 2026-10-26
 
-- **Settings cover the whole of Cronum Work in its shell** (Martin): with the windows side by side,
+- **Settings cover the whole of Cronum Work in its shell**: with the windows side by side,
   Settings opened from Projects or Next stayed inside that module's window, since those modules
   hand `openSettings` their window as `root` and a window keeps what it holds inside it; from Tasks
   and Notes they covered the page. In Work's shell they now hang on the page's body whatever `root`
@@ -2912,13 +2894,13 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.191.1 — 2026-10-26
 
-- **"Desactivado" and "Activado"** in Spanish under Your AI's switch for all the tools, not
-  "Apagado" and "Encendido": a switch is activated and deactivated, as everywhere else in the suite
+- **Spanish says "On" and "Off"** under Your AI's switch for all the tools with the words the rest
+  of the suite uses for a switch
   (Tasks' smoke test checks its catalog for it).
 
 ## 0.191.0 — 2026-10-26
 
-- **Folds slide open and shut** (Martin): the groups of Settings' list, the instructions in Your AI
+- **Folds slide open and shut**: the groups of Settings' list, the instructions in Your AI
   and the account's folds in /admin open and close in a short movement instead of at once; a tap in
   the middle turns them back from where they got to, and where the person asks for less motion
   they stay instant. `ui.js` exports what does it: `slideHidden(node, hide)` for a fold of a list,
@@ -2930,7 +2912,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.190.1 — 2026-10-26
 
-- **No black line around a section of Settings** (Martin, with screenshots): a section takes the
+- **No black line around a section of Settings**: a section takes the
   focus when it opens, and the kit's focus ring drew a 2 px line in the accent colour (near black
   in the clean look) under the section and, in a swipe back, along its edge. The page keeps the
   focus, for the keyboard and a reader, without a ring, as the drawer does.
@@ -2955,8 +2937,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.189.0 — 2026-10-26
 
-- **Going back with a finger slides the screen away, instead of the one before just appearing**
-  (Cronum core nº 12, Martin: «de forma tosca»): from the screen's start edge, the screen on top
+- **Going back with a finger slides the screen away, instead of the one before just appearing**.
+  From the screen's start edge, the screen on top
   follows the finger with a shadow, over the one it goes back to, which comes in a little behind.
   On lifting the finger it goes all the way, or comes back to its place, by how far the finger went
   (the drawer's measure) or how fast at the end (a flick). A phone's detail slides over its list;
@@ -2966,7 +2948,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.188.0 — 2026-10-26
 
-- **Sharing, the same in every module** (`sharing.js`, audit A6). `createSharing({ db, kinds,
+- **Sharing, the same in every module** (`sharing.js`). `createSharing({ db, kinds,
   notify, brake })` is Notes' engine, which was already written for any table: each kind names the
   table of its offers and the column naming the thing, and brings its own rules as hooks (who may
   see it, what else happens when it is offered or left, what a route answers). It offers by email,
@@ -2979,7 +2961,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   tables that lack a column).
 - **The notice of a new offer goes by push when the person has a device that takes it, else by
   email** (`notify: { push, email }`, each the module's, with its words), always behind the brake.
-- **The brake on invitations in the suite** (`share-brake.js`, A3): `createShareBrake()` counts new
+- **The brake on invitations in the suite** (`share-brake.js`): `createShareBrake()` counts new
   offers and addresses without an account per hour (429 `share_limit`) and lets one notice per pair
   of people through a day, however often the offer is taken back and made again. An address
   answers the same whether an account has it or not, and nothing is created for one without. A
@@ -3015,7 +2997,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 ## 0.186.0 — 2026-10-26
 
 - **`PATCH /api/me` and the account as the browser sees it, once for every module** (`createApp({ prefs })`,
-  prefs.js, api.js `registerMeApi`; audit 2026-10-23 A7). Tasks, Projects, Next and Notes each had
+  prefs.js, api.js `registerMeApi`). Tasks, Projects, Next and Notes each had
   their own copy of the profile route, of reading `users.prefs` and of what the browser sees of an
   account, and they had drifted (Next and Notes never sent `has_password`, which Settings reads;
   Projects let a session set a password on an identity provider's account). A module now says only
@@ -3032,7 +3014,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   `prefs` and `avatarColor` too. An app without `prefs` keeps its own routes, as before.
 - **The browser's time zone, told once** (`web/time-zone.js` `reportTimeZone(user, { send })`): what
   Tasks and Notes each did on their own, for every module, so the day an assistant reads is the
-  person's in all of them (A5).
+  person's in all of them.
 
 ## 0.185.0 — 2026-10-26
 
@@ -3114,8 +3096,8 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.180.0 — 2026-10-26
 
-- **A swipe from the screen's start edge goes back in Settings, as its ← does** (Cronum core nº 12,
-  Martin): from a section to the list on a phone, then out of Settings. Before, the frame kept that
+- **A swipe from the screen's start edge goes back in Settings, as its ← does**: from a section to
+  the list on a phone, then out of Settings. Before, the frame kept that
   edge from Safari and did nothing with it while Settings covered it. A page over the frame with a
   way back of its own says so with `holdBack(node, back)` (ui.js), and the frame's edge swipe
   (shell.js) goes back there first; each module's copy of the kit keeps its own, so in Work's shell
@@ -3124,48 +3106,48 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.170.1 — 2026-10-26
 
-- **Maximize and restore take 280 ms** (`windows.js` `MAX_MS`, Martin: «un poco lento»): they took
+- **Maximize and restore take 280 ms** (`windows.js` `MAX_MS`): they took
   the 420 ms of windows trading places while one is carried, which for a click felt slow. Same
   spring and pacing; the other windows fade in 0.25 s (was 0.3 s). Reordering is unchanged.
 
 ## 0.170.0 — 2026-10-25
 
-- **A window maximizes over the whole desk, and comes back to its place** (`windows.js`, Martin):
+- **A window maximizes over the whole desk, and comes back to its place** (`windows.js`):
   a button at the end of each head, or a double click on the head, gives its window the desk over
   the others, which fade out; it slides and grows there as windows do when they trade places
-  (420 ms, paced on our own clock), and the same button, now «Restaurar», takes it back to its place
+  (420 ms, paced on our own clock), and the same button, now "Restore", takes it back to its place
   and size. The layout under it isn't changed or kept; showing another window, moving, focusing
   another or a phone's screen restores it first. `windows.maximize(module | null)` and
   `windows.maximized`; new icons `maximize` and `restore`.
 
 ## 0.169.1 — 2026-10-25
 
-- **In Work's shell the button that folds the sidebar shares the search's line** (Martin: on a computer
+- **In Work's shell the button that folds the sidebar shares the search's line** (on a computer
   it took a line of its own): with `createShell({ embedded: true, search })` the sidebar starts with one
   line (`.kit-side__top`), the search and then the button. Without a search, or an app on its own, the
   head is as before; in a phone's drawer the button is hidden as ever and the search takes the line.
 
 ## 0.169.0 — 2026-10-25
 
-- **A module's search at the top of its sidebar, the same in every module** (`createShell({ search })`,
-  Martin: Tasks had its own there, with narrow, uneven margins; Notes its own above the notes; Projects
+- **A module's search at the top of its sidebar, the same in every module** (`createShell({ search })`;
+  Tasks had its own there, with narrow, uneven margins; Notes its own above the notes; Projects
   and Next none). `search: { label, placeholder?, onInput(text), onSubmit?(text) }` draws it as the
   sidebar's first line (`.kit-side__search`), 12px from its top and its sides; Escape empties it,
   Enter closes the phone's drawer so the results show; `shell.search` is the field. Its box alone
   shows the focus.
-- **On a phone the floating button alone creates**: the sidebar's own button (`create`, «Nota nueva»)
+- **On a phone the floating button alone creates**: the sidebar's own button (`create`, "New note")
   is shown only where the sidebar sits beside the views, where the floating one is gone.
-- **A phone's tab in use is marked** (`windows.css`, Martin: pressing one, nothing showed which): its
+- **A phone's tab in use is marked** (`windows.css`: pressing one, nothing showed which): its
   icon sits on a pill and its name in the text's colour; the others' icons and names step back.
 
 ## 0.168.0 — 2026-10-25
 
-- **A phone's tabs have room above their icons** (`windows.css`, Martin on the iPhone): 12px between
+- **A phone's tabs have room above their icons** (`windows.css`, on the iPhone): 12px between
   the bar's top line and the icons (it was about 6), 2px under the names before the home bar's half.
 
 ## 0.167.0 — 2026-10-25
 
-- **A phone's tabs sit lower in their bar** (`windows.css`, Martin on the iPhone: the icons looked
+- **A phone's tabs sit lower in their bar** (`windows.css`; on the iPhone the icons looked
   off centre, high in the bar). The bar kept all the home bar's room under them; it keeps half now.
 
 ## 0.166.0 — 2026-10-25
@@ -3207,7 +3189,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
   (`/api/events?all`) says `replayed` and takes `&last=` the same way.
 ## 0.164.0 — 2026-10-25
 
-- **A phone's tabs in Work's shell keep their own look** (`windows.js`, Martin on the iPhone: a tab
+- **A phone's tabs in Work's shell keep their own look** (`windows.js`; on the iPhone a tab
   pressed stayed marked, in the window's type, and Notes' kept a grey ground). Each tab carried
   `data-module`, which is what a module's scoped sheet takes as its window (`@scope
   ([data-module="notes"])`), so the sheet's page rules (`html, body`) styled the tab once the
@@ -3255,7 +3237,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.160.0 — 2026-10-25
 
-- **A module in a window of Work's shell fits the iPhone** (Martin's screenshots of Work installed):
+- **A module in a window of Work's shell fits the iPhone** (Work installed on it):
   a window is never at the screen's top or bottom, but each module kept the room of the notch and
   of the home bar too, so a band was left above and below. Inside a window the kit's
   `--kit-safe-top`/`--kit-safe-bottom` are 0 (`windows.css`), and a module's own
@@ -3288,7 +3270,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 - **Windows give way as magnets** (`windows.js`). Until now the window a carried one came over
   sat still until the pointer crossed into it, then crossed the whole screen at once, mostly under
-  the carried one: Martin saw no slide. Now it gives way as it is covered: pushed toward the place
+  the carried one: no slide could be seen. Now it gives way as it is covered: pushed toward the place
   it would take, up to 40 % of the way, back again if the carried one backs off; past 55 % the two
   trade places and it slides on to its new place from where it was pushed (a window that just
   traded places isn't pushed back, it only trades back past 70 %). Let go short of that, they go
@@ -3328,7 +3310,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 ## 0.154.0 — 2026-10-23
 
 - **Cronum Work in one page: what the kit and the host give its one-document shell** (Work's
-  `WORK_SHELL`, its r2/ventanas.md). Every module opens in a window of one page with
+  `WORK_SHELL`). Every module opens in a window of one page with
   `mount(root, ctx)` instead of a page or a frame each. Everything here is new and off by default:
   an app on its own, a host without the new options and today's module pages behave as before.
   - `web/mount.js`: the shell's page registry (`workRegistry()`), the module a copy of the kit
@@ -3354,7 +3336,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 - **"Today" is the person's, in every module that adopts it** (`time.js`). Tasks reads today in
   the zone the person's browser reported (`prefs.tz`); Projects, Next and Notes each read it their
   own way, mostly in the server's zone, so at six in the evening in New York "tomorrow" was already
-  the day after (audit 2026-10-23, A5). `time.js` is Tasks' `today.js` for everyone:
+  the day after. `time.js` is Tasks' `today.js` for everyone:
   - `knownTimeZone(zone)`: the canonical IANA name ("europe/madrid" → "Europe/Madrid"), or null.
   - `zoneOf(user)`: their `prefs.tz` (text or object), else `SERVER_TIME_ZONE` (`TZ`, as today).
   - `inZoneOf(user, fn)`: runs a request or a tool call in their zone, through awaits;
@@ -3368,9 +3350,9 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 - **What the MCP tools are written with, once for every module, and a shorter `tools/list`**
   (`mcp-kit.js`). Each module carried the same skeleton (`text`, `S`, the four annotation sets, a
-  describeError with the same "Options:" block) and the copies had drifted (audit 2026-10-23,
-  mcp-cross-3). And `tools/list`, ≈17 500 tokens for Cronum Work in every conversation, repeats
-  long parameter descriptions word for word across tools (mcp-cross-1).
+  describeError with the same "Options:" block) and the copies had drifted. And `tools/list`,
+  ≈17 500 tokens for Cronum Work in every conversation, repeats long parameter descriptions word
+  for word across tools.
   - `text(s)`; `S.string/bool/int/number/list`; `READS`, `ADDS`, `SETS`, `DESTRUCTIVE`.
   - `tool({ kind: 'read'|'add'|'set'|'destroy', params, required, openWorld, ...rest })`: the
     annotations from `kind`, a closed `inputSchema` from `params` and `required`.
@@ -3387,7 +3369,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 - **One way to turn names and dates as people say them into items, for every module's MCP**
   (`resolve.js`, `dates.js`, `mcp.js`). Tasks, Projects and Next each had a copy of the same
   scoring, drifted apart: only Next asked before writing on an unclear match, only Tasks folded
-  "Straße" and "Œufs", and Projects rolled "31/02" into March (audit 2026-10-23, A4, verify-b).
+  "Straße" and "Œufs", and Projects rolled "31/02" into March.
   Nothing changes for an app until it adopts them.
   - `resolve.js`: `matchByName(items, ref, { label, getName, strict, create, stopwords })`,
     `score`, `nameKey` (accents and signs folded, every alphabet and emoji kept), `keywords`,
@@ -3415,7 +3397,7 @@ From the audit of 30/10 (service worker, the host, Work's shell):
 
 ## 0.148.0 — 2026-10-23
 
-Dead code out (the audit of 23 October, wave 1). Nothing a person sees changes, except an
+Dead code out. Nothing a person sees changes, except an
 assistant that still calls a tool by a name `tools/list` no longer announces.
 
 - **No more MCP aliases** (`mcp.js`, `host.js`, `app.js`). `createMcpServer` no longer takes
@@ -3448,7 +3430,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   (`workos-events.js`, `workos.js`, `app.js`, `host.js`). With WorkOS, "Forgot your password?" on
   AuthKit's page is how people get back into an account they think someone else got into, and it
   happens at WorkOS: the app was never told, so every session, API token, phone and AI client here
-  outlived the reset (audit 2026-10-23, verify-a, last row of the revocation matrix). Now whoever
+  outlived the reset. Now whoever
   owns the accounts (createApp's `listen()` for an app on its own, the host's once for all its
   modules) asks WorkOS's Events API every minute for `password_reset.succeeded` and, for each one
   about an account here, calls `revokeEverything(userId, { keep: null, reason: 'workos_password_reset' })`.
@@ -3486,8 +3468,8 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   document on their own domain) with their own redirect URI, and then hand out
   `https://<app>/oauth/authorize?client_id=<theirs>&redirect_uri=<theirs>&response_type=x`: the
   client and the redirect matched, the request didn't, and the error went back to that address
-  with an immediate 302 — a link on Cronum's domain that lands on a phishing page (audit
-  sc-oauth-mcp-1, RFC 9700 §4.11.2). A wrong `response_type`, a missing or malformed PKCE
+  with an immediate 302 — a link on Cronum's domain that lands on a phishing page (RFC 9700
+  §4.11.2). A wrong `response_type`, a missing or malformed PKCE
   challenge, or another `resource` now show the "can't connect" page here, with the reason
   (`oauth.error.request_invalid`), as an unknown client or an unregistered redirect already did.
   Claude and ChatGPT always send these right, so nothing changes for them. "Cancel" still goes
@@ -3499,8 +3481,8 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   `http.js`, `app.js`, `legacy-domains.js`). `callTool` passed the arguments to the tool as they
   came, so the `enum`, `required`, `minimum`/`maximum` every tool already declares were only
   advice: a `lag` of 2e8 days or a start on `2026-13-01` reached Projects' store and left the
-  project, and the project list of everyone in it, answering 500 (audit projects-mcp-store-1,
-  mcp-cross-4). Now `argumentProblems(inputSchema, args)` runs after the plan check and before a
+  project, and the project list of everyone in it, answering 500. Now
+  `argumentProblems(inputSchema, args)` runs after the plan check and before a
   call of the day is spent: types, `enum`, `required`, `minimum`/`maximum` and the exclusive ones,
   `minLength`/`maxLength`, `minItems`/`maxItems`, `pattern`, `anyOf`/`oneOf`, nested `properties`
   and `items`, and `format: 'date'`. A call that doesn't fit gets `isError` and a sentence of what
@@ -3523,7 +3505,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - **`isoDate(value, { minYear = 1900, maxYear = 2200 })`** (`http.js`): a `YYYY-MM-DD` that
   exists (round trip through `Date.UTC`) and falls in the range, the same text back, or null.
   `2026-13-01`, `2026-02-31` and the year 2206 are not dates. One check for every module's
-  `dateOrNull`/`parseDate` and the MCP's `format: 'date'` (audit verify-b A, projects-client-2).
+  `dateOrNull`/`parseDate` and the MCP's `format: 'date'`.
   The modules' schemas (`S.int`, `S.string` in each `mcp-tools.js`) can now declare `minimum`,
   `maximum` and `format: 'date'` and have them hold.
 ## 0.142.0 — 2026-10-23
@@ -3835,9 +3817,9 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 
 ## 0.118.0 — 2026-10-22
 
-- **Talk leaves the suite** (`web/tokens.css`, `tools/i18n.mjs`). PapaTalk is no longer a Cronum
-  Studio product: `--cr-product-papatalk` and the `:root[data-app="papatalk"]` accent are gone, and
-  `Talk` is no longer one of `BRAND_WORDS`. An app that used them sets `--app` itself.
+- **An app leaves the suite's tokens** (`web/tokens.css`, `tools/i18n.mjs`): its `--cr-product-*`
+  colour and its `:root[data-app]` accent are gone, and its name is no longer one of
+  `BRAND_WORDS`. An app that used them sets `--app` itself.
 
 ## 0.117.0 — 2026-10-22
 
@@ -4164,8 +4146,8 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 
 - **The connect page as a suite piece** (new `device-pages.js` and `web/connect.js`, `config.js`,
   `app.js`, `host.js`; `devices.connectPage`). An app or a host with `modules.devices` that sets
-  `devices: { connectPage: true }` gets `/devices/connect` from the suite, ported from Tracker's
-  own page (which Tracker keeps): the native app opens it in the system browser with
+  `devices: { connectPage: true }` gets `/devices/connect` from the suite, a page an app had of its
+  own (and keeps): the native app opens it in the system browser with
   `?code_challenge&state&redirect_uri&name&platform`, the person signs in and allows the device,
   and the page asks `POST /api/devices/codes` and goes back to the app with the code (Cancel goes
   back with `error=access_denied`). A query that is not a request the core takes goes to the bare
@@ -4189,7 +4171,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   nullable `sessions.device_id`: every app gets them, and they stay empty without the option.
 - **The service worker never answers `/devices/session`** (`web/sw-core.js`): a one-time code is
   never served from a copy, nor a page put in its place when the network is slow.
-- Without the new options nothing changes: an app with `modules.devices` (Tracker) serves neither
+- Without the new options nothing changes: an app with `modules.devices` serves neither
   page nor `/api/devices/web-session`, and its configuration's `devices` keeps its shape. A host
   with either option refuses a module mounted at `/devices/`.
 
@@ -4298,7 +4280,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   A sidebar or a list drawn again whole keeps how far its box was scrolled (the container, or the
   nearest box above it that scrolls), and while something is carried (`data-kit-dragging`) it
   isn't drawn: it waits for `kit-dragend` and draws once, with the last `draw` asked for. Notes
-  0.29.1 did both by hand in its sidebar and Tasks kept the scroll by hand (#72 there); now every
+  0.29.1 did both by hand in its sidebar and Tasks kept the scroll by hand; now every
   app does it with one call, in its sidebar and in its lists. Nothing changes for an app that
   doesn't use it.
 
@@ -4477,7 +4459,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 ## 0.88.0 — 2026-10-16
 
 - **`shell.destroy()`**: the frame `createShell()` made, taken down for an app that draws it again
-  without reloading the page (Focus after a new language or a refresh, Tracker closing its frame).
+  without reloading the page (after a new language or a refresh, or closing its frame).
   Every listener the frame adds, on the document, the window and its own nodes, now shares one
   `AbortController`, and `destroy()` aborts it; the click swallowed for 400 ms after a drag of the
   drawer keeps its line as it was (Tasks' smoke test reads it) and `destroy()` removes it by hand; a
@@ -4504,7 +4486,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   `managed`, `maxPerUser` and `onEmpty`, checked on start (an unknown key, a kind's name that isn't
   up to 40 lowercase letters, digits, - and _ starting with a letter (`KIND_NAME`), or a wrong value
   stops it, saying which). Not a data copy's `copyKinds` (portability.js), which lists the kinds a
-  copy carries. Focus keeps everything per family and has rules of its own: one family per account,
+  copy carries. An app may keep everything per family and have rules of its own: one family per account,
   a profile for each adult. The suite's generic routes knew nothing of them.
   - `managed: true`: `POST /api/orgs` with that kind, `POST /api/orgs/join` with an invitation to
     one (before the invitation is spent) and `DELETE /api/orgs/:id/members/:user` on one answer 403
@@ -4541,7 +4523,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   14 days after they expired. They hold the email they were sent to. The 14 days keep the right
   answer for someone who opens a link late (410 `invitation_expired`, "ask for a new one"), not 404
   "used or withdrawn"; a used or withdrawn one answers 404 either way. No app reads old invitations
-  (none has organizations on but Focus's rebuild).
+  (only an app sold on its own has organizations on).
 - **A group's subscriptions stop renewing when it goes.** `billing.stopOnOrganizationDeleted: true`:
   a group deleted (above, or by the app) has its live subscriptions (`active`, `trialing`,
   `past_due`) at the provider cancelled at the end of the period paid. `billing.stopOrganization(id,
@@ -4638,7 +4620,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 ## 0.84.0 — 2026-10-13
 
 - **An organization and its data travel with its members and with the install**
-  (`portability.js`, for Focus' families and Tracker's fleets). Until now a copy followed accounts
+  (`portability.js`, for an app's families or teams). Until now a copy followed accounts
   only: every declared table had to chain to `users`, nothing could point at `organizations`, and
   no copy carried a group, its members, its invitations, its plans or who pays for it. So another
   adult's "Download my data" left the family out, and a whole install's move lost the family's
@@ -4652,7 +4634,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
     in the install's copy of an app without tables of its own for them): `copyKinds` (whose groups
     someone's copy takes; every kind; a kind written as organizations.js writes them, `KIND_NAME`),
     `copyRoles` (which members' copies carry the group; every
-    member, since a member reads what the group shares; Tracker can name `['owner', 'admin']`;
+    member, since a member reads what the group shares; an app can name `['owner', 'admin']`;
     checked against the install's `organizations.roles`, so a misspelt role stops the start instead
     of carrying the group in nobody's copy), `mapOntoOwn` (kinds, or `true`: someone's import goes
     into the oldest group of that kind they own or administer here) and `leave(userId,
@@ -4661,9 +4643,9 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
     suite's own `organizations`, `memberships` and `invitations` can't be declared as the app's
     tables, nor named in `was`.
   - **A group's one row** (`onePerOrganization: true` on a table whose NOT NULL reference to
-    organizations is UNIQUE, as Focus' family row): when the group a row goes into has its row
+    organizations is UNIQUE, such as a family's row): when the group a row goes into has its row
     already, the copy's is that row and isn't written again; what points at it comes into it, and
-    the result counts it under `merged`. Someone's copy put into their own family, Focus' usual
+    the result counts it under `merged`. Someone's copy put into their own family, the usual
     case, no longer meets the UNIQUE.
   - **Someone's copy** takes each of their groups, archived ones too, marked so:
     `data/organizations.json` (name, kind, slug, settings, branding, dates), their own row of
@@ -4738,7 +4720,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   column's own default, so an app's slip isn't taken for a fault in the copy. One a copy brings
   anyway is dropped. The start refuses an omitted column that is NOT NULL without a default of
   either kind, a reference, a file's column or the key. A column the app keeps itself, such as
-  Focus' `owner_user_id` (the family's oldest owner), can be left undeclared as a reference and
+  an app's `owner_user_id` (the family's oldest owner), can be left undeclared as a reference and
   filled by such a function.
 - **An account waiting to be deleted goes on waiting after a whole install's move**: the copy
   carries `delete_after`, and an account it creates takes it back with `disabled_at`, so the sweep
@@ -4750,8 +4732,8 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   a copy's group with a kind written otherwise (made before the rule) comes in with none, never
   made into another valid kind ("Family" isn't `family`) and never refusing the whole copy.
 - **One heir rule** (`organizations.heirOf(organizationId, exceptUserId)`): the oldest admin, else
-  the oldest member, those whose seat a role change would move last (`seatRoles`: Tracker's
-  drivers). forgetUser, the new `handOver` and an import's group without owners all use it.
+  the oldest member, those whose seat a role change would move last (`seatRoles`). forgetUser, the
+  new `handOver` and an import's group without owners all use it.
 - `organizations.roles` (every role, the app's own included), `slugOf` and `KIND_NAME` (how a kind is written, the one rule for every kind's name) from `organizations.js`;
   `describeData(database, declaration, { organizationRoles })` checks `copyRoles` and the module.
 - `errors.import_hand_over`, `errors.import_install_again`, `errors.import_install_unnamed`, `kit.data.handOver`, `admin.data.handOver`, `admin.data.confirmHandOver` and `fields.kind` in the four languages.
@@ -4765,7 +4747,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - **No more "null" under a copy's plan in Settings → Your data.** Checking a copy drew its plan
   with the browser's own `append`, which writes a line left out as the text "null": a copy not
   brought in yet (the usual case) showed "null" under what it brings, twice when the account had
-  nothing of its own to replace (found by Tracker's data-portability review; every app with
+  nothing of its own to replace (every app with
   `modules.data`). It now uses the kit's `append()` (dom.js), as `openDialog()` does since 0.75.0:
   only the lines that apply, nothing in place of the others.
 - The same cause, fixed in two more places: setting up two-step sign-in without a QR code (an
@@ -4796,7 +4778,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   it (`seat`), stops the start, naming the product. Left out, a group's product sells seats as
   before, and nothing changes for any product today.
 - **An organization's own plan**: `entitlements.ofOrganization(id)`, for what acts for a group with
-  nobody behind it (a child's paired device in Focus, a family's hourly sweep). The same shape as
+  nobody behind it (a device paired to the group, a family's hourly sweep). The same shape as
   `of()` (`{ plan: { id, name }, ends, features, unlimited: false }`), from the organization's active
   grants only: never a member's own grants nor the instance admin's "no limits", and never
   `of(null)`'s declared defaults, which are no limit at all. An expiring grant (the trial) counts
@@ -4810,7 +4792,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   `of(person, { organizationId })` is unchanged.
 - **`ends` is when the shown plan lapses, not when its last grant does.** `of()` took `ends` from the
   last grant (by id) of the plan it shows: a person with Pro for good who then joined a family on a
-  trial of Pro read "Pro until" the trial's end in Settings, and Focus's last-days notice would have
+  trial of Pro read "Pro until" the trial's end in Settings, and an app's last-days notice would have
   shown although Pro never lapses for them. Now, among the active grants of the shown plan, one
   without an end wins, else the latest end. `ofOrganization()` follows the same rule.
 - **Next to `organizations.seatRoles`** (0.79.0): `seatRoles` says which roles take a seat, and a
@@ -4825,7 +4807,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 ## 0.81.0 — 2026-10-13
 
 - **An app can push to its own devices, with no user behind them.** A device that belongs to the
-  app (Focus' child's tablet, paired to a profile with no account; a kiosk) had no way in: every
+  app (a tablet paired to a profile with no account; a kiosk) had no way in: every
   row of `push_subscriptions` is a person's, and `/api/push/*` needs a session. Now the app keeps
   the browser's subscription in its own table, next to the rest it knows of the device, and the
   suite does the rest with the same keys, encryption and VAPID signature as a person's:
@@ -4878,20 +4860,20 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 
 ## 0.79.0 — 2026-10-13
 
-- **Cronum Tracker's catalog** (`plans.js`, `PLANS=cronum-tracker`): a product of its own, whose
-  installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
-  Work plan gives anything in Tracker (an app that declares a key the named catalog lacks doesn't
-  start). Three plans, from the least to the most a person gets: `free` (Free), `org` (Fleet) and
-  `pro` (Pro), with the keys `mcp` (off in all three), `capture.native` (Free and Fleet `false`,
-  Pro `true`), `links.max` (0, 0, 1), `track.days` (1, 1, 30) and `viewers.max` (0, 0, 30). An
-  organization's plan reaches every member, its admins and viewers too, so Fleet carries Free's
-  values and sits before Pro: someone with both is shown Pro. What a fleet pays for, per driver,
-  sits on what the organization owns, and the app checks it against the organization's grant and
-  its seats. The prices stay with the provider and the stores (Pro 3.99 EUR a month or 34.99 a
-  year; Fleet 3.90 EUR per driver a month or 39 a year, at launch). `cronum-work` is unchanged.
+- **A catalog for an app whose organization pays per seat** (`plans.js`; named `cronum-per-seat`
+  since 0.317.0): a product of its own, whose installs name this catalog, so none of its plans
+  gives anything in Cronum Work and no Cronum Work plan gives anything in that app (an app that
+  declares a key the named catalog lacks doesn't start). Three plans, from the least to the most a
+  person gets: `free` (Free), `org` (an organization's, shown as Team since 0.317.0) and `pro`
+  (Pro), with the keys `mcp` (off in all three), `capture.native` (Free and `org` `false`, Pro
+  `true`), `links.max` (0, 0, 1), `track.days` (1, 1, 30) and `viewers.max` (0, 0, 30). An
+  organization's plan reaches every member, its admins and viewers too, so `org` carries Free's
+  values and sits before Pro: someone with both is shown Pro. What an organization pays for, per
+  seat, sits on what it owns, and the app checks it against the organization's grant and its
+  seats. The prices stay with the provider and the stores. `cronum-work` is unchanged.
 - **Seats by role** (`organizations.seatRoles` in `suite.config.js`, `createOrganizations({
   seatRoles })`): the roles that take a seat a subscription pays for, some of
-  `organizations.roles` (Tracker's drivers, while its admins and viewers are free). Then only
+  `organizations.roles` (say, `agent`, while admins and viewers are free). Then only
   members in those roles count against a grant's `quantity`: joining in one of them, by an
   invitation or `addMember()`, and a role change into one (`setRole()`) need a free seat, or
   402 `seats_full`; joining in another role never does. Fewer seats bought takes nobody's away.
@@ -4899,7 +4881,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   every member takes a seat, as before, and a role change takes none. A `seatRoles` that is empty
   or names a role the group doesn't have stops the start. When the last owner's account goes, the
   group passes to someone outside those roles first (its oldest admin, then its oldest member): a
-  membership has one role, so a driver inherits it, and stops taking a seat, only when nobody else
+  membership has one role, so an agent inherits it, and stops taking a seat, only when nobody else
   is left. Without `seatRoles` the order is the same as before.
 - **`organizations` in `suite.config.js` takes only `roles`, `invitationDays` and `seatRoles`.**
   Any other key stops the start, saying which, so a misspelt `seatRole` can't quietly put every
@@ -5057,28 +5039,26 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 
 ## 0.76.0 — 2026-10-13
 
-- **Cronum Focus's catalog** (`plans.js`, `PLANS=cronum-focus`): a product of its own, whose
-  installs name this catalog, so none of its plans gives anything in Cronum Work and no Cronum
-  Work plan gives anything in Focus (an app that declares a key the named catalog lacks doesn't
-  start). Two plans, `free` (Free) and `pro` (Pro), and both are a family's: a family is an
-  organization (kind `family`), its plan is granted to it and reaches its adults, who are its
-  members, and the 14-day trial a new family starts with is that grant with an end. The keys,
-  Free's value first: `routines.max` (5, no limit; saved routines, not what History holds),
-  `history.days` (7, no limit; an unsaved routine leaves History after those days unused),
-  `devices.per_child` (1, no limit), `live` (`false`, `true`: the live view, an adult's control
-  and remote launch), `summary.days` (0, 14; 0 is the last run of each routine), `runner.views`
-  (`false`, `true`), `mcp` (on in both) and `mcp.calls_per_day` (100, 1000, as in Cronum Work).
-  `history.days` is a Notes key too, with another meaning (a note's earlier versions): an install
-  reads only the catalog it names, so the two never meet. The prices stay with the provider (Pro
-  2.99 EUR a month or 24 a year per family). `cronum-work` is unchanged, and the error for a
-  catalog that doesn't exist names `cronum-focus` among the others.
+- **A catalog for an app sold on its own, whose plans belong to a group** (`plans.js`; named
+  `cronum-per-group` since 0.317.0): a product of its own, whose installs name this catalog, so
+  none of its plans gives anything in Cronum Work and no Cronum Work plan gives anything in that
+  app (an app that declares a key the named catalog lacks doesn't start). Two plans, `free` (Free)
+  and `pro` (Pro), and both are a group's: the group is an organization, its plan is granted to it
+  and reaches its members, and a trial a new group starts with is that grant with an end. The
+  keys, Free's value first: `routines.max` (5, no limit), `history.days` (7, no limit),
+  `devices.per_child` (1, no limit), `live` (`false`, `true`), `summary.days` (0, 14),
+  `runner.views` (`false`, `true`), `mcp` (on in both) and `mcp.calls_per_day` (100, 1000, as in
+  Cronum Work). `history.days` is a Notes key too, with another meaning (a note's earlier
+  versions): an install reads only the catalog it names, so the two never meet. The prices stay
+  with the provider. `cronum-work` is unchanged, and the error for a catalog that doesn't exist
+  names this one among the others.
 
 ## 0.75.0 — 2026-10-12
 
 - **A dialog without actions has no "null" at its foot.** `openDialog()` put its parts in with the
   browser's own `dialog.append`, which writes a missing footer as the text "null": a dialog opened
-  without `actions` (or with an empty list) showed "null" under its content (found by Tracker's
-  browser check of its About dialog). Now it uses the kit's `append()` (dom.js), which skips the
+  without `actions` (or with an empty list) showed "null" under its content. Now it uses the kit's
+  `append()` (dom.js), which skips the
   gaps: no actions, no footer, and the × in the header closes it. `actions: null` is taken as none.
   A dialog with actions is the same as before.
 - Tests: the fake DOM writes what isn't a node as text, `null` as "null", as a browser does (it
@@ -5136,7 +5116,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   `device_id`, or null; last use noted at most once a minute), `isActive(id)`, `list(userId)`,
   `revoke(userId, id)`, `revokeAllOf(userId)`. No route of the suite takes a device token, the MCP
   included: an app accepts one only on the routes it chooses, with `authenticate(req)`.
-- `createApp({ devices: { canConnect(user) } })`: whom the app lets connect a phone (Tracker's
+- `createApp({ devices: { canConnect(user) } })`: whom the app lets connect a phone (an app's own
   allowlist), asked when the code is issued, when it is exchanged and on every use. It must answer
   at once; a promise is refused.
 - suite.config.js `devices: { prefix, redirectUris, idleDays }`. With the module on, `prefix` and at
@@ -5146,7 +5126,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   reverse-domain private-use scheme (`com.example.app:/auth`, RFC 8252), https, or http on
   loopback, without a fragment.
 - **Migration 22** (`device-tokens`): the tables `device_tokens` and `device_codes`, created in every
-  app and empty while the module is off. Not `devices`, which Focus already has.
+  app and empty while the module is off. Not `devices`, which an app may already have.
 - The admin's activity log names the new entries in its four languages: `device.create`,
   `device.revoke` and `device.token_failed`.
 - The brake: `checkFailures(kind, req)` and `noteFailure(kind, req)`, for what anyone can try without
@@ -5154,16 +5134,16 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - An answer that carries a secret shown once (a device code, a device token) is never kept to replay an
   `Idempotency-Key`: the database keeps hashes only. A route says so with `handler.answeredOnce`; every
   other route is replayed as before.
-- **For phones; Focus keeps its own pairing.** Focus pairs its kiosks and future screens the other
+- **For phones; an app may keep its own pairing.** One that pairs its kiosks and screens the other
   way round (a code shown on the signed-in screen, typed or scanned on the device, bound to one
-  profile with runner-only scopes, sent in its `X-Focus-Device` header), which needs its households,
-  profiles and scopes; that stays in Focus. A module of a host can't turn `modules.devices` on.
+  profile with scopes of its own, sent in a header of its own) keeps it, since it needs its own
+  groups, profiles and scopes. A module of a host can't turn `modules.devices` on.
 - Nothing changes for an app that doesn't turn the module on, apart from the two empty tables.
 
 ## 0.66.0 — 2026-10-10
 
 - **Another product's sales are kept out**, for a Paddle account that sells more than Cronum Work
-  (Tracker on its own) and sends every event to every app's webhook. Four guards in
+  (another app on its own) and sends every event to every app's webhook. Four guards in
   `suite.config.js` `billing`, all off, so nothing changes for an app that says nothing:
   - `ignoreUnknownProducts` (`createBilling({ ignoreUnknownProducts })`): an event that is not a
     refund, for a product not in `products`, has the new outcome `'foreign'`. It is decided before
@@ -5173,7 +5153,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
     audit nothing. What waited from before is foreign when its person arrives (`claim`).
   - `app` (`createBilling({ app })`): the checkout writes `custom_data.app` (Paddle), and an event
     that names another app is foreign. It is not `app.id`: one value for every install that sells
-    a subscription together (`work` in Tasks, Next and Work; `tracker` in Tracker). An event
+    a subscription together (`work` in Tasks, Next and Work; another app's own value elsewhere). An event
     without one, sold before checkouts said it, is judged by its product, so `app` goes with the
     other guards.
   - `strictPrices` (`paddleProvider({ strictPrices })`): the product comes only from this install's
@@ -5285,7 +5265,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 
 - **The drawer opened by a finger shows no ring.** Opening the drawer with ☰ or a swipe from the
   edge put the focus on the current entry, and on a phone that drew the focus ring around it, its
-  top cut under the create button by the list's scroll (Notes #41). Now a finger or the mouse
+  top cut under the create button by the list's scroll. Now a finger or the mouse
   gives the focus to the drawer itself (`tabindex="-1"`, nothing drawn); Enter or Space on ☰ still
   goes to the current entry. `openDrawer({ keyboard })` and `toggleDrawer({ keyboard })` take it;
   called without it, as apps do, it is a finger's. An entry's ring is drawn inside it, so the list
@@ -5309,7 +5289,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
   data-kit-keyboard>`, `--kit-view-top`, `--kit-view-h`), so the browser sliding the view up no
   longer takes the bar, an editor's tools or a sheet's buttons out of reach; the focused field is
   kept in sight. `focusOnTap(area, { focus, skip })` starts typing without that slide. Tasks' fix
-  (its nº60) and Notes' (0.8.1), for every app. Nothing changes for an app that doesn't call it:
+  and Notes' (0.8.1), for every app. Nothing changes for an app that doesn't call it:
   the rules in kit.css only apply with the attribute. The service worker keeps `keyboard.js` with
   the rest of the kit.
 
@@ -5392,7 +5372,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 ## 0.52.0 — 2026-10-08
 
 - **The suite's plans, written once.** `plans.js` holds the catalog of the hosted suite,
-  `cronum-work` (Free, Pro and Team, as the note «Beneficios de cada plan» decides them), and an
+  `cronum-work` (Free, Pro and Team), and an
   install names it with `PLANS=cronum-work` instead of copying a JSON into each app. An app reads
   only the features it declares; one it declares that the catalog doesn't set stops the start, as
   it would be left unlimited. `COMMON_FEATURES` and `pick()` give the features every app names the
@@ -5618,7 +5598,7 @@ assistant that still calls a tool by a name `tools/list` no longer announces.
 - **Prices per environment.** A product's `price` (and `founderPrice`) may be
   `{ sandbox: 'pri_…', production: 'pri_…' }`; the one of `PADDLE_ENV` is used, and Paddle's ids are
   checked on start.
-- **Moving an install keeps who pays** (audit sc-data-48). The copy of a whole install carries the
+- **Moving an install keeps who pays**. The copy of a whole install carries the
   customers, the subscriptions and every grant, the paid ones too (`suite/billing.json`,
   `suite/grants.json` with `source` and `external_ref`), under the new ids; and an event that names
   an account by its old id goes to whoever the customer is linked to here. Before, the paid plan
@@ -5734,7 +5714,7 @@ The web kit, whole: the interface every app shares, approved on 5 October, and w
 be built on it alone. How an app uses it: [docs/web-kit.md](docs/web-kit.md).
 
 - **The shared interface.** A frame with a sidebar (Tasks, Notes, Projects) or a top bar with tabs
-  (Next, Focus, Tracker, Talk) and the same pieces in both; on a phone a drawer, two screens for a
+  (Next and other apps) and the same pieces in both; on a phone a drawer, two screens for a
   list and its detail and the tabs at the bottom (`shell.js`). Sign-in with the product's colour
   large beside the form (`signin.js`), Settings as a list of sections with About in every app
   (`settings.js`), dialogs that rise from the bottom on a phone, menus, notices with *Undo* or
@@ -5766,10 +5746,10 @@ be built on it alone. How an app uses it: [docs/web-kit.md](docs/web-kit.md).
 
 ## 0.33.0 — 2026-10-05
 
-Copies of data, from the audit's medium findings.
+Copies of data.
 
-- **One person's copy reads that person's rows, not the whole install** (x-stability-1,
-  sc-data-14, sc-web-37). "Download my data", the plan of "Import data" and "replace" now ask
+- **One person's copy reads that person's rows, not the whole install**. "Download my data", the
+  plan of "Import data" and "replace" now ask
   SQLite only for the rows that point at that account, or at rows of theirs already kept. Before,
   they loaded every table whole and filtered it in memory, with the server stopped meanwhile. With
   500,000 tasks of 2,000 people:
@@ -5777,7 +5757,7 @@ Copies of data, from the audit's medium findings.
   - its plan went from 665 ms to 37 ms.
 
   The whole install's copy still reads everything, which it needs.
-- **What a copy brings stays within what the app's screens accept** (sc-data-7). A declaration may
+- **What a copy brings stays within what the app's screens accept**. A declaration may
   give `limits` per table, and `users.limits` for the app's own profile columns:
   - a number is the most characters, and longer text is cut there (never through an emoji);
   - a pattern is the shape, and a value without it is left out: the column's default, or what the
@@ -5790,7 +5770,7 @@ Copies of data, from the audit's medium findings.
 
 ## 0.32.0 — 2026-10-05
 
-- **Someone WorkOS knows by a new id keeps their account** (sc-auth-46). Every WorkOS environment
+- **Someone WorkOS knows by a new id keeps their account**. Every WorkOS environment
   has its own user ids, and an account deleted and made again there gets a new one. Before, after
   moving an install to another environment:
   - everyone got a new, empty account;
@@ -5811,24 +5791,24 @@ Copies of data, from the audit's medium findings.
 
 ## 0.31.1 — 2026-10-05
 
-More of the audit's medium findings.
+More fixes.
 
-- **Push only to the browsers' push services** (sc-oauth-12). A subscription's endpoint must be
+- **Push only to the browsers' push services**. A subscription's endpoint must be
   under Google's, Mozilla's, Apple's or Windows' push service domains. A public-looking name can
   point anywhere through DNS, and the server would send to it.
-- **The live channel has bounds** (sc-platform-17). A person keeps at most 10 channels; an 11th
+- **The live channel has bounds**. A person keeps at most 10 channels; an 11th
   closes their oldest. A channel that stops reading is closed once 64 kB wait unsent; its browser
   reconnects and resyncs. Before, both grew without end in memory.
-- **An install imported from the panel makes no admin by itself** (sc-web-1). A copy's accounts
+- **An install imported from the panel makes no admin by itself**. A copy's accounts
   are created as plain users unless the decision says `create: { role }`. The file could carry
   any role, and with WorkOS whoever signed in with that email became an admin. The command line
   keeps the copy's roles.
 
 ## 0.31.0 — 2026-10-05
 
-More fixes from the audit of 2026-10-04.
+More fixes.
 
-- **Signing someone out from the admin panel is everywhere** (sc-web-3, sc-auth-48). "Sign out
+- **Signing someone out from the admin panel is everywhere**. "Sign out
   everywhere" (`DELETE /api/admin/users/:id/sessions`) and a password the admin sets for someone
   else used to close only the sessions here. Now they also:
   - revoke the API tokens and the assistants' OAuth grants;
@@ -5841,13 +5821,13 @@ More fixes from the audit of 2026-10-04.
   nothing changes, because there is no server-side way to end that session.
   `registerAdminApi` takes `tokens`, `oauth`, `push` and `idp`, and `registerProfileApi` takes
   `idp`. `sessions.idpSessionsOf()` is new.
-- **A disabled account gets no notices** (sc-platform-18): disabling it deletes its push
+- **A disabled account gets no notices**: disabling it deletes its push
   subscriptions. Apps pick whom to notify from that table without looking at `disabled_at`.
-- **Push: an outage no longer drops devices** (sc-platform-14). A failed fetch, a 408 or 429, and
+- **Push: an outage no longer drops devices**. A failed fetch, a 408 or 429, and
   any 5xx used to count towards the three failures that delete a subscription: a push service
   down for minutes, or an outbound network blip, dropped every device of everyone. Only the other
   4xx (a refusal about the subscription itself) count now; 404 and 410 still delete at once.
-- **The MCP token brake counts per address and token** (sc-oauth-1). Counted per address alone,
+- **The MCP token brake counts per address and token**. Counted per address alone,
   one misbehaving connector behind claude.ai's or ChatGPT's few shared addresses locked every
   other user there out of signing in. Tokens are 192 random bits, so nobody guesses one: what
   the brake stops is a client repeating the same bad token. Past 1,000 failures from an address
@@ -5855,7 +5835,7 @@ More fixes from the audit of 2026-10-04.
 
 ## 0.30.2 — 2026-10-05
 
-- **An import can't multiply one attachment on disk** (audit, sc-data-13). Rows that share a file
+- **An import can't multiply one attachment on disk**. Rows that share a file
   in a copy each get a file of their own when it is applied, but 0.30.0 counted only the distinct
   files against its ceilings: forty rows over one photo that inflates to 1 MB wrote 40 MB from an
   upload of a few kB, and it scaled to terabytes. Now every row that brings a file counts, in
@@ -5870,7 +5850,7 @@ More fixes from the audit of 2026-10-04.
 
 ## 0.30.0 — 2026-10-05
 
-More fixes from the audit: importing one's own data (`POST /api/me/import`, open to every account)
+More fixes: importing one's own data (`POST /api/me/import`, open to every account)
 could stop the server or fill its disk.
 
 - **Ceilings by who imports a copy.** Someone's own copy has at most 64 MB of data, 32 MB per file
@@ -5898,7 +5878,7 @@ could stop the server or fill its disk.
 
 ## 0.29.2 — 2026-10-05
 
-Fixes from the audit of 2026-10-04: nothing a single request or one account can do should stop the
+Fixes: nothing a single request or one account can do should stop the
 server for everyone.
 
 - **A request no URL can be made of is a `400`**, not a crash: `GET //` or a `Host` such as
@@ -5966,7 +5946,7 @@ server for everyone.
 ## 0.27.1 — 2026-10-02
 
 - `config.js` reads every old name that `CONVENTIONS.md` lists, with its warning: `PUBLIC_URL`
-  now sets `BASE_URL` when that one is unset (Tracker's name for it), and `PUERTO` warns like
+  now sets `BASE_URL` when that one is unset (an older app's name for it), and `PUERTO` warns like
   `PORT_HOST` does. When both names are set, the current one wins and nothing is said.
 
 ## 0.27.0 — 2026-10-01
@@ -6160,7 +6140,7 @@ server for everyone.
 ## 0.17.1 — 2026-09-29
 
 - `app.js`: the first administrator never gets a password from an example: the values the apps'
-  own `.env.example` files carried before the suite (`cambia-esta-clave`, `cambia-esto`) count as
+  own `.env.example` files carried before the suite (two placeholders, as `app.js` lists them) count as
   not set too, and a random one is printed instead.
 
 ## 0.17.0 — 2026-09-28
@@ -6272,7 +6252,7 @@ server for everyone.
   suite's, in the app's own shape (nested or dotted).
 - `app.js`: `createApp` serves `/i18n/<lang>.json` for the app's languages, merged and with an
   ETag, rebuilt when the app's file changes.
-- `tools/i18n.mjs`, from Focus: `parity` (the same keys, placeholders and plural forms in every
+- `tools/i18n.mjs`: `parity` (the same keys, placeholders and plural forms in every
   language, nothing left as TODO) and `used` (keys in the code that no catalog defines), on the
   suite's catalogs or an app's merged over them.
 
@@ -6413,7 +6393,7 @@ server for everyone.
 - `db.js`: `openDatabase()` with the usual pragmas, or `wrapDatabase()` around an app's own
   `DatabaseSync`; transactions that nest as savepoints and refuse async work; `app_meta`.
 - `migrate.js`: numbered migrations per scope (`suite`, `app`), each in its own transaction,
-  refusing gaps and databases written by a newer release; adopts Focus's older table.
+  refusing gaps and databases written by a newer release; adopts an app's older table.
 - `http.js`: `HttpError` with codes and headers, router with 405 and `Allow`, `readJson`
   requiring the JSON content type, cookies, static files that never leave their root or serve
   dotfiles, the security headers, and `checkOrigin()` against cross-site requests that ride on
