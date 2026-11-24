@@ -312,9 +312,10 @@ export function createCreatorInvitations({
 
   /**
    * A new invitation, and its link to send by hand. An email invited before, or whose account is
-   * already a creator's, is 409 `already_invited` (with what came of it) unless `force`.
+   * already a creator's, is 409 `already_invited` (with what came of it) unless `force`. `via`: who
+   * acted through what (the admin's connector), kept in its entry of the log.
    */
-  function create(body, admin = null, { req = null } = {}) {
+  function create(body, admin = null, { req = null, via = null } = {}) {
     const wanted = termsOf(body);
     const before = wanted.email ? invitedBefore(wanted.email) : null;
     if (before && body?.force !== true) throw conflict('already_invited', before);
@@ -330,7 +331,10 @@ export function createCreatorInvitations({
     wanted.note, admin?.id ?? null, iso(now), iso(now + wanted.days * DAY)).lastInsertRowid);
     record('admin.creator_invitation.create', {
       actor: admin, req, targetId: id,
-      meta: { creator: wanted.creator, pro_months: wanted.months, pro_until: wanted.until, uses: wanted.uses, again: Boolean(before) },
+      meta: {
+        creator: wanted.creator, pro_months: wanted.months, pro_until: wanted.until, uses: wanted.uses, again: Boolean(before),
+        ...(via ? { via } : {}),
+      },
     });
     return view(byId(id));
   }
@@ -351,13 +355,13 @@ export function createCreatorInvitations({
     return view(row, { all: true });
   }
 
-  /** A pending invitation taken back: its link opens nothing from now on. */
-  function revoke(id, admin = null, { req = null } = {}) {
+  /** A pending invitation taken back: its link opens nothing from now on. `via`: who acted through what (the connector), for the log. */
+  function revoke(id, admin = null, { req = null, via = null } = {}) {
     const row = byId(id);
     if (!row) throw notFound('invitation_not_found');
     if (statusOf(row) !== 'pending') throw conflict('invitation_not_pending', { status: statusOf(row) });
     database.run("UPDATE creator_invitations SET status = 'revoked', revoked_at = ? WHERE id = ? AND status = 'pending'", iso(clock()), row.id);
-    record('admin.creator_invitation.revoke', { actor: admin, req, targetId: row.id });
+    record('admin.creator_invitation.revoke', { actor: admin, req, targetId: row.id, meta: via ? { via } : {} });
     return view(byId(row.id));
   }
 
