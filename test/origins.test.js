@@ -17,7 +17,7 @@ import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { createAccounts } from '../accounts.js';
-import { createOrigins, cleanTag, cleanHost, ENTRIES, weekOf, originOf, LIMIT_DAYS } from '../origins.js';
+import { createOrigins, cleanTag, cleanHost, ENTRIES, weekOf, originOf, siteDomainsOf, LIMIT_DAYS } from '../origins.js';
 import { createSuite, createApp } from '../app.js';
 import { inRequest } from '../request-scope.js';
 import { resolveConfig } from '../config.js';
@@ -241,6 +241,51 @@ test('a week is Monday to Sunday, and an account has one origin: its link’s ta
   assert.deepEqual(originOf(), ['none', '']);
 });
 
+test('the install’s own website says less than the person’s answer: it is kept as the site, and counted after what they answered', async (t) => {
+  // Where an app at a subdomain has its website: the domains its host is under.
+  assert.deepEqual(siteDomainsOf('https://work.example.com'), ['example.com']);
+  assert.deepEqual(siteDomainsOf('https://app.eu.example.com/'), ['eu.example.com', 'example.com']);
+  assert.deepEqual(siteDomainsOf('https://example.com'), [], 'an app at a domain of its own has none');
+  assert.deepEqual(siteDomainsOf('http://localhost:3000'), []);
+  const ownSite = (host) => host === 'example.com';
+  assert.deepEqual(originOf({ referrer: 'example.com', heard: 'friend', entry: 'web' }, { ownSite }), ['answer', 'friend']);
+  assert.deepEqual(originOf({ referrer: 'example.com', entry: 'web' }, { ownSite }), ['site', 'example.com'], 'nothing else known: through the website');
+  assert.deepEqual(originOf({ src: 'hn', referrer: 'example.com', heard: 'friend' }, { ownSite }), ['link', 'hn']);
+  assert.deepEqual(originOf({ referrer: 'reddit.com', heard: 'friend' }, { ownSite }), ['site', 'reddit.com'], 'another site still says more than an answer');
+
+  // The whole way: someone reaches the website from nowhere a browser names (an app on a phone, a
+  // link in a chat, a friend's word), follows its button, and the sign-in sees the website before it.
+  const { origins, arrive, database } = setup(t);
+  database.exec('CREATE TABLE host_first_answers (user_id INTEGER PRIMARY KEY, heard_from TEXT, has_channel INTEGER, channel TEXT, answered_at TEXT NOT NULL)');
+  const answer = (user, heard) => database.run('INSERT INTO host_first_answers (user_id, heard_from, answered_at) VALUES (?, ?, ?)', user.id, heard, 'now');
+  const fromSite = { login: '/auth/login?signup=1', referer: 'https://example.com/work/' };
+  const ana = arrive('ana', fromSite);
+  const bob = arrive('bob', fromSite);
+  const cat = arrive('cat', { login: '/auth/login?signup=1&via=blog.example.com' });
+  const dan = arrive('dan', { login: '/auth/login?signup=1', referer: 'https://www.reddit.com/r/mcp/' });
+  answer(ana, 'friend');
+  answer(cat, 'store');
+  answer(dan, 'friend');
+  // Kept as it came: the site is the website, whatever the figures make of it.
+  assert.equal(origins.of(ana.id).referrer, 'example.com');
+  assert.deepEqual(origins.oneOf(ana.id), { kind: 'answer', origin: 'friend' });
+  assert.deepEqual(origins.oneOf(bob.id), { kind: 'site', origin: 'example.com' });
+  assert.deepEqual(origins.oneOf(cat.id), { kind: 'answer', origin: 'store' }, 'anything under the website’s domain is the website');
+  assert.deepEqual(origins.oneOf(dan.id), { kind: 'site', origin: 'reddit.com' });
+  assert.deepEqual(origins.oneOf(999), { kind: 'none', origin: '' });
+  // So the table has their answer's row, with what they did and paid, not one row «the website» for all.
+  origins.made(ana);
+  origins.paid({ user: ana, event: { type: 'payment', ref: 'txn_1', amount: 1900, currency: 'EUR', product: 'pro-yearly', first: true } }, { provider: 'paddle' });
+  const rows = origins.report({ weeks: 1 }).rows.map((row) => [row.kind, row.origin, row.signups, row.activated, row.paying]);
+  assert.deepEqual(rows.sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`)), [
+    ['answer', 'friend', 1, 1, 1],
+    ['answer', 'store', 1, 0, 0],
+    ['site', 'example.com', 1, 0, 0],
+    ['site', 'reddit.com', 1, 0, 0],
+  ]);
+  assert.equal(origins.topSince('2026-11-25T00:00:00.000Z', '2026-11-26T00:00:00.000Z'), 'example.com 1, friend 1, reddit.com 1');
+});
+
 test('what an account did first is noted once: the first thing made, the first call from an assistant, each limit met', async (t) => {
   const { origins, arrive, database, clock, accounts } = setup(t);
   const ana = arrive('ana');
@@ -426,7 +471,11 @@ test('an app that keeps origins: what a route answers 201 to, a limit refused an
   assert.equal((await admin('GET', '/api/auth/config')).data.app.modules.origins, true, 'the admin’s panel has its tab');
 
   // Nothing yet; a route that answers 200 makes nothing; the first 201 is the first thing made.
+  // A 201 of the suite's own routes (a token for an assistant) is no work of theirs.
   assert.deepEqual(await marks(), []);
+  const token = (await call('POST', '/api/me/tokens', { name: 'Assistant' })).data.token;
+  assert.ok(token);
+  assert.deepEqual(await marks(), [], 'a token made is nothing made in the app');
   assert.equal((await call('POST', '/api/seen', {})).status, 200);
   assert.deepEqual(await marks(), []);
   assert.equal((await call('POST', '/api/notes', {})).status, 201);
@@ -439,7 +488,6 @@ test('an app that keeps origins: what a route answers 201 to, a limit refused an
   assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM notes').n, 1);
 
   // A call from an assistant: the first is noted; past the week's calls, the limit is.
-  const token = (await call('POST', '/api/me/tokens', { name: 'Assistant' })).data.token;
   const rpc = async () => (await fetch(`${base}/mcp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'ping', arguments: {} } }),

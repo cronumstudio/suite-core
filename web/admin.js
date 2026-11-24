@@ -1037,7 +1037,11 @@ function moneyText(amount, currency) {
  * summary: the tag, else the site.
  */
 async function paintOrigin(box, user, now) {
-  const { origin, marks = [], payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
+  const { origin, one = null, marks = [], payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
+  // The one origin the figures count this account under (origins.js originOf), in words.
+  const oneText = !one || one.kind === 'none' ? t('admin.origin.none')
+    : one.kind === 'answer' ? t(`kit.firstQuestions.heard.${one.origin}`)
+      : one.kind === 'entry' ? t(`admin.origin.entry.${one.origin}`) : one.origin;
   // What they did for the first time, each with its day: something made, a call from an assistant, a limit met.
   const firsts = marks.map((mark) => {
     const what = mark.mark.startsWith('limit:') ? t('admin.origin.mark.limit', { feature: mark.mark.slice(6) })
@@ -1051,7 +1055,7 @@ async function paintOrigin(box, user, now) {
     totals.set(payment.currency, (totals.get(payment.currency) || 0) + payment.amount);
   }
   const paid = [...totals].map(([currency, amount]) => moneyText(amount, currency)).join(' + ');
-  now.textContent = [origin?.src || origin?.referrer || (origin ? t(`admin.origin.entry.${origin.entry}`) : t('admin.origin.none')), paid].filter(Boolean).join(' · ');
+  now.textContent = [oneText, paid].filter(Boolean).join(' · ');
   // Only what there is: a null given to append() is written as the word.
   clear(box).append(...[
     origin ? null : el('p', { class: 'kit-hint', text: t('admin.origin.noneLead') }),

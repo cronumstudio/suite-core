@@ -788,6 +788,9 @@ export function clientTexts(flat) {
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
  * @param {object|Function} [options.routes]  the app's router, or (router) => { … } to fill one
+ * @param {boolean} [options.firsts]  whether what the app's own routes create (a 201) is noted as the
+ *   first thing someone made, where the app keeps origins (origins.js). A host's root says false:
+ *   there it is what is made in its modules that counts, not a link or a message at the root
  * @param {boolean} [options.zonedRoutes]  each of the app's own routes runs in the time zone of
  *   whoever asks (time.js inZoneOf), as its tools do: `todayFor()` and the date parsers read their
  *   day. The suite's routes are left as they are. A host passes its module's (`createModule().zonedRoutes`)
@@ -876,7 +879,7 @@ export function createApp({
   clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
-  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null,
+  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null, firsts = true,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -1194,7 +1197,11 @@ export function createApp({
 
   /** The route of a request among the suite's and the app's, or what to answer. */
   function route(method, pathname) {
-    const found = [api, appApi].map((router) => router?.match(method, pathname)).filter(Boolean);
+    // `own`: a route of the app's own, not one of the suite's (what it creates is the person's work).
+    const found = [[api, false], [appApi, true]].map(([router, own]) => {
+      const match = router?.match(method, pathname);
+      return match ? { ...match, own } : null;
+    }).filter(Boolean);
     const exact = found.find((m) => m.handler);
     if (exact) return exact;
     if (!found.length) return null;
@@ -1299,9 +1306,11 @@ export function createApp({
         // Nor one that keys its writes itself, for an account it finds on its own (keyedByRoute).
         const replayable = suite.idempotency && !match.handler.answeredOnce && !match.handler.keyedByRoute;
         await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
-        // The first thing someone creates here (a 201 to them, not from the admin's panel), for the
-        // figures by origin: noted once an account, and never a reason for the answer to fail.
-        if (suite.made && res.statusCode === 201 && ctx.user && !pathname.startsWith('/api/admin/')) suite.made(ctx.user);
+        // The first thing someone creates here, for the figures by origin (origins.js): a route of
+        // the app's own that answered them 201. Not the suite's routes (a token, a device, an
+        // account the admin makes are no work of theirs), nor a host's root (`firsts: false`).
+        // Noted once an account, and never a reason for the answer to fail.
+        if (firsts && suite.made && match.own && res.statusCode === 201 && ctx.user) suite.made(ctx.user);
         return;
       }
 

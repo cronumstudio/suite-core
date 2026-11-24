@@ -1386,6 +1386,8 @@ export async function createHost({
     // only its own keys.
     // With payments, when the founder's offer last came up on starting (billing.js).
     prefs: combinePrefs([...joined.map((m) => m.parts.prefs), day ? DAY_PREFS : null, suite.billing?.enabled ? FOUNDER_NOTICE_PREFS : null]),
+    // The first thing someone makes is made in a module (origins.js): the root's own routes note none.
+    firsts: false,
     routes: (api) => {
       api.get('/api/modules', async (ctx) => {
         const answer = modulesOf(ctx.user);

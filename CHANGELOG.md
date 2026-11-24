@@ -10,11 +10,16 @@ change an interface and a patch never does. Apps pin a version through the submo
   row per origin: that week's visits, the accounts made, how many did something, how many ran into a
   limit of their plan in their first 30 days, how many pay, by plan, and what they have paid,
   refunds left out. An account's origin there is one: its link's tag, else the site it came from,
-  else what it answered to a host's first questions, else how it was made. Under the tables, what
+  else what it answered to a host's first questions, else how it was made. The install's own
+  website (a domain its host is under: `example.com` for an app at `work.example.com`) is kept as
+  the site like any other and counts after the answer: whoever reached it from nowhere a browser
+  names and went on to the app would otherwise all be «from the website», their answers left out
+  of the table. The admin's card of an account says the same one origin. Under the tables, what
   people answered, by week. With `modules.origins`; /api/auth/config says `modules.origins`.
 - **What an account did for the first time**, once each (new suite migration 37, `account_marks`):
-  `made`, the first thing it created (a route of the app answered it 201, the admin's panel left
-  out); `mcp`, its first call from an assistant; and `limit:<feature>`, each limit of its plan it
+  `made`, the first thing it created (a route of the app's own answered it 201: in a host, a
+  module's, with `createApp({ firsts: false })` at the root; never the suite's routes, where a
+  token or a device is made); `mcp`, its first call from an assistant; and `limit:<feature>`, each limit of its plan it
   ran into. For that, **`entitlements.whenLimit(hook)`**: `hook(user, feature)` as `require`
   refuses a limit, as the storage does (`storage.js`) and as the MCP's quota does for the week's or
   the day's calls (`entitlements.limitReached`). In a host, a module's limits and what is made in
