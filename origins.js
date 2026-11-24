@@ -28,7 +28,8 @@
  * events (billing.whenPaid, with what was charged, tax included, in the currency's smallest unit)
  * and the stores' purchases and renewals (stores.whenApplied), which bring no amount: theirs is
  * the product's `amount` in `stores.products`, marked `estimated`. A refund marks its payment. An
- * account that goes takes its origin with it; its payments stay as figures, with no one's name.
+ * account that goes takes its origin and its payments' rows with it: they name the provider's
+ * transaction and subscription, which are that person's.
  *
  * What is counted, for the figures by origin (`report`, the admin's Origins):
  *   visits     to the pages of a site that tells this install of them (`visited`, behind
@@ -55,7 +56,7 @@
  */
 import { sendJson, requireAdmin, notFound, unauthorized, int, parseCookies, readJson } from './http.js';
 import { safeEqual } from './crypto.js';
-import { currentRequest } from './request-scope.js';
+import { currentRequest, byTheAdmin } from './request-scope.js';
 import { iso } from './time.js';
 
 /** A link's tag: what `?src=` may say. */
@@ -125,7 +126,7 @@ export function cleanHost(value, own = []) {
 }
 
 /**
- * Migration 36: each account's origin, and each payment with the origin its account had.
+ * Migration 38: each account's origin, and each payment with the origin its account had.
  * `origin_payments.amount` is in the currency's smallest unit; `estimated` when it is the
  * product's listed amount and not what the provider said it charged.
  */
@@ -162,7 +163,7 @@ export function originsSchema(d) {
 }
 
 /**
- * Migration 37: what an account did for the first time (`made`, `mcp`, `limit:<feature>`), once
+ * Migration 39: what an account did for the first time (`made`, `mcp`, `limit:<feature>`), once
  * each, and the visits a site tells of, a number per day and origin.
  */
 export function originFiguresSchema(d) {
@@ -246,14 +247,15 @@ export function createOrigins({
 
   /**
    * accounts.whenCreated: the account's origin, written with it. Inside the account's transaction,
-   * so it never throws. Not for an account the admin makes, nor for one made outside a request (an
-   * import, a script): those came from nowhere a link or a site could say.
+   * so it never throws. Not for an account the admin makes (in /admin or through the
+   * administrator's connector: request-scope.js byTheAdmin), nor for one made outside a request
+   * (an import, a script): those came from nowhere a link or a site could say.
    */
   function noteCreated(user) {
     if (!user?.id) return;
     try {
       const scope = currentRequest();
-      if (!scope?.req || scope.path.startsWith('/api/admin/')) return;
+      if (!scope?.req || byTheAdmin(scope)) return;
       const came = arrivals.get(scope.req) || {};
       arrivals.delete(scope.req);
       const fromApp = Boolean(appCookie && parseCookies(scope.req)[appCookie] != null);
@@ -483,12 +485,16 @@ export function createOrigins({
     return top.length ? top.map(([origin, n]) => `${origin} ${n}`).join(', ') : null;
   }
 
-  /** accounts.whenRemoved: the account's origin goes with it; its payments stay as figures, nobody's. */
+  /**
+   * accounts.whenRemoved: the account's origin goes with it, and so do what it did first and its
+   * payments' rows. Each payment keeps the provider's transaction and subscription, which say
+   * whose it was to whoever has the provider's records; and no figure reads one without its account.
+   */
   function forget(userId) {
     database.run('DELETE FROM account_marks WHERE user_id = ?', userId);
     for (const key of marked) if (key.startsWith(`${Number(userId)}:`)) marked.delete(key);
     database.run('DELETE FROM account_origins WHERE user_id = ?', userId);
-    database.run('UPDATE origin_payments SET user_id = NULL WHERE user_id = ?', userId);
+    database.run('DELETE FROM origin_payments WHERE user_id = ?', userId);
   }
 
   return {

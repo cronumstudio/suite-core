@@ -133,6 +133,7 @@ test('how an account was made: on the web, from the phone app, by an assistant�
   assert.equal(origins.of(arrive('module', { at: '/tasks/mcp' }).id).entry, 'mcp');
   assert.equal(origins.of(arrive('odd', { at: '/api/somewhere' }).id).entry, 'other');
   assert.equal(origins.of(arrive('byadmin', { at: '/api/admin/users', login: '/auth/login?src=reddit' }).id), null);
+  assert.equal(origins.of(arrive('byconnector', { at: '/admin/mcp' }).id), null, 'a test account the administrator’s connector makes came by no assistant');
   assert.equal(origins.of(accounts.create({ username: 'script' }).id), null, 'outside a request');
 });
 
@@ -187,13 +188,15 @@ test('a store’s purchase and each renewal: one per paid period, with the produ
   assert.equal(origins.applied({ outcome: 'granted', event: event({ ref: 'z' }), subject: { type: 'organization', id: 1 }, provider: 'revenuecat' }), false);
 });
 
-test('an account that goes takes its origin with it; its payments stay as figures of nobody', (t) => {
+test('an account that goes takes its origin and its payments with it', (t) => {
   const { origins, arrive, accounts, database } = setup(t);
   const ana = arrive('ana', { login: '/auth/login?src=reddit-mcp' });
   origins.paid({ user: ana, event: { type: 'payment', ref: 'txn_1', amount: 1900, currency: 'EUR', product: 'pro-yearly', first: true } }, { provider: 'paddle' });
   accounts.remove(ana.id);
   assert.equal(origins.of(ana.id), null);
-  assert.deepEqual({ ...database.get('SELECT user_id, src, amount FROM origin_payments') }, { user_id: null, src: 'reddit-mcp', amount: 1900 });
+  assert.equal(database.get('SELECT COUNT(*) AS n FROM origin_payments').n, 0, 'no row left with the provider’s transaction in it');
+  // A refund of that payment heard later has nothing to mark, and says so.
+  assert.equal(origins.refunded({ event: { type: 'refund', ref: 'txn_1' } }, { provider: 'paddle' }), 0);
 });
 
 test('the configuration: off unless the app says modules.origins; a store product’s amount and currency go together', () => {

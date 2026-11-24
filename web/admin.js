@@ -2196,8 +2196,8 @@ const ORIGIN_SPANS = [4, 8, 12, 26];
 
 /**
  * Where accounts come from and what each origin brought (origins.js `report`): a table per week,
- * the week the accounts were made in, with a row per origin and the week's total under them; then
- * what people answered to how they heard of the app. The same figures as a CSV.
+ * the week the accounts were made in, with a row per origin and the week's total under them. The
+ * same figures as a CSV.
  */
 async function renderOrigins(main) {
   const asked = Number(hashQuery().get('weeks'));
