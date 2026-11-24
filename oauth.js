@@ -77,6 +77,18 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
 const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
 
+/** The tables of the app's own server (OAUTH_SCHEMA); a second server beside it has its own. */
+export const OAUTH_TABLES = Object.freeze({ clients: 'oauth_clients', grants: 'oauth_grants', tokens: 'oauth_tokens' });
+
+/**
+ * What the administrator's confirmation answers with, as the consent screen says it (oauth.<key>).
+ * Anything else is no confirmation's and goes on as an error.
+ */
+const CONFIRM_ERRORS = Object.freeze({
+  wrong_password: 'badPassword', code_invalid: 'badCode', too_many_attempts: 'tooManyAttempts',
+  reauth_required: 'reauthNeeded', admin_confirm_required: 'badPassword', provider_unavailable: 'unavailable',
+});
+
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const CORS = { 'Access-Control-Allow-Origin': '*' };
 
@@ -219,15 +231,41 @@ function privateIp(ip) {
  *   (two-factor.js): required(user) → bool; challengeFor(userId) → a signed challenge;
  *   userOf(challenge) → the user who passed the password, or null (throws when it expired);
  *   pass(req, userId, code) → throws an HttpError (code_invalid, too_many_attempts).
+ *
+ * A second server beside the app's, for another endpoint than /mcp (the administrator's connector,
+ * admin-mcp.js), says where it is and keeps its own tables, so that nothing it gives opens the
+ * app's /mcp and nothing of the app's opens it:
+ * @param {string} [options.resourcePath]  the endpoint its tokens open ('/mcp')
+ * @param {string} [options.routes]        where its authorize, token, register and revoke are ('/oauth')
+ * @param {string} [options.issuerPath]    its issuer after the base URL ('': the app itself); its
+ *   metadata is at /.well-known/oauth-authorization-server<issuerPath> (RFC 8414)
+ * @param {{clients, grants, tokens}} [options.tables]  OAUTH_TABLES by default
+ * @param {number} [options.refreshDays]   how long a refresh token lasts (60 days)
+ * @param {object} [options.adminsOnly]  only an administrator may give permission, and only after
+ *   confirming who they are again: ask(user) → what the screen asks for ('password', 'password_code'
+ *   or 'session': a sign-in again elsewhere; null: nothing), confirm(req, user, form) → throws an
+ *   HttpError (wrong_password, code_invalid, reauth_required…), again(returnTo) → where to sign in
+ *   again. Someone signed in who isn't one sees why and gets no code; their tokens open nothing.
+ * @param {Function} [options.whenGranted]  ({ grantId, userId, clientName, req }) once a code becomes a grant
  */
 export function createOAuthServer({
   baseUrl, appName, enabled = true, allowPrivateCimd = false,
   db, users, sessions, limits, texts = createTexts(), page, externalSignIn = null, secondStep = null,
+  resourcePath = '/mcp', routes = '/oauth', issuerPath = '', tables = OAUTH_TABLES, refreshDays = REFRESH_TTL_DAYS,
+  adminsOnly = null, whenGranted = null,
   log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
-  const ISSUER = BASE_URL;
-  const RESOURCE = `${BASE_URL}/mcp`;
+  const ISSUER = `${BASE_URL}${issuerPath}`;
+  const RESOURCE = `${BASE_URL}${resourcePath}`;
+  const T = tables;
+  /** The app's own server answers every path it always answered; a second one, only its own. */
+  const own = resourcePath === '/mcp' && routes === '/oauth' && !issuerPath;
+  const RESOURCE_METADATA = `${METADATA_PATH}${resourcePath}`;
+  const AS_METADATA = `${AS_METADATA_PATH}${issuerPath}`;
+  const AUTHORIZE = `${routes}/authorize`;
+  /** Whether someone may give this server permission at all. */
+  const admitted = (user) => !adminsOnly || (user?.role === 'admin' && !user.disabled_at);
 
   /** Authorization codes in flight, by hash. They last minutes: memory is plenty. */
   const codes = new Map();
@@ -332,7 +370,7 @@ export function createOAuthServer({
   async function findClient(clientId, req = null) {
     if (!clientId) throw new OAuthScreenError('client_missing');
     if (isCimdClient(clientId)) return cimdDocument(clientId, req);
-    const row = db.get('SELECT * FROM oauth_clients WHERE client_id = ?', clientId);
+    const row = db.get(`SELECT * FROM ${T.clients} WHERE client_id = ?`, clientId);
     if (!row) throw new OAuthScreenError('client_unknown');
     return {
       client_id: row.client_id,
@@ -348,10 +386,10 @@ export function createOAuthServer({
 
   const serverMetadata = () => ({
     issuer: ISSUER,
-    authorization_endpoint: `${BASE_URL}/oauth/authorize`,
-    token_endpoint: `${BASE_URL}/oauth/token`,
-    registration_endpoint: `${BASE_URL}/oauth/register`,
-    revocation_endpoint: `${BASE_URL}/oauth/revoke`,
+    authorization_endpoint: `${BASE_URL}${AUTHORIZE}`,
+    token_endpoint: `${BASE_URL}${routes}/token`,
+    registration_endpoint: `${BASE_URL}${routes}/register`,
+    revocation_endpoint: `${BASE_URL}${routes}/revoke`,
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
@@ -403,7 +441,7 @@ export function createOAuthServer({
     const secret = method === 'none' ? null : randomValue(OAUTH_PREFIXES.secret);
     const name = String(data.client_name || '').trim().slice(0, 100) || 'Unnamed application';
     db.run(
-      'INSERT INTO oauth_clients (client_id, secret_hash, name, redirect_uris) VALUES (?, ?, ?, ?)',
+      `INSERT INTO ${T.clients} (client_id, secret_hash, name, redirect_uris) VALUES (?, ?, ?, ?)`,
       clientId, secret ? hash(secret) : null, name, JSON.stringify(redirects),
     );
     sendJson(res, 201, {
@@ -531,10 +569,21 @@ export function createOAuthServer({
   /**
    * The consent screen. Signed in, it only asks for permission; if not, for a
    * username and password too; with `challenge` (the password passed and a
-   * second step is on), for the code from the person's app.
+   * second step is on), for the code from the person's app. With `adminsOnly`, a signed-in
+   * administrator is told what they give, and asked what `confirm` says ('password',
+   * 'password_code', or 'session': a link to sign in again, back to this very request).
    */
-  function consentScreen(req, res, p, { client, redirect }, { user = null, error = null, challenge = null } = {}) {
+  function consentScreen(req, res, p, { client, redirect }, { user = null, error = null, challenge = null, confirm = null } = {}) {
     const { lang, t } = texts(req, user);
+    const again = user && confirm === 'session' && adminsOnly?.again ? adminsOnly.again(`${AUTHORIZE}?${requestQuery(p)}`) : null;
+    const confirmation = !user || !adminsOnly ? '' : `<p class="oauth__warning">${htmlText(t, 'oauth.admin.notice')}</p>
+${confirm === 'password' || confirm === 'password_code' ? `<p class="oauth__text">${htmlText(t, 'oauth.admin.confirm')}</p>
+<label class="field"><span>${htmlText(t, 'oauth.password')}</span>
+<input name="admin_password" type="password" autocomplete="current-password" required autofocus></label>` : ''}
+${confirm === 'password_code' ? `<label class="field"><span>${htmlText(t, 'oauth.code')}</span>
+<input name="admin_code" autocomplete="one-time-code" inputmode="numeric" required autocapitalize="none" spellcheck="false"></label>` : ''}
+${again ? `<p class="oauth__text">${htmlText(t, 'oauth.admin.session')}</p>
+<p class="oauth__text"><a class="btn" href="${escapeHtml(again)}">${htmlText(t, 'oauth.admin.signInAgain')}</a></p>` : ''}`;
     const target = parseUrl(redirect);
     const loopback = target && target.protocol === 'http:' && LOOPBACK.has(target.hostname);
     const redirectHost = target ? (target.host || target.protocol) : redirect;
@@ -555,11 +604,12 @@ ${client.verified ? '' : `<p class="oauth__text oauth__note">${htmlText(t, 'oaut
 <p class="oauth__text">${htmlText(t, 'oauth.returnTo', { host: strong(redirectHost) })}</p>
 ${loopback ? `<p class="oauth__warning">${htmlText(t, 'oauth.loopback')}</p>` : ''}
 ${error ? `<p class="oauth__error" role="alert">${htmlText(t, `oauth.${error}`)}</p>` : ''}
-<form class="oauth__form" method="post" action="/oauth/authorize">
+<form class="oauth__form" method="post" action="${escapeHtml(AUTHORIZE)}">
 ${hidden}
 ${user
     ? `<input type="hidden" name="csrf" value="${escapeHtml(csrfFor(req, p))}">
-<p class="oauth__text">${htmlText(t, 'oauth.signedInAs', { user: strong(users.handle(user)) })}</p>`
+<p class="oauth__text">${htmlText(t, 'oauth.signedInAs', { user: strong(users.handle(user)) })}</p>
+${confirmation}`
     : challenge ? `<input type="hidden" name="challenge" value="${escapeHtml(challenge)}">
 <label class="field"><span>${htmlText(t, 'oauth.code')}</span>
 <input name="code" autocomplete="one-time-code" required autocapitalize="none" spellcheck="false" autofocus></label>
@@ -570,7 +620,7 @@ ${user
 <input name="password" type="password" autocomplete="current-password" required></label>`}
 <div class="oauth__actions">
 ${!user && !challenge && externalSignIn
-    ? `<a class="btn btn--primary" href="${escapeHtml(externalSignIn.url(`/oauth/authorize?${requestQuery(p)}`))}">${htmlText(t, 'oauth.signInWith', { provider: externalSignIn.name })}</a>`
+    ? `<a class="btn btn--primary" href="${escapeHtml(externalSignIn.url(`${AUTHORIZE}?${requestQuery(p)}`))}">${htmlText(t, 'oauth.signInWith', { provider: externalSignIn.name })}</a>`
     : `<button class="btn btn--primary" type="submit" name="decision" value="allow">${htmlText(t, user ? 'oauth.allow' : challenge ? 'oauth.verifyAndAllow' : 'oauth.signInAndAllow')}</button>`}
 <button class="btn" type="submit" name="decision" value="cancel" formnovalidate>${htmlText(t, 'oauth.cancel')}</button>
 </div>
@@ -593,8 +643,13 @@ ${!user && !challenge && externalSignIn
     }
 
     let user = users.fromRequest(req);
+    // Signed in as someone who may not give it: why, and no button to press.
+    if (user && !admitted(user)) {
+      errorScreen(req, res, 'admin_only');
+      return;
+    }
     if (req.method === 'GET') {
-      consentScreen(req, res, p, checked, { user });
+      consentScreen(req, res, p, checked, { user, confirm: user && adminsOnly ? await adminsOnly.ask(user) : null });
       return;
     }
 
@@ -623,6 +678,20 @@ ${!user && !challenge && externalSignIn
         errorScreen(req, res, 'request_expired');
         return;
       }
+      // An open session is not enough to hand an assistant the administrator's powers: who they
+      // are, again (their password and code, or a sign-in again), as /admin asks before changing
+      // someone's identity. A stolen cookie alone gets no token here.
+      if (adminsOnly) {
+        try {
+          await adminsOnly.confirm(req, user, p);
+        } catch (err) {
+          const error = CONFIRM_ERRORS[err?.code];
+          if (!error) throw err;
+          log(`[oauth] user #${user.id} not confirmed for "${client.name}": ${err.code}`);
+          consentScreen(req, res, p, checked, { user, error, confirm: await adminsOnly.ask(user) });
+          return;
+        }
+      }
     } else if (externalSignIn) {
       // Signing in happens at the provider: back to the screen, with its link.
       consentScreen(req, res, p, checked);
@@ -643,6 +712,10 @@ ${!user && !challenge && externalSignIn
         return;
       }
       user = pending;
+      if (!admitted(user)) {
+        errorScreen(req, res, 'admin_only');
+        return;
+      }
       sessions.open(res, user.id, { req });
     } else {
       const name = p.get('username') || '';
@@ -657,6 +730,11 @@ ${!user && !challenge && externalSignIn
         return;
       }
       limits.loginSucceeded(req, name);
+      // The password was right, but this server isn't theirs to open: said before any second step.
+      if (!admitted(user)) {
+        errorScreen(req, res, 'admin_only');
+        return;
+      }
       // With a second step on, the password only earns the screen that asks for the code.
       if (secondStep?.required(user)) {
         consentScreen(req, res, p, checked, { challenge: secondStep.challengeFor(user.id) });
@@ -667,7 +745,7 @@ ${!user && !challenge && externalSignIn
     }
 
     if (!client.verified) {
-      db.run("UPDATE oauth_clients SET last_used_at = datetime('now') WHERE client_id = ?", client.client_id);
+      db.run(`UPDATE ${T.clients} SET last_used_at = datetime('now') WHERE client_id = ?`, client.client_id);
     }
     const code = randomValue('');
     codes.set(hash(code), {
@@ -726,10 +804,10 @@ ${!user && !challenge && externalSignIn
   function issue(grantId, scope) {
     const access = randomValue(OAUTH_PREFIXES.access);
     const refresh = randomValue(OAUTH_PREFIXES.refresh);
-    db.run('INSERT INTO oauth_tokens (token_hash, grant_id, kind, expires_at) VALUES (?, ?, ?, ?)',
+    db.run(`INSERT INTO ${T.tokens} (token_hash, grant_id, kind, expires_at) VALUES (?, ?, ?, ?)`,
       hash(access), grantId, 'access', sqlTime(Date.now() + ACCESS_TTL_S * 1000));
-    db.run('INSERT INTO oauth_tokens (token_hash, grant_id, kind, expires_at) VALUES (?, ?, ?, ?)',
-      hash(refresh), grantId, 'refresh', sqlTime(Date.now() + REFRESH_TTL_DAYS * 86400 * 1000));
+    db.run(`INSERT INTO ${T.tokens} (token_hash, grant_id, kind, expires_at) VALUES (?, ?, ?, ?)`,
+      hash(refresh), grantId, 'refresh', sqlTime(Date.now() + refreshDays * 86400 * 1000));
     return {
       access_token: access,
       token_type: 'Bearer',
@@ -741,8 +819,8 @@ ${!user && !challenge && externalSignIn
 
   // Tokens go first on purpose: the app's database may not enforce foreign keys.
   const revokeGrant = (grantId) => {
-    db.run('DELETE FROM oauth_tokens WHERE grant_id = ?', grantId);
-    db.run('DELETE FROM oauth_grants WHERE id = ?', grantId);
+    db.run(`DELETE FROM ${T.tokens} WHERE grant_id = ?`, grantId);
+    db.run(`DELETE FROM ${T.grants} WHERE id = ?`, grantId);
   };
 
   async function token(req, res) {
@@ -786,17 +864,22 @@ ${!user && !challenge && externalSignIn
       }
       const target = parseUrl(pending.redirect);
       const { lastInsertRowid } = db.run(
-        'INSERT INTO oauth_grants (user_id, client_id, client_name, redirect_host) VALUES (?, ?, ?, ?)',
+        `INSERT INTO ${T.grants} (user_id, client_id, client_name, redirect_host) VALUES (?, ?, ?, ?)`,
         pending.userId, clientId, pending.name, target?.host || target?.protocol || null,
       );
       pending.grantId = Number(lastInsertRowid);
+      try {
+        whenGranted?.({ grantId: pending.grantId, userId: pending.userId, clientName: pending.name, req });
+      } catch (err) {
+        log(`[oauth] what follows grant ${pending.grantId} failed: ${err.message}`);
+      }
       sendJson(res, 200, issue(pending.grantId, pending.scope), CORS);
       return;
     }
 
     if (p.get('grant_type') === 'refresh_token') {
       const row = db.get(
-        `SELECT t.*, g.client_id FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
+        `SELECT t.*, g.client_id FROM ${T.tokens} t JOIN ${T.grants} g ON g.id = t.grant_id
          WHERE t.token_hash = ? AND t.kind = 'refresh'`,
         hash(p.get('refresh_token') || ''),
       );
@@ -812,10 +895,10 @@ ${!user && !challenge && externalSignIn
         return;
       }
       // Kept only to tell that it came back (a copy): a week, not the 60 days it had left.
-      db.run(`UPDATE oauth_tokens SET used_at = datetime('now'), expires_at = MIN(expires_at, ?) WHERE token_hash = ?`,
+      db.run(`UPDATE ${T.tokens} SET used_at = datetime('now'), expires_at = MIN(expires_at, ?) WHERE token_hash = ?`,
         sqlTime(Date.now() + USED_REFRESH_KEPT_DAYS * 86400 * 1000), row.token_hash);
       // The previous access token stops working: with the new pair it is not needed.
-      db.run("DELETE FROM oauth_tokens WHERE grant_id = ? AND kind = 'access'", row.grant_id);
+      db.run(`DELETE FROM ${T.tokens} WHERE grant_id = ? AND kind = 'access'`, row.grant_id);
       sendJson(res, 200, issue(row.grant_id, p.get('scope') || ''), CORS);
       return;
     }
@@ -826,7 +909,7 @@ ${!user && !challenge && externalSignIn
   /** RFC 7009: revoking a token revokes the whole grant. Always answers 200. */
   async function revoke(req, res) {
     const p = await readForm(req);
-    const row = db.get('SELECT grant_id FROM oauth_tokens WHERE token_hash = ?', hash(p.get('token') || ''));
+    const row = db.get(`SELECT grant_id FROM ${T.tokens} WHERE token_hash = ?`, hash(p.get('token') || ''));
     if (row) revokeGrant(row.grant_id);
     res.writeHead(200, { ...CORS, 'Cache-Control': 'no-store' });
     res.end();
@@ -838,12 +921,16 @@ ${!user && !challenge && externalSignIn
   async function handle(req, res, url) {
     if (!enabled) return false;
     const path = url.pathname;
-    const ours = path.startsWith('/oauth/')
-      || path === METADATA_PATH || path.startsWith(`${METADATA_PATH}/`)
-      || path === AS_METADATA_PATH || path.startsWith(`${AS_METADATA_PATH}/`);
+    // A second server answers only its own paths: its routes, its resource's metadata and its
+    // issuer's (RFC 8414 puts the issuer's path after the well-known one; some clients put it before).
+    const asMetadata = own ? path === AS_METADATA_PATH || path.startsWith(`${AS_METADATA_PATH}/`)
+      : path === AS_METADATA || path === `${issuerPath}${AS_METADATA_PATH}`;
+    const resourceMetadata = own ? path === METADATA_PATH || path === RESOURCE_METADATA : path === RESOURCE_METADATA;
+    const ours = path.startsWith(`${routes}/`) || asMetadata || resourceMetadata
+      || (own && (path === METADATA_PATH || path.startsWith(`${METADATA_PATH}/`)));
     if (!ours) return false;
 
-    if (req.method === 'OPTIONS' && path !== '/oauth/authorize') {
+    if (req.method === 'OPTIONS' && path !== AUTHORIZE) {
       res.writeHead(204, {
         ...CORS,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -854,7 +941,7 @@ ${!user && !challenge && externalSignIn
       return true;
     }
 
-    if (path === METADATA_PATH || path === `${METADATA_PATH}/mcp`) {
+    if (resourceMetadata) {
       sendJson(res, 200, {
         resource: RESOURCE,
         authorization_servers: [ISSUER],
@@ -863,18 +950,18 @@ ${!user && !challenge && externalSignIn
       }, CORS);
       return true;
     }
-    if (path === AS_METADATA_PATH || path.startsWith(`${AS_METADATA_PATH}/`)) {
+    if (asMetadata) {
       sendJson(res, 200, serverMetadata(), CORS);
       return true;
     }
     try {
-      if (path === '/oauth/register' && req.method === 'POST') { await register(req, res); return true; }
-      if (path === '/oauth/authorize' && (req.method === 'GET' || req.method === 'POST')) {
+      if (path === `${routes}/register` && req.method === 'POST') { await register(req, res); return true; }
+      if (path === AUTHORIZE && (req.method === 'GET' || req.method === 'POST')) {
         await authorize(req, res, url);
         return true;
       }
-      if (path === '/oauth/token' && req.method === 'POST') { await token(req, res); return true; }
-      if (path === '/oauth/revoke' && req.method === 'POST') { await revoke(req, res); return true; }
+      if (path === `${routes}/token` && req.method === 'POST') { await token(req, res); return true; }
+      if (path === `${routes}/revoke` && req.method === 'POST') { await revoke(req, res); return true; }
     } catch (err) {
       if (err?.message === 'body_too_large') {
         oauthError(res, 413, 'invalid_request', 'Body too large');
@@ -893,7 +980,7 @@ ${!user && !challenge && externalSignIn
   function userFromAccessToken(tokenValue) {
     if (!enabled || !String(tokenValue || '').startsWith(OAUTH_PREFIXES.access)) return null;
     const row = db.get(
-      `SELECT g.id AS grant_id, g.user_id, g.last_used_at FROM oauth_tokens t JOIN oauth_grants g ON g.id = t.grant_id
+      `SELECT g.id AS grant_id, g.user_id, g.last_used_at FROM ${T.tokens} t JOIN ${T.grants} g ON g.id = t.grant_id
        WHERE t.token_hash = ? AND t.kind = 'access' AND t.expires_at > datetime('now')`,
       hash(tokenValue),
     );
@@ -901,26 +988,42 @@ ${!user && !challenge && externalSignIn
     const user = users.byId(row.user_id);
     // An account the admin disabled keeps its grants, unused, until it comes back.
     if (!user || user.disabled_at) return null;
+    // An administrator no longer: what they gave as one opens nothing until they are one again.
+    if (!admitted(user)) return null;
     // Settings shows when it was last used: written once a minute at most, not on every call (tokens.js does the same).
     if (!row.last_used_at || row.last_used_at < sqlTime(Date.now() - 60 * 1000)) {
-      db.run("UPDATE oauth_grants SET last_used_at = datetime('now') WHERE id = ?", row.grant_id);
+      db.run(`UPDATE ${T.grants} SET last_used_at = datetime('now') WHERE id = ?`, row.grant_id);
     }
     return user;
   }
 
   /** The MCP's 401 header: where the metadata is, so the client opens the sign-in window. */
   const challenge = (hadToken) =>
-    `Bearer resource_metadata="${BASE_URL}${METADATA_PATH}/mcp"${hadToken ? ', error="invalid_token"' : ''}`;
+    `Bearer resource_metadata="${BASE_URL}${RESOURCE_METADATA}"${hadToken ? ', error="invalid_token"' : ''}`;
 
   /** The applications a user has given permission to, for Settings. */
   const grantsOf = (userId) => db.all(
     `SELECT id, client_name, client_id, redirect_host, created_at, last_used_at
-     FROM oauth_grants WHERE user_id = ? ORDER BY COALESCE(last_used_at, created_at) DESC`,
+     FROM ${T.grants} WHERE user_id = ? ORDER BY COALESCE(last_used_at, created_at) DESC`,
     userId,
   ).map((g) => ({ ...g, client_id: isCimdClient(g.client_id) ? g.client_id : undefined }));
 
   function revokeGrantOf(grantId, userId) {
-    const row = db.get('SELECT id FROM oauth_grants WHERE id = ? AND user_id = ?', grantId, userId);
+    const row = db.get(`SELECT id FROM ${T.grants} WHERE id = ? AND user_id = ?`, grantId, userId);
+    if (!row) return false;
+    revokeGrant(row.id);
+    return true;
+  }
+
+  /** Every permission given, whoever gave it, for whoever runs the install (a second server's, in /admin). */
+  const allGrants = () => db.all(
+    `SELECT id, user_id, client_name, client_id, redirect_host, created_at, last_used_at
+     FROM ${T.grants} ORDER BY COALESCE(last_used_at, created_at) DESC`,
+  ).map((g) => ({ ...g, client_id: isCimdClient(g.client_id) ? g.client_id : undefined }));
+
+  /** One permission, whoever gave it: false when there is none with that id. */
+  function revokeAnyGrant(grantId) {
+    const row = db.get(`SELECT id FROM ${T.grants} WHERE id = ?`, grantId);
     if (!row) return false;
     revokeGrant(row.id);
     return true;
@@ -928,7 +1031,7 @@ ${!user && !challenge && externalSignIn
 
   /** Everything of a user, when their account is deleted. */
   function forgetUser(userId) {
-    for (const g of db.all('SELECT id FROM oauth_grants WHERE user_id = ?', userId)) revokeGrant(g.id);
+    for (const g of db.all(`SELECT id FROM ${T.grants} WHERE user_id = ?`, userId)) revokeGrant(g.id);
   }
 
   /**
@@ -937,12 +1040,12 @@ ${!user && !challenge && externalSignIn
    * on every new connection and most of them stay there—.
    */
   function purge() {
-    db.run("DELETE FROM oauth_tokens WHERE expires_at <= datetime('now')");
-    db.run(`DELETE FROM oauth_grants WHERE created_at < datetime('now', '-1 day')
-            AND id NOT IN (SELECT grant_id FROM oauth_tokens)`);
-    db.run(`DELETE FROM oauth_clients WHERE created_at < datetime('now', '-7 days')
+    db.run(`DELETE FROM ${T.tokens} WHERE expires_at <= datetime('now')`);
+    db.run(`DELETE FROM ${T.grants} WHERE created_at < datetime('now', '-1 day')
+            AND id NOT IN (SELECT grant_id FROM ${T.tokens})`);
+    db.run(`DELETE FROM ${T.clients} WHERE created_at < datetime('now', '-7 days')
             AND (last_used_at IS NULL OR last_used_at < datetime('now', '-60 days'))
-            AND client_id NOT IN (SELECT client_id FROM oauth_grants)`);
+            AND client_id NOT IN (SELECT client_id FROM ${T.grants})`);
     const now = Date.now();
     for (const [key, c] of codes) if (c.expires < now) codes.delete(key);
   }
@@ -950,5 +1053,6 @@ ${!user && !challenge && externalSignIn
   return {
     enabled, resource: RESOURCE,
     handle, userFromAccessToken, challenge, grantsOf, revokeGrant: revokeGrantOf, forgetUser, purge,
+    allGrants, revokeAnyGrant,
   };
 }

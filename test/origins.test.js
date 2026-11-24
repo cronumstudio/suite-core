@@ -145,8 +145,8 @@ test('a payment on the web is noted with what was charged and its account’s or
     ['pro-yearly', 'pro', 3500, 'EUR', false, false, null],
     ['pro-yearly', 'pro', 1900, 'EUR', true, false, null],
   ]);
-  assert.deepEqual({ ...database.get("SELECT src, referrer, entry, heard FROM origin_payments WHERE ref = 'txn_1'") },
-    { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web', heard: null }, 'the origin as it was when they paid');
+  assert.deepEqual({ ...database.get("SELECT src, referrer, entry FROM origin_payments WHERE ref = 'txn_1'") },
+    { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web' }, 'the origin as it was when they paid');
 
   // A group's payment, something that is no payment, or one of nobody: not noted.
   assert.equal(origins.paid({ user: null, organization: { id: 3 }, event: { type: 'payment', ref: 'txn_g', amount: 100 } }, { provider: 'paddle' }), false);
@@ -158,16 +158,6 @@ test('a payment on the web is noted with what was charged and its account’s or
   assert.equal(origins.refunded({ event: { type: 'refund', ref: 'sub_1', subscription: true } }, { provider: 'paddle' }), 1);
   assert.equal(origins.refunded({ event: { type: 'refund', ref: 'txn_1' } }, { provider: 'another' }), 0);
   assert.deepEqual(origins.paymentsOf(ana.id).map((p) => Boolean(p.refunded_at)), [true, true]);
-});
-
-test('a first questions’ answer is noted with a payment where the host asks them', (t) => {
-  const { origins, arrive, database } = setup(t);
-  database.exec('CREATE TABLE host_first_answers (user_id INTEGER PRIMARY KEY, heard_from TEXT, has_channel INTEGER, channel TEXT, answered_at TEXT NOT NULL)');
-  const ana = arrive('ana');
-  database.run("INSERT INTO host_first_answers (user_id, heard_from, answered_at) VALUES (?, 'producthunt', 'now')", ana.id);
-  assert.equal(origins.heardOf(ana.id), 'producthunt');
-  origins.paid({ user: ana, event: { type: 'payment', ref: 'txn_9', amount: 390, currency: 'EUR', product: 'pro-monthly', first: true } }, { provider: 'paddle' });
-  assert.equal(database.get("SELECT heard FROM origin_payments WHERE ref = 'txn_9'").heard, 'producthunt');
 });
 
 test('a store’s purchase and each renewal: one per paid period, with the product’s listed amount, marked as an estimate', (t) => {

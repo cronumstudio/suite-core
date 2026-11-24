@@ -100,7 +100,6 @@ export function originsSchema(d) {
     src          TEXT,
     referrer     TEXT,
     entry        TEXT,
-    heard        TEXT,
     at           TEXT NOT NULL,
     refunded_at  TEXT,
     UNIQUE (provider, ref)
@@ -195,21 +194,17 @@ export function createOrigins({
 
   const of = (userId) => database.get('SELECT src, referrer, entry, at FROM account_origins WHERE user_id = ?', userId) ?? null;
 
-  /** How they said they heard of the app, where a host asks at the first start (host.js firstQuestions). */
-  const asksHeard = () => database.columnsOf('host_first_answers').length > 0;
-  const heardOf = (userId) => (asksHeard()
-    ? database.get('SELECT heard_from FROM host_first_answers WHERE user_id = ?', userId)?.heard_from ?? null : null);
 
   /* ---------------------------------- payments --------------------------------- */
 
   function note({ userId, provider, ref, subscription = null, product = null, plan = null, amount = null, currency = null, first = false, estimated = false, at }) {
     const origin = of(userId);
     return database.run(`INSERT OR IGNORE INTO origin_payments (user_id, provider, ref, subscription, product, plan, amount, currency,
-        first, estimated, src, referrer, entry, heard, at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        first, estimated, src, referrer, entry, at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     userId, String(provider), String(ref), subscription ? String(subscription) : null, product, plan,
     Number.isFinite(amount) ? Math.round(amount) : null, currency ? String(currency).toUpperCase() : null,
-    first ? 1 : 0, estimated ? 1 : 0, origin?.src ?? null, origin?.referrer ?? null, origin?.entry ?? null, heardOf(userId), at).changes > 0;
+    first ? 1 : 0, estimated ? 1 : 0, origin?.src ?? null, origin?.referrer ?? null, origin?.entry ?? null, at).changes > 0;
   }
 
   /**
@@ -276,7 +271,7 @@ export function createOrigins({
     database.run('UPDATE origin_payments SET user_id = NULL WHERE user_id = ?', userId);
   }
 
-  return { fromLogin, pack, arriving, noteCreated, of, heardOf, paid, refunded, applied, paymentsOf, forget, ownHosts: own };
+  return { fromLogin, pack, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own };
 }
 
 /** The admin's route: an account's origin and the payments noted for it. Administrators only. */
