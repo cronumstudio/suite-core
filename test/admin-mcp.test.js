@@ -490,3 +490,64 @@ test('with WorkOS: the administrator’s password at WorkOS again; someone who i
   // The app's /mcp is AuthKit's: this token is no AuthKit token.
   assert.equal((await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
 });
+
+test('invitations with Pro: made, listed and taken back from here, each once in the log with the connector’s mark', async (t) => {
+  const product = {
+    ...PRODUCT, modules: { adminMcp: true, billing: true }, affiliates: { invitations: true },
+    products: { 'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_year' } },
+  };
+  const { suite, base } = await serve(t, { product });
+  const bob = suite.accounts.create({ username: BOB.username, password: BOB.password, email: 'bob@example.com' });
+  const admin = await connector(base, await rootToken(suite, base));
+  const byName = Object.fromEntries((await admin.rpc('tools/list', {})).json.result.tools.map((tool) => [tool.name, tool]));
+  for (const name of ['list_creator_invitations', 'get_creator_invitation']) assert.equal(byName[name]?.annotations.readOnlyHint, true, name);
+  for (const name of ['create_creator_invitation', 'revoke_creator_invitation']) assert.equal(byName[name]?.annotations.destructiveHint, true, name);
+
+  // A link for several, Pro alone for a month, its label what the administrator wrote.
+  const many = await admin.call('create_creator_invitation', { name: SNEAKY, creator: false, pro_months: 1, uses: 3 });
+  assert.equal(many.ok, true, JSON.stringify(many));
+  assert.deepEqual(many.invitation.name, { untrusted_text: SNEAKY }, 'what was written comes marked');
+  assert.deepEqual([many.invitation.creator, many.invitation.uses, many.invitation.pro_months], [false, 3, 1]);
+  assert.match(many.invitation.link, new RegExp(`^${base}/i/ci_`), 'the link, for the administrator to send');
+  // A creator for good, with a commission of their own.
+  const ana = await admin.call('create_creator_invitation', { name: 'Ana', email: 'ana@example.com', forever: true, reward: 1000, offer_percent: 25 });
+  assert.deepEqual([ana.invitation.pro_months, ana.invitation.reward, ana.invitation.offer, ana.invitation.code],
+    [null, { cash: 1000, currency: 'EUR' }, { type: 'percent', percent: 25 }, 'ANA25']);
+  assert.match((await admin.call('create_creator_invitation', { email: 'ana@example.com' })).error, /invited before/);
+  assert.equal((await admin.call('create_creator_invitation', { email: 'ana@example.com', force: true, pro_until: '2099-12-31' })).invitation.pro_until,
+    '2099-12-31T23:59:59.999Z', 'a day is its last moment');
+  assert.match((await admin.call('create_creator_invitation', { pro_months: 3, forever: true })).error, /not valid/);
+  assert.match((await admin.call('create_creator_invitation', { uses: 5 })).error, /not valid/, 'several only for Pro alone');
+
+  // Each once in the log, the invitation's own entry, marked as the connector's.
+  const made = entries(suite, 'admin.creator_invitation.create');
+  assert.equal(made.length, 3);
+  assert.ok(made.every((e) => e.meta.via === 'admin MCP · Claude Code'), 'marked, with the client');
+
+  const listed = await admin.call('list_creator_invitations', { status: 'pending' });
+  assert.equal(listed.invitations.length, 3);
+  assert.equal(listed.defaults.days, 30);
+  const seen = await admin.call('get_creator_invitation', { invitation_id: many.invitation.id });
+  assert.deepEqual([seen.invitation.id, seen.invitation.accounts], [many.invitation.id, []]);
+  assert.ok(entries(suite, 'admin.mcp.read').some((e) => e.meta.tool === 'get_creator_invitation' && e.target_id === String(many.invitation.id)));
+
+  const revoked = await admin.call('revoke_creator_invitation', { invitation_id: many.invitation.id });
+  assert.deepEqual([revoked.invitation.status, revoked.invitation.link], ['revoked', null]);
+  assert.match((await admin.call('revoke_creator_invitation', { invitation_id: many.invitation.id })).error, /pending/);
+  const taken = entries(suite, 'admin.creator_invitation.revoke');
+  assert.deepEqual(taken.map((e) => [e.target_id, e.meta.via]), [[String(many.invitation.id), 'admin MCP · Claude Code']]);
+
+  // A refusal about an account says which: Activity shows it beside the refusal.
+  await admin.call('set_account_plan', { account: 'bob', plan: 'platinum' });
+  const refused = entries(suite, 'admin.mcp.refused').find((e) => e.meta.tool === 'set_account_plan');
+  assert.deepEqual([refused.target_type, refused.target_id], ['user', String(bob.id)]);
+  await admin.call('get_account', { account: 'nobody@example.com' });
+  assert.equal(entries(suite, 'admin.mcp.refused').find((e) => e.meta.tool === 'get_account').target_id, null, 'none for an account that doesn’t exist');
+});
+
+test('without invitations in the install, the connector has no tools for them', async (t) => {
+  const { suite, base } = await serve(t);
+  const admin = await connector(base, await rootToken(suite, base));
+  const names = (await admin.rpc('tools/list', {})).json.result.tools.map((tool) => tool.name);
+  assert.ok(!names.some((name) => name.includes('invitation')), names.join(', '));
+});

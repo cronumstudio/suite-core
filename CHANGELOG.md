@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.334.0 — 2026-11-24
+
+- **The administrator's connector makes invitations with Pro** (admin-mcp.js, with
+  `affiliates.invitations`): `list_creator_invitations` and `get_creator_invitation` (with every
+  account that entered by one) read them; `create_creator_invitation` makes one with what
+  /admin's dialog takes (a name and an email or neither; Pro for some months, until a day or for
+  good; a creator's code and terms, or Pro alone; how many accounts a link for anyone makes) and
+  answers with its link, for the administrator to send; `revoke_creator_invitation` takes one
+  back. What was written for an invitation (its name, its campaign, its note) comes marked as
+  untrusted. Each change is in the log once, as the invitation's own entry, with the connector's
+  `via`: `creatorInvitations.create` and `revoke` take `{ via }` for that.
+- **A refusal about an account says which**: `admin.mcp.refused` keeps the account a call named
+  (`account`), when it exists, as its target.
+
 ## 0.328.0 — 2026-11-25
 
 - **Invitations with the plan, before anyone has an account** (`creator-invitations.js`, with the
