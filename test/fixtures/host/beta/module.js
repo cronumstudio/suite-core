@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { joinHost } from '../../../../host.js';
-import { itemRoutes, itemTools, itemCards, doneRoute } from '../items.js';
+import { itemRoutes, itemTools, itemCards, doneRoute, itemSampleData } from '../items.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const events = { removed: [] };
@@ -29,6 +29,7 @@ export function createModule({ mount }) {
       doneRoute(api, { suite, table: 'beta_items' });
     },
     cards: itemCards({ suite, table: 'beta_items' }),
+    sampleData: itemSampleData({ suite, table: 'beta_items' }),
     // 500 bytes an item; one called 'Unreadable' makes it fail, which counts as nothing.
     storage: (userId) => {
       if (suite.database.get("SELECT 1 FROM beta_items WHERE user_id = ? AND text = 'Unreadable'", userId)) throw new Error('unreadable');
