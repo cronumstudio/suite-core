@@ -85,6 +85,7 @@ suite-core/
   stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
   affiliates.js         done   referral codes and creators' campaigns: who brought whom, commissions, months given, payouts
   admin-mcp.js          done   the administrator's connector: /admin/mcp, its own OAuth, rules kept by the server
+  creator-invitations.js done  invitations with the plan (a creator's code, or the plan alone): a link, and the account, plan and code made when someone enters
   origins.js            done   where each account came from (a link's tag, the site before, how it was made) and each payment with its origin
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
@@ -2456,6 +2457,56 @@ older host took only a list).
   `app.host.day`). Projects leaves out its own 08:00 summary of due dates there, and its Settings'
   switch of it; on its own an app has no `daySummary` and nothing changes.
 
+
+### 21.3.3 Sample data
+
+`sample-data.js` (v0.322.0), with `createHost({ sampleData })`: one example in every module someone
+uses, to try the app or record it without typing anything in, added and taken away from Settings ›
+Sample data. `true` is one example; `{ examples: ['cafe', 'app'], words: 'samples.' }` several, one
+story each, offered in that order in a dialog that names each from the host's catalog
+(`samples.cafe.title`, `samples.cafe.hint`). Without the option nothing of it is there. A module
+says how, next to its `day`:
+
+```js
+// server/module.js
+sampleData: {
+  // Makes the module's part of the example `example` (one of the host's; a module without it
+  // throws) for `user`, in `locale` (one of the suite's languages), its dates around `today`
+  // ('YYYY-MM-DD' in their zone). Synchronous: the host runs it in a transaction of its own and in
+  // the person's zone, and one that throws leaves nothing behind.
+  seed: ({ user, userId, locale, today, example }) => ({
+    items: [{ type: 'task', id: 12 }],                // what it made
+    anchors: { menu: { type: 'task', id: 12 } },      // its part in the story, for links
+  }),
+  // Takes away all the seed made (`items`), changed or not, and everything the person put inside
+  // the example's own containers (its lists, notebooks, projects). What the person has outside the
+  // example stays. Synchronous.
+  remove: ({ user, userId, items }) => ({ removed: [{ type: 'task', id: 12 }] }),
+},
+```
+
+The host keeps which example each person has (`host_sample_data`) and what it made
+(`host_sample_items`), host migration 13: it is how Settings know there is an example, and what
+each module gets back to remove. Anchors of the same name in two modules are linked (links.js
+`connect`, as the person); taking the example away deletes those links and any other to a thing that
+went.
+
+- **`GET /api/me/sample-data`** → `{ present, example, modules, available, examples }`: whether the
+  person has an example and which, in which modules, which of the modules they use have one, and the
+  examples there are.
+- **`POST /api/me/sample-data { example?, locale? }`** → 201 `{ present, example, modules, failed,
+  links }`. The first example when none is given; one the host doesn't have is 400 `field_invalid`
+  naming `example` and the options. The language asked for, else the one they chose, else the
+  browser's, else English. Only the modules they use; one whose seed throws is logged and named in
+  `failed`, never the whole answer. 409 `sample_data_present` while an example is there: one at a
+  time.
+- **`DELETE /api/me/sample-data`** → `{ present, removed, failed }`: a module that couldn't keeps its
+  part for a next try.
+- **From the host's own code**: `suite.sampleData.seed(user, { example, locale })`, `.status(user)`
+  and `.remove(user)`, the same as the routes (a page that makes an account ready for someone).
+- Each module's config says `host.sampleData: { examples, words }`, and its Settings show the
+  section in the host's group, right after Modules; removing asks first, saying that all of the
+  example goes, also what was added or changed inside it.
 
 ### 21.4 From one module to another
 

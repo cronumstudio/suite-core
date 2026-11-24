@@ -481,6 +481,9 @@ export function openSettings(options) {
     // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
     host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
       hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
+    // The host's example to try it with (host.js `sampleData`, sample-data.js): added and taken away here.
+    host.sampleData && !alone() ? { group: host.name, id: 'sample-data', iconName: 'list-todo', label: t('kit.sample.title'),
+      hint: () => t('kit.sample.hint'), render: () => needsServer(sampleSection) } : null,
     // The host's calendar (host.js `calendar`): which modules show on it and, where the host has
     // one, its link for the person's own calendar app (`calendarFeed`). The whole app's.
     (host.calendarModules || host.calendarFeed) && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar',
@@ -1721,6 +1724,94 @@ export function openSettings(options) {
    * The time is two lists, its hour and its minutes every five, the steps the server keeps: a time
    * field took any minute on an iPhone (its wheel has no steps), and 16:37 was kept as 16:35.
    */
+  /**
+   * Settings › Sample data (sample-data.js): an example in every module the person uses, to try the
+   * app or record it without filling anything by hand. Added with one button (where the host has
+   * several, a dialog to choose one, named in the host's catalog: `host.sampleData.words`); once
+   * there, which one, where, and another button to take it away, which asks first: all of the
+   * example goes, also what the person added or changed inside it.
+   */
+  function sampleSection() {
+    const box = el('div', {});
+    const option = host.sampleData && typeof host.sampleData === 'object' ? host.sampleData : {};
+    const names = (mounts) => listFormat({ type: 'conjunction' })
+      .format(mounts.map((mount) => inUse.find((m) => m.mount === mount)?.name || mount));
+    const busy = (target, on) => { if (target) target.disabled = on; };
+    let last = null;
+    /** The host's catalog, where the examples are named (`words`): its words, or null without them. */
+    const hostWords = () => new Promise((resolve) => {
+      if (!option.words) { resolve(null); return; }
+      const here = { mount: '', path: '/' };
+      const now = moduleWords(here, currentLanguage(), () => resolve(moduleWords(here, currentLanguage()) ?? null));
+      if (now !== undefined) resolve(now);
+    });
+    let words = null;
+    /** An example's name or line (`title`, `hint`), from those words; null while they come or without one. */
+    const wordOf = (id, part) => {
+      const value = option.words ? words?.[`${option.words}${id}.${part}`] : null;
+      return typeof value === 'string' ? value : null;
+    };
+    // Asked as the section opens, so the dialog and the line that names the example have them.
+    hostWords().then((came) => { words = came; if (!closed && last) paint(last); });
+    /** Which example, when there are several: a dialog with one button each. → its id, or null. */
+    const choose = async (examples) => {
+      words = await hostWords();
+      return new Promise((resolve) => {
+        let picked = null;
+        let dialog = null;
+        const choice = (id) => el('button', {
+          type: 'button', class: 'kit-sample-choice',
+          onClick: () => { picked = id; dialog?.close(); },
+        }, el('strong', { text: wordOf(id, 'title') || id }), wordOf(id, 'hint') ? el('span', { text: wordOf(id, 'hint') }) : null);
+        dialog = openDialog({
+          title: t('kit.sample.chooseTitle'),
+          content: [hint(t('kit.sample.chooseHint')), el('div', { class: 'kit-sample-choices' }, ...examples.map(choice))],
+          actions: [{ label: t('kit.cancel') }],
+          onClose: () => resolve(picked),
+        });
+      });
+    };
+    const paint = (answer) => {
+      if (closed || !answer) return;
+      last = answer;
+      if (answer.present) {
+        const take = button(t('kit.sample.remove'), async () => {
+          if (!(await confirmDialog(t('kit.sample.confirmRemove'), { title: t('kit.sample.confirmTitle'), confirm: t('kit.sample.remove') }))) return;
+          busy(take, true);
+          try {
+            await api.root.delete('/api/me/sample-data');
+            toast(t('kit.sample.removed'));
+            paint(await api.root.get('/api/me/sample-data'));
+          } catch (err) { busy(take, false); fail(err); }
+        });
+        const name = answer.example ? wordOf(answer.example, 'title') : null;
+        clear(box).append(block(null,
+          hint(name ? t('kit.sample.presentNamed', { example: name, modules: names(answer.modules) })
+            : t('kit.sample.present', { modules: names(answer.modules) })),
+          hint(t('kit.sample.removeHint')),
+          row(take)));
+        return;
+      }
+      const examples = Array.isArray(answer.examples) && answer.examples.length ? answer.examples : [null];
+      const add = answer.available?.length ? button(t('kit.sample.add'), async () => {
+        const example = examples.length > 1 ? await choose(examples) : examples[0];
+        if (examples.length > 1 && !example) return;
+        busy(add, true);
+        try {
+          const out = await api.root.post('/api/me/sample-data', { locale: currentLanguage(), ...(example ? { example } : {}) });
+          toast(t('kit.sample.added', { modules: names(out.modules || []) }));
+          paint(await api.root.get('/api/me/sample-data'));
+        } catch (err) { busy(add, false); fail(err); }
+      }, 'primary') : null;
+      clear(box).append(block(null,
+        hint(t('kit.sample.intro', { app: host.name })),
+        add ? hint(t('kit.sample.removeLater')) : hint(t('kit.sample.none')),
+        add ? row(add) : null));
+    };
+    api.root.get('/api/me/sample-data').then(paint, fail);
+    return box;
+  }
+
   /**
    * Settings › Calendar: a switch for each module with dates that the person uses, whether it shows
    * on the calendar (its page, its link and the assistants' tool, calendar.js), for every plan; and

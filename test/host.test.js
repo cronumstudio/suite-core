@@ -1957,7 +1957,7 @@ test('a host asks nothing at the first start: its two questions are gone, and wh
   assert.equal('first_code' in modules, false);
   assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'reddit' })).status, 404);
   assert.equal((await call('GET', '/api/admin/users/1/first-answers')).status, 404);
-  // The table an earlier migration made is taken away by a later one (HOST_MIGRATIONS 6 and 13).
+  // The table an earlier migration made is taken away by a later one (HOST_MIGRATIONS 6 and 14).
   assert.ok(!host.suite.database.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'host_first_answers'"), 'no table left');
 });
 

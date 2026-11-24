@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.327.0 — 2026-11-25
+## 0.332.0 — 2026-11-25
 
 - **/admin › Origins: what each origin brought** (`origins.js` `report`, `GET /api/admin/origins?weeks=`,
   and the same as a CSV at `/export`): a table per week, the week the accounts were made in, with a
@@ -14,7 +14,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   it is «not known», a row of its own. Nobody is asked where they came from. The admin's card of
   an account says the same one origin. With `modules.origins`; /api/auth/config says
   `modules.origins`.
-- **What an account did for the first time**, once each (new suite migration 38, `account_marks`):
+- **What an account did for the first time**, once each (new suite migration 39, `account_marks`):
   `made`, the first thing it created (a route of the app's own answered it 201: in a host, a
   module's, with `createApp({ firsts: false })` at the root; never the suite's routes, where a
   token or a device is made); `mcp`, its first call from an assistant; and `limit:<feature>`, each limit of its plan it
@@ -32,9 +32,9 @@ change an interface and a patch never does. Apps pin a version through the submo
   origins with most (`reddit-mcp 4, google.com 2`), in the default template as «Came from: …» and
   left out when none is known. A summary whose template the admin wrote gets it when they add it.
 
-## 0.326.0 — 2026-11-25
+## 0.331.0 — 2026-11-25
 
-- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 37,
+- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 38,
   `account_origins` and `origin_payments`): kept when the account is made and never written over,
   the tag of the link it followed (`?src=reddit-mcp`; `?utm_source=` or `?ref=`, which some sites
   add to the links they list, when there is no `src`), the domain of the site before, never its
@@ -60,19 +60,79 @@ change an interface and a patch never does. Apps pin a version through the submo
   site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
   host it is the root's, as the affiliates are.
 
-## 0.325.0 — 2026-11-25
+## 0.330.0 — 2026-11-25
 
 - **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
   heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
-  first start is in the way, and where an account came from can be known without it (0.326.0).
+  first start is in the way, and where an account came from can be known without it (0.331.0).
   The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
   says `first_questions`; `PUT /api/me/first-answers` and
   `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
   the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
   are removed. A host's page that asked stops calling them.
-- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
+- **Host migration 14** drops `host_first_answers`: what was answered goes with the questions. A
   host that wants those answers copies the table out before it updates.
 
+## 0.328.0 — 2026-11-25
+
+- **Invitations with the plan, before anyone has an account** (`creator-invitations.js`, with the
+  affiliates and `affiliates.invitations`; new suite migration 37, `creator_invitations` and
+  `creator_invitation_uses`). The admin says only what they know: a name and an email, or neither;
+  the plan for some months, until a day, or for good; a creator, with their creator's code (one
+  from the name when none is given: `MARIA20`, or theirs to write on the page) and the campaign's
+  terms, the creators' own by default, or the plan alone (`creator: false`); and, for a link that
+  names nobody and gives the plan alone, how many accounts it makes (`uses`, up to 1000: one link
+  for the people of a forum). The answer is a link, `<baseUrl>/i/<token>`, to send in person: no
+  email goes from here.
+- **Nothing is made until someone enters**: no account, no code, no discount at the provider. Then,
+  at once and in one transaction: the account (its email taken as confirmed only when the invitation
+  named it, since the link reached that inbox; one they wrote, the identity provider confirms as any),
+  the plan as a grant of the admin's with its end or none, for a creator their code
+  (`affiliates.campaignFor`) with its discount at the provider made just before (switched off again if
+  the rest fails), and the sample data if they asked and the install has them
+  (`suite.sampleData.seed(user, { locale })`). With a password where the install may make one: its
+  own passwords, or WorkOS where it owns the logins (`accounts.adminIdentity`), signed in with the
+  password grant (`workos.authenticateWithPassword`, `signInWithPassword`); a step WorkOS still wants
+  (a second factor, an email to confirm) leaves the account and the invitation made, and AuthKit's
+  page for the rest. An email that has an account (here, or a login of another app of the suite)
+  signs in with it, and the invitation is claimed on the way back; so does whoever goes by Google
+  (`affiliates.invitations.google`; `/auth/login` takes `provider=google` and `hint=<email>`). Each
+  account takes a link once.
+- **Its page** (`web/creator-invitation.js`), one short screen in the app's colours: «Hi, María. Your
+  Pro account is ready» («Hi there» on a link for anyone), the plan it gives, the email fixed or a
+  field for theirs, a password, a creator's code written already and checked as they type (capitals
+  and digits, no hyphens, unique; a free one offered when it is taken), the sample data's box, the
+  terms' line (`affiliates.invitations.terms` and `privacy`) and «or sign in with Google». Someone
+  else's account signed in in that browser is told and offered to sign out first. An account made
+  there has `creator` (or `invitation`) as its origin's tag where the install keeps origins.
+- **Its days** (`affiliates.invitations.days`, 30): an invitation past them loses the name, email,
+  link and terms it held; a keyed hash of its email stays, so a second invitation to the same address
+  is 409 `already_invited` (or `force`), as is one to an account that is a creator's already. One for
+  one person forgets the name and the email as soon as it is used: the account has them.
+- **/admin › Affiliates › Invitations with Pro**: «New invitation», a row per invitation with whom
+  it is for, its plan, its code or «Pro only», its state and uses, the link to copy while pending and
+  «Revoke». For other callers: `suite.creatorInvitations` `create`, `list`, `get` (with the accounts it
+  went to), `revoke`, and `/api/admin/creator-invitations` (GET, POST, GET and DELETE `/:id`).
+  /api/auth/config says `modules.creator_invitations`.
+- The hint of a campaign's code in /admin no longer says it takes hyphens: the provider takes none.
+
+## 0.322.0 — 2026-11-24
+
+- **Sample data** (`sample-data.js`, `createHost({ sampleData })`): one example in every module
+  someone uses, to try the app or record it without typing anything in. `true` is one example;
+  `{ examples: ['cafe', 'app'], words: 'samples.' }` several to choose from, named in the host's
+  catalog. Each module gives its part in `createModule().sampleData` (`seed` and `remove`, both
+  synchronous); the host asks the modules the person uses for the example they chose, each in a
+  transaction of its own and in their zone, in the language they asked for, chose or browse in,
+  writes down which example and what was made (`host_sample_data`, `host_sample_items`, host
+  migration 13) and links the things that play the same part in the story across modules
+  (`anchors`). Taking it away gives each module back what it made: all of the example goes, also
+  what the person added or changed inside it, with the links to it; what they have outside it
+  stays. `GET`, `POST` and `DELETE /api/me/sample-data` at the host's root, `suite.sampleData` for
+  the host's own code, and Settings › Sample data in the host's group of every module (its config
+  says `host.sampleData`), with a dialog to choose where there are several and a question before
+  taking it away. One example at a time: a second is 409 `sample_data_present`. A module whose seed
+  fails is named in `failed`, never the whole answer. Without the option, nothing of it is there.
 ## 0.321.0 — 2026-11-24
 
 - **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
@@ -116,6 +176,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
   its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
   breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
+
 
 ## 0.317.0 — 2026-11-20
 
