@@ -3,6 +3,24 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.322.0 — 2026-11-24
+
+- **Sample data** (`sample-data.js`, `createHost({ sampleData })`): one example in every module
+  someone uses, to try the app or record it without typing anything in. `true` is one example;
+  `{ examples: ['cafe', 'app'], words: 'samples.' }` several to choose from, named in the host's
+  catalog. Each module gives its part in `createModule().sampleData` (`seed` and `remove`, both
+  synchronous); the host asks the modules the person uses for the example they chose, each in a
+  transaction of its own and in their zone, in the language they asked for, chose or browse in,
+  writes down which example and what was made (`host_sample_data`, `host_sample_items`, host
+  migration 13) and links the things that play the same part in the story across modules
+  (`anchors`). Taking it away gives each module back what it made: all of the example goes, also
+  what the person added or changed inside it, with the links to it; what they have outside it
+  stays. `GET`, `POST` and `DELETE /api/me/sample-data` at the host's root, `suite.sampleData` for
+  the host's own code, and Settings › Sample data in the host's group of every module (its config
+  says `host.sampleData`), with a dialog to choose where there are several and a question before
+  taking it away. One example at a time: a second is 409 `sample_data_present`. A module whose seed
+  fails is named in `failed`, never the whole answer. Without the option, nothing of it is there.
+
 ## 0.321.0 — 2026-11-24
 
 - **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
@@ -46,6 +64,7 @@ change an interface and a patch never does. Apps pin a version through the submo
   `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
   its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
   breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
+
 
 ## 0.317.0 — 2026-11-20
 
