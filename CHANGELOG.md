@@ -3,12 +3,55 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.324.0 — 2026-11-24
+## 0.333.0 — 2026-11-24
 
 - **The steps to connect Claude say nothing of a Team or Enterprise plan** (`kit.agents.claude.connect`, in
   the five languages). The line was about Claude's own plans, and coming right after "sign in with your
   {app} account" it read as the app's, which may have no such plan, or one of that name of its own. The
   step now ends at signing in.
+
+## 0.328.0 — 2026-11-25
+
+- **Invitations with the plan, before anyone has an account** (`creator-invitations.js`, with the
+  affiliates and `affiliates.invitations`; new suite migration 37, `creator_invitations` and
+  `creator_invitation_uses`). The admin says only what they know: a name and an email, or neither;
+  the plan for some months, until a day, or for good; a creator, with their creator's code (one
+  from the name when none is given: `MARIA20`, or theirs to write on the page) and the campaign's
+  terms, the creators' own by default, or the plan alone (`creator: false`); and, for a link that
+  names nobody and gives the plan alone, how many accounts it makes (`uses`, up to 1000: one link
+  for the people of a forum). The answer is a link, `<baseUrl>/i/<token>`, to send in person: no
+  email goes from here.
+- **Nothing is made until someone enters**: no account, no code, no discount at the provider. Then,
+  at once and in one transaction: the account (its email taken as confirmed only when the invitation
+  named it, since the link reached that inbox; one they wrote, the identity provider confirms as any),
+  the plan as a grant of the admin's with its end or none, for a creator their code
+  (`affiliates.campaignFor`) with its discount at the provider made just before (switched off again if
+  the rest fails), and the sample data if they asked and the install has them
+  (`suite.sampleData.seed(user, { locale })`). With a password where the install may make one: its
+  own passwords, or WorkOS where it owns the logins (`accounts.adminIdentity`), signed in with the
+  password grant (`workos.authenticateWithPassword`, `signInWithPassword`); a step WorkOS still wants
+  (a second factor, an email to confirm) leaves the account and the invitation made, and AuthKit's
+  page for the rest. An email that has an account (here, or a login of another app of the suite)
+  signs in with it, and the invitation is claimed on the way back; so does whoever goes by Google
+  (`affiliates.invitations.google`; `/auth/login` takes `provider=google` and `hint=<email>`). Each
+  account takes a link once.
+- **Its page** (`web/creator-invitation.js`), one short screen in the app's colours: «Hi, María. Your
+  Pro account is ready» («Hi there» on a link for anyone), the plan it gives, the email fixed or a
+  field for theirs, a password, a creator's code written already and checked as they type (capitals
+  and digits, no hyphens, unique; a free one offered when it is taken), the sample data's box, the
+  terms' line (`affiliates.invitations.terms` and `privacy`) and «or sign in with Google». Someone
+  else's account signed in in that browser is told and offered to sign out first. An account made
+  there has `creator` (or `invitation`) as its origin's tag where the install keeps origins.
+- **Its days** (`affiliates.invitations.days`, 30): an invitation past them loses the name, email,
+  link and terms it held; a keyed hash of its email stays, so a second invitation to the same address
+  is 409 `already_invited` (or `force`), as is one to an account that is a creator's already. One for
+  one person forgets the name and the email as soon as it is used: the account has them.
+- **/admin › Affiliates › Invitations with Pro**: «New invitation», a row per invitation with whom
+  it is for, its plan, its code or «Pro only», its state and uses, the link to copy while pending and
+  «Revoke». For other callers: `suite.creatorInvitations` `create`, `list`, `get` (with the accounts it
+  went to), `revoke`, and `/api/admin/creator-invitations` (GET, POST, GET and DELETE `/:id`).
+  /api/auth/config says `modules.creator_invitations`.
+- The hint of a campaign's code in /admin no longer says it takes hyphens: the provider takes none.
 
 ## 0.322.0 — 2026-11-24
 
