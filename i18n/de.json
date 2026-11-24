@@ -2056,5 +2056,6 @@
   "admin.creatorInvites.emailHint": "Optional: Ohne sie gibt die Person ihre eigene ein.",
   "fields.pro_until": "Pro bis",
   "fields.uses": "Konten, die er anlegt",
-  "fields.creator": "Creator"
+  "fields.creator": "Creator",
+  "fields.invitation_id": "Einladung"
 }
