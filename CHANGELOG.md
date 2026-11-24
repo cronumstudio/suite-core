@@ -46,23 +46,19 @@ change an interface and a patch never does. Apps pin a version through the submo
   `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
   its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
   breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
+
 ## 0.318.0 — 2026-11-24
 
-- **A host's first questions name more places** (`host.js` `HEARD_FROM`, with `firstQuestions`):
-  how someone heard of the app may now be Product Hunt, Hacker News, a video or a creator, an AI
-  that recommended it, an assistant's directory or the app store, besides Reddit, X or LinkedIn, a
-  friend, a search engine and Other, in the order the list gives. The answers kept before keep
-  their names. The texts are the kit's (`kit.firstQuestions.heard.*`), in the five languages.
-- **The first questions take a code** where the host has affiliates (`affiliates.js`) and a
-  payment provider: GET /api/modules says `first_code: true`, and `PUT /api/me/first-answers` takes `code`, a creator's
-  or a referral's. The account is then that code's (`claim`, an attribution `given`), as its link
-  would have made it, so a checkout of theirs gets its discount: it wins over the link they came
-  by and never over a code they paid with. One the host doesn't know (404
-  `affiliate_code_not_found`) or their own (400 `affiliate_code_own`) is refused before any answer
-  is kept, so they can write it again or leave it out. The admin sees whose code brought an
-  account, and how, in the account's «First time» (`GET /api/admin/users/:id/first-answers` adds
-  `code: { code, kind, source, at }`). A host's page that asks should leave the field out inside
-  the phone app (`inApp()`), where nothing is said of discounts.
+- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
+  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
+  first start is in the way, and where an account came from can be known without it (0.319.0).
+  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
+  says `first_questions`; `PUT /api/me/first-answers` and
+  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
+  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
+  are removed. A host's page that asked stops calling them.
+- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
+  host that wants those answers copies the table out before it updates.
 
 ## 0.317.0 — 2026-11-20
 
