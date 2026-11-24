@@ -117,3 +117,30 @@ test('a host without it has no such section', async () => {
     cleanUp(settings);
   }
 });
+
+test('with several examples, adding asks which one, by the names in the host’s catalog, and says it once there', async () => {
+  memory.clear();
+  let present = null;
+  const words = { 'samples.cafe.title': 'Café Alba', 'samples.cafe.hint': 'A café opening', 'samples.app.title': 'Ritmo', 'samples.app.hint': 'An app shipping' };
+  const { root, settings, asked } = open({ ...HOST, sampleData: { examples: ['cafe', 'app'], words: 'samples.' } }, {
+    'GET /api/modules': { host: { name: 'Cronum Work' }, modules: MODULES },
+    'GET /notes/i18n/en.json': {},
+    'GET /i18n/en.json': words,
+    'GET /api/me/sample-data': () => ({ present: Boolean(present), example: present, modules: present ? ['tasks', 'notes'] : [], available: ['tasks', 'notes'], examples: ['cafe', 'app'] }),
+    'POST /api/me/sample-data': ({ example }) => { present = example; return { present: true, example, modules: ['tasks', 'notes'], failed: [], links: 2 }; },
+  });
+  try {
+    await settle();
+    buttonNamed(root, t('kit.sample.add')).click();
+    await settle();
+    const choices = document.body.all().filter((node) => node.className === 'kit-sample-choice');
+    assert.deepEqual(choices.map((node) => node.textContent), ['Café AlbaA café opening', 'RitmoAn app shipping'], 'one button each, named and described');
+    assert.ok(!asked.some(([what]) => what === 'POST /api/me/sample-data'), 'nothing added before choosing');
+    choices[1].click();
+    await settle();
+    assert.deepEqual(asked.find(([what]) => what === 'POST /api/me/sample-data')[1], { locale: 'en', example: 'app' });
+    assert.ok(root.textContent.includes(t('kit.sample.presentNamed', { example: 'Ritmo', modules: 'Tasks and Notes' })));
+  } finally {
+    cleanUp(settings);
+  }
+});

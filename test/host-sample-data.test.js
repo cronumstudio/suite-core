@@ -59,17 +59,18 @@ async function startHost(t, options = {}) {
 }
 
 test('Settings add the example in every module, say where it is, refuse a second one and take it away', async (t) => {
-  const { host, call } = await startHost(t, { sampleData: true });
+  const { host, call } = await startHost(t, { sampleData: { examples: ['cafe', 'app'], words: 'samples.' } });
   assert.equal((await call('GET', '/api/me/sample-data')).status, 401, 'only for someone signed in');
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
-  assert.deepEqual((await call('GET', '/api/me/sample-data')).data, { present: false, modules: [], available: ['alpha', 'beta'] });
-  // The language asked for (Settings send the page's), else the browser's.
-  const added = await call('POST', '/api/me/sample-data', { locale: 'fr' });
+  assert.deepEqual((await call('GET', '/api/me/sample-data')).data, { present: false, example: null, modules: [], available: ['alpha', 'beta'], examples: ['cafe', 'app'] });
+  // The example chosen and the language asked for (Settings send the page's), else the browser's.
+  assert.equal((await call('POST', '/api/me/sample-data', { example: 'castle' })).status, 400);
+  const added = await call('POST', '/api/me/sample-data', { locale: 'fr', example: 'app' });
   assert.equal(added.status, 201);
-  assert.deepEqual(added.data, { present: true, modules: ['alpha', 'beta'], failed: [], links: 1 });
+  assert.deepEqual(added.data, { present: true, example: 'app', modules: ['alpha', 'beta'], failed: [], links: 1 });
   const admin = host.suite.accounts.byUsername?.('admin') || host.suite.database.get("SELECT * FROM users WHERE username = 'admin'");
   const today = todayFor(admin);
-  assert.deepEqual((await call('GET', '/alpha/api/items')).data.items, [`alpha_items fr ${today}`, 'alpha_items shared']);
+  assert.deepEqual((await call('GET', '/alpha/api/items')).data.items, [`alpha_items app fr ${today}`, 'alpha_items shared']);
   // The two anchors are linked, as the module's own links show them.
   const alphaShared = host.suite.database.get("SELECT id FROM alpha_items WHERE text = 'alpha_items shared'").id;
   const linked = await call('GET', `/api/links?ref=alpha:item:${alphaShared}`);
@@ -82,18 +83,18 @@ test('Settings add the example in every module, say where it is, refuse a second
   assert.equal(again.data.error, 'sample_data_present');
   assert.equal((await call('POST', '/api/me/sample-data', { locale: 7 })).status, 400);
 
-  // The person changes one thing of the example: it stays, the rest goes.
-  host.suite.database.run("UPDATE beta_items SET text = 'mine now' WHERE text = 'beta_items shared'");
+  // The person changes one thing of the example: all of it goes all the same.
+  host.suite.database.run("UPDATE beta_items SET text = 'changed' WHERE text = 'beta_items shared'");
   const removed = await call('DELETE', '/api/me/sample-data');
-  assert.deepEqual(removed.data, { present: false, removed: 3, kept: 1, failed: [] });
+  assert.deepEqual(removed.data, { present: false, removed: 4, failed: [] });
   assert.deepEqual((await call('GET', '/alpha/api/items')).data.items, []);
-  assert.deepEqual((await call('GET', '/beta/api/items')).data.items, ['mine now']);
+  assert.deepEqual((await call('GET', '/beta/api/items')).data.items, []);
   assert.deepEqual((await call('GET', '/api/me/sample-data')).data.present, false);
 
   // Without a language, the browser's.
   const browser = await call('POST', '/api/me/sample-data', {}, { 'Accept-Language': 'es-ES,es;q=0.9' });
   assert.equal(browser.status, 201);
-  assert.ok((await call('GET', '/alpha/api/items')).data.items.includes(`alpha_items es ${today}`));
+  assert.ok((await call('GET', '/alpha/api/items')).data.items.includes(`alpha_items cafe es ${today}`), 'the first example by default');
 });
 
 test('the host’s own code seeds the same way, and each module’s Settings know the host has it', async (t) => {
@@ -101,11 +102,12 @@ test('the host’s own code seeds the same way, and each module’s Settings kno
   const user = host.suite.accounts.create({ username: 'eva', password: 'eva-password', email: 'eva@example.com' });
   const answer = await host.suite.sampleData?.seed(user, { locale: 'es' });
   assert.deepEqual(answer.modules, ['alpha', 'beta']);
+  assert.equal(answer.example, 'default', 'one example with `true`');
   assert.equal(host.suite.sampleData.status(user).present, true);
   assert.equal(host.suite.sampleData.remove(user).present, false);
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
   const where = await call('GET', '/alpha/api/where');
-  assert.equal(where.data.host.sampleData, true);
+  assert.deepEqual(where.data.host.sampleData, { examples: ['default'], words: null });
 });
 
 test('without the option there is none of it', async (t) => {
