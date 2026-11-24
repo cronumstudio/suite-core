@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.338.0 — 2026-11-24
+## 0.340.0 — 2026-11-24
 
 - **Tests only.** Three tests checked something once, at a fixed moment, and failed now and then
   on a busy machine. They now wait for it:
@@ -15,6 +15,13 @@ change an interface and a patch never does. Apps pin a version through the submo
     focus's and then the wait's.
 
   Nothing else changes.
+
+## 0.339.0 — 2026-11-24
+
+- **The steps to connect Claude say nothing of a Team or Enterprise plan** (`kit.agents.claude.connect`, in
+  the five languages). The line was about Claude's own plans, and coming right after "sign in with your
+  {app} account" it read as the app's, which may have no such plan, or one of that name of its own. The
+  step now ends at signing in.
 
 ## 0.334.0 — 2026-11-24
 
