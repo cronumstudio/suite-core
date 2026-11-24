@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.325.0 — 2026-11-25
+
+- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
+  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
+  first start is in the way, and where an account came from can be known without it (0.326.0).
+  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
+  says `first_questions`; `PUT /api/me/first-answers` and
+  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
+  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
+  are removed. A host's page that asked stops calling them.
+- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
+  host that wants those answers copies the table out before it updates.
+
 ## 0.321.0 — 2026-11-24
 
 - **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
@@ -46,19 +59,6 @@ change an interface and a patch never does. Apps pin a version through the submo
   `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
   its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
   breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
-
-## 0.318.0 — 2026-11-24
-
-- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
-  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
-  first start is in the way, and where an account came from can be known without it (0.319.0).
-  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
-  says `first_questions`; `PUT /api/me/first-answers` and
-  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
-  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
-  are removed. A host's page that asked stops calling them.
-- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
-  host that wants those answers copies the table out before it updates.
 
 ## 0.317.0 — 2026-11-20
 
