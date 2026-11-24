@@ -42,6 +42,10 @@ change an interface and a patch never does. Apps pin a version through the submo
   new-account notice (admin-notices.js) and no code's cookie (affiliates.js), as with /api/admin/….
 - `registerWorkosSecurityApi` also returns `reauthKind(admin)`: what `confirmAdmin` will ask. A
   host hands each account's usage to its root app (`createApp({ adminUsage })`).
+- **An MCP client's answers go chunked wherever it asks** (`http.js`): a request with
+  `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
+  its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
+  breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
 
 ## 0.317.0 — 2026-11-20
 
