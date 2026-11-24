@@ -3,6 +3,47 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.326.0 — 2026-11-25
+
+- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 37,
+  `account_origins` and `origin_payments`): kept when the account is made and never written over,
+  the tag of the link it followed (`?src=reddit-mcp`; `?utm_source=` or `?ref=`, which some sites
+  add to the links they list, when there is no `src`), the domain of the site before, never its
+  page, and how the account was made: on the web, from the phone app's connect page, or by an
+  assistant's token. A tag is text from outside: 1 to 40 of a-z, 0-9, `.`, `_` and `-`, in lower
+  case, or it is none; a site is a domain of 80 characters at most, and never this install's own
+  nor its sign-in provider's.
+- **Nothing is kept on anyone's device for it.** The tag and the site travel in the address
+  (`/auth/login?src=…&via=…`; the kit's sign-in adds them from the page's own address and
+  `document.referrer`, `web/signin.js` `arrivalQuery`) and to the provider and back as one more
+  part of the state the sign-in already keeps for itself (`workos-accounts.js`, `oidc.js`: its
+  30-minute cookie at /auth, gone on return). The provider is told nothing of them, and what comes
+  back is checked again before it is written. An app without `modules.origins` signs in exactly as
+  before.
+- **Every payment is noted with its account's origin as it was then**, since `billing.js` keeps
+  what someone has now and not what they paid: the web provider's `payment` events with what was
+  charged (`billing.whenPaid`), and the stores' purchases and renewals, one per paid period
+  (`stores.whenApplied`). A store's purchase arrives without an amount, so a store product may now
+  say `amount` and `currency` (`stores.products.<key>`, both or neither, never charged from
+  here): its payments are noted with that, marked as an estimate. A refund marks its payment. An
+  account that goes takes its origin with it; its payments stay as figures, nobody's.
+- **The admin sees an account's origin** in its dialog, in a fold of its own: the link's tag, the
+  site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
+  host it is the root's, as the affiliates are.
+
+## 0.325.0 — 2026-11-25
+
+- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
+  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
+  first start is in the way, and where an account came from can be known without it (0.326.0).
+  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
+  says `first_questions`; `PUT /api/me/first-answers` and
+  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
+  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
+  are removed. A host's page that asked stops calling them.
+- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
+  host that wants those answers copies the table out before it updates.
+
 ## 0.321.0 — 2026-11-24
 
 - **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
@@ -46,47 +87,6 @@ change an interface and a patch never does. Apps pin a version through the submo
   `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
   its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
   breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
-
-## 0.319.0 — 2026-11-24
-
-- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 37,
-  `account_origins` and `origin_payments`): kept when the account is made and never written over,
-  the tag of the link it followed (`?src=reddit-mcp`; `?utm_source=` or `?ref=`, which some sites
-  add to the links they list, when there is no `src`), the domain of the site before, never its
-  page, and how the account was made: on the web, from the phone app's connect page, or by an
-  assistant's token. A tag is text from outside: 1 to 40 of a-z, 0-9, `.`, `_` and `-`, in lower
-  case, or it is none; a site is a domain of 80 characters at most, and never this install's own
-  nor its sign-in provider's.
-- **Nothing is kept on anyone's device for it.** The tag and the site travel in the address
-  (`/auth/login?src=…&via=…`; the kit's sign-in adds them from the page's own address and
-  `document.referrer`, `web/signin.js` `arrivalQuery`) and to the provider and back as one more
-  part of the state the sign-in already keeps for itself (`workos-accounts.js`, `oidc.js`: its
-  30-minute cookie at /auth, gone on return). The provider is told nothing of them, and what comes
-  back is checked again before it is written. An app without `modules.origins` signs in exactly as
-  before.
-- **Every payment is noted with its account's origin as it was then**, since `billing.js` keeps
-  what someone has now and not what they paid: the web provider's `payment` events with what was
-  charged (`billing.whenPaid`), and the stores' purchases and renewals, one per paid period
-  (`stores.whenApplied`). A store's purchase arrives without an amount, so a store product may now
-  say `amount` and `currency` (`stores.products.<key>`, both or neither, never charged from
-  here): its payments are noted with that, marked as an estimate. A refund marks its payment. An
-  account that goes takes its origin with it; its payments stay as figures, nobody's.
-- **The admin sees an account's origin** in its dialog, in a fold of its own: the link's tag, the
-  site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
-  host it is the root's, as the affiliates are.
-
-## 0.318.0 — 2026-11-24
-
-- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
-  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
-  first start is in the way, and where an account came from can be known without it (0.319.0).
-  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
-  says `first_questions`; `PUT /api/me/first-answers` and
-  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
-  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
-  are removed. A host's page that asked stops calling them.
-- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
-  host that wants those answers copies the table out before it updates.
 
 ## 0.317.0 — 2026-11-20
 
