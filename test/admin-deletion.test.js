@@ -178,8 +178,10 @@ test('a group left with nobody in it is archived, and its own subscription stops
   subscribe(suite.billing, { type: 'organization', id: team.id }, { ref: 'sub_team', product: 'team-web-yearly' });
   provider.asked.length = 0;
   assert.equal((await admin('DELETE', `/api/admin/users/${ada.id}`)).status, 200);
-  // The group's stop is asked once the deletion's transaction is over.
-  for (let i = 0; i < 50 && provider.asked.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  // The group's stop is asked once the deletion's transaction is over, and written in the log once
+  // the provider has answered, which on a busy machine can come a while after it was asked.
+  const stopLogged = () => suite.audit.list({ action: 'billing.organization.stop' }).length > 0;
+  for (let i = 0; i < 250 && (provider.asked.length < 2 || !stopLogged()); i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(provider.asked, [
     'POST /subscriptions/sub_ada/cancel {"at":"now"}',
     'POST /subscriptions/sub_team/cancel {"at":"period_end"}',

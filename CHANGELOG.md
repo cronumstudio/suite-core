@@ -3,6 +3,14 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.329.0 — 2026-11-24
+
+- **Tests only.** Two tests checked a line of the log once, right after what writes it had been
+  asked for, and failed now and then on a busy machine: the deletion of a group's last member
+  (`test/admin-deletion.test.js`, the stop of the group's subscription in the audit log) and the
+  first alert email (`test/alerts.test.js`, its "alert sent" line). Both lines come only once the
+  provider or the mail server has answered, so the tests now wait for them. Nothing else changes.
+
 ## 0.322.0 — 2026-11-24
 
 - **Sample data** (`sample-data.js`, `createHost({ sampleData })`): one example in every module
