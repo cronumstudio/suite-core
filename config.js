@@ -52,6 +52,9 @@ export const MODULES = Object.freeze({
   // Notices to whoever runs the install of new accounts and payments (admin-notices.js), set in
   // /admin › Notifications; silent until a destination is given there.
   notices: false,
+  // Where each account came from (a link's tag, the site before, how it was made) and each payment
+  // with its account's origin (origins.js); nothing is kept on anyone's device for it.
+  origins: false,
 });
 
 const PRODUCT_KEYS = new Set([
@@ -79,7 +82,7 @@ const oneOf = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} o
 /** suite.config.js `stores`: what the app on a phone sells in the App Store and Google Play (stores.js). */
 const STORE_KEYS = new Set(['products', 'devices']);
 /** What a store product may say; anything else is a typo that would sell nothing. */
-const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', 'founderOf', ...Object.keys(STORE_FIELDS)]);
+const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', 'founderOf', 'amount', 'currency', ...Object.keys(STORE_FIELDS)]);
 
 /** suite.config.js `push`: notices beyond Web Push (native-push.js). */
 const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
@@ -593,6 +596,17 @@ function storesFor(given, webProducts, modules, errors) {
     }
     if (spec.playStore != null && !/^[a-z0-9][a-z0-9._]{0,99}(:[a-z0-9][a-z0-9-]{0,62})?$/.test(String(spec.playStore))) {
       errors.push(`stores.products.${key}.playStore: "${String(spec.playStore).slice(0, 100)}" is not a Google Play product id (subscription:base-plan, lowercase)`);
+    }
+    // What the store charges for it, as the web's products say theirs: only for the install's own
+    // figures (origins.js), since a store's purchase arrives without an amount. Never charged from here.
+    if (spec.amount != null && !(typeof spec.amount === 'number' && Number.isFinite(spec.amount) && spec.amount > 0)) {
+      errors.push(`stores.products.${key}.amount: a number above 0, in the currency's units (3.9)`);
+    }
+    if (spec.currency != null && !/^[A-Z]{3}$/.test(String(spec.currency))) {
+      errors.push(`stores.products.${key}.currency: three capital letters (EUR)`);
+    }
+    if ((spec.amount == null) !== (spec.currency == null)) {
+      errors.push(`stores.products.${key}: amount and currency go together`);
     }
     for (const [field, store] of Object.entries(STORE_FIELDS)) {
       if (spec[field] == null) continue;

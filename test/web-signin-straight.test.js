@@ -46,7 +46,7 @@ globalThis.fetch = async (url) => {
 
 const { loadLanguage } = await import('../web/i18n.js');
 await loadLanguage('en', { remember: false });
-const { straightToProvider, leave, signIn: signInLater } = await import('../web/signin.js');
+const { straightToProvider, arrivalQuery, leave, signIn: signInLater } = await import('../web/signin.js');
 // The screen itself, drawn at once (signin.js loads it when it is drawn, 0.285.0).
 const { signIn } = await import('../web/signin-form.js');
 
@@ -77,6 +77,29 @@ test('with WorkOS and nothing to say first, its page opens at once, coming back 
   assert.deepEqual(went, [`/auth/login?return=${encodeURIComponent('/tasks/?list=3')}`]);
   // In place of the page, not after it: Back from the provider's page doesn't come here.
   assert.deepEqual(card().links, [], 'no card drawn on the way');
+});
+
+test('where the page was reached from goes with the sign-in: the link’s tag and the other site’s domain, never its page', () => {
+  const host = 'work.example.com';
+  assert.equal(arrivalQuery({ search: '?src=Reddit-MCP', referrer: 'https://www.reddit.com/r/mcp/comments/1/', host }), 'src=reddit-mcp&via=www.reddit.com');
+  assert.equal(arrivalQuery({ search: '?list=3', referrer: 'https://news.ycombinator.com/item?id=9', host }), 'via=news.ycombinator.com');
+  // What other sites add to the links they list, when there is no src.
+  assert.equal(arrivalQuery({ search: '?ref=producthunt', host }), 'src=producthunt');
+  assert.equal(arrivalQuery({ search: '?utm_source=newsletter&ref=producthunt', host }), 'src=newsletter');
+  assert.equal(arrivalQuery({ search: '?src=hn&utm_source=newsletter', host }), 'src=hn');
+  // A site said in the address (the website passes it on) wins over the page before.
+  assert.equal(arrivalQuery({ search: '?via=chatgpt.com', referrer: 'https://example.com/work/', host }), 'via=chatgpt.com');
+  // Nothing to say: this site's own pages, no page before, what is no tag.
+  assert.equal(arrivalQuery({ search: '?list=3', referrer: 'https://work.example.com/tasks/', host }), '');
+  assert.equal(arrivalQuery({ search: '?src=%3Cscript%3E&via=a%20b', referrer: 'not an address', host }), '');
+  assert.equal(arrivalQuery(), '');
+
+  // And the screen sends it: before the way back, which keeps the page's own address.
+  page.document = { referrer: 'https://www.producthunt.com/posts/cronum-work' };
+  at('/?settings=plan&ref=producthunt');
+  signIn({ app, config: workos });
+  assert.deepEqual(went, [`/auth/login?src=producthunt&via=www.producthunt.com&return=${encodeURIComponent('/?settings=plan&ref=producthunt')}`]);
+  delete page.document;
 });
 
 test('signin.js signIn draws the same screen, from signin-form.js, loaded when it is drawn (0.285.0)', async () => {

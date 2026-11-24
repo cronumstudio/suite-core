@@ -9,7 +9,7 @@ import { api, errorMessage } from './api.js';
 import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
 import { markOwned } from './mount.js';
-import { straightToProvider } from './signin.js';
+import { straightToProvider, arrivalQuery } from './signin.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -118,7 +118,13 @@ export async function signIn({ app, config = null, root = document.body }) {
         const login = (extra = '') => {
           let here = '/';
           try { const page = (FRAMED ? window.top : window).location; here = page.pathname + page.search; } catch { /* another origin's frame */ }
-          const query = [extra, here === '/' ? '' : `return=${encodeURIComponent(here)}`].filter(Boolean).join('&');
+          // Where they came from, for an account made now: the link's tag and the site before (signin.js).
+          let from = '';
+          try {
+            const top = FRAMED ? window.top : window;
+            from = arrivalQuery({ search: top.location.search, referrer: top.document?.referrer || '', host: top.location.hostname });
+          } catch { /* another origin's frame */ }
+          const query = [extra, from, here === '/' ? '' : `return=${encodeURIComponent(here)}`].filter(Boolean).join('&');
           return `/auth/login${query ? `?${query}` : ''}`;
         };
         // Nothing to say first: the provider's page now, and Back from it skips this one.

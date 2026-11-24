@@ -609,6 +609,11 @@ function userDialog(user) {
   const firstBox = el('div', { class: 'kit-contents' });
   const first = fold({ title: t('admin.firstAnswers.title'), now: firstNow }, firstBox);
 
+  // Where they came from and what they paid: an app's that keeps origins only (origins.js).
+  const originNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
+  const originBox = el('div', { class: 'kit-contents' });
+  const origin = fold({ title: t('admin.origin.title'), now: originNow }, originBox);
+
   const grantsNow = el('small', { class: 'kit-fold__now' });
   // Drawn when they arrive, inside the fold's body as if they were its own.
   const grantsBox = el('div', { class: 'kit-contents' });
@@ -671,7 +676,7 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, first, grants, passwordSection, signInBox), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, first, origin, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
@@ -681,6 +686,7 @@ function userDialog(user) {
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
   paintFirstAnswers(firstBox, user, firstNow).catch(() => first.remove());
+  paintOrigin(originBox, user, originNow).catch(() => origin.remove());
   if (signInBox) paintSignIn().catch(fail);
 }
 
@@ -1007,6 +1013,43 @@ async function paintUsage(box, user, now) {
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
   if (['near', 'reached'].includes(levelOf(usage.peak?.share ?? null))) now.setAttribute('class', 'kit-fold__now kit-fold__now--warn');
   clear(box).append(el('p', { class: 'kit-hint', text: t('admin.usage.lead') }), usageGroups(usage, { admin: true }));
+}
+
+/* --------------------------------- origin --------------------------------- */
+
+/** An amount in a currency's smallest unit, as the admin's language writes money. */
+function moneyText(amount, currency) {
+  let digits = 2;
+  try { digits = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits; } catch { /* two */ }
+  try {
+    return new Intl.NumberFormat(document.documentElement.lang || undefined, { style: 'currency', currency }).format(amount / 10 ** digits);
+  } catch {
+    return `${amount / 10 ** digits} ${currency}`;
+  }
+}
+
+/**
+ * Where an account came from (an app's with `modules.origins`): the tag of the link it followed,
+ * the site before, how the account was made, and what it has paid since. `now` is the fold's
+ * summary: the tag, else the site.
+ */
+async function paintOrigin(box, user, now) {
+  const { origin, payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
+  const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
+  const totals = new Map();
+  for (const payment of payments) {
+    if (payment.amount == null || !payment.currency || payment.refunded_at) continue;
+    totals.set(payment.currency, (totals.get(payment.currency) || 0) + payment.amount);
+  }
+  const paid = [...totals].map(([currency, amount]) => moneyText(amount, currency)).join(' + ');
+  now.textContent = [origin?.src || origin?.referrer || (origin ? t(`admin.origin.entry.${origin.entry}`) : t('admin.origin.none')), paid].filter(Boolean).join(' · ');
+  clear(box).append(
+    origin ? null : el('p', { class: 'kit-hint', text: t('admin.origin.noneLead') }),
+    el('div', { class: 'kit-facts' },
+      origin ? fact(t('admin.origin.src'), origin.src) : null,
+      origin ? fact(t('admin.origin.referrer'), origin.referrer) : null,
+      origin ? fact(t('admin.origin.entry'), t(`admin.origin.entry.${origin.entry}`)) : null,
+      payments.length ? fact(t('admin.origin.payments'), [String(payments.length), paid].filter(Boolean).join(' · ')) : null));
 }
 
 /* ------------------------------ first answers ------------------------------ */
