@@ -93,18 +93,21 @@ export function createWorkosClient({
    * `fresh`, AuthKit asks again (`max_age=0`) instead of taking the session
    * it still holds in that browser: the connect page's "another account".
    */
-  function signInUrl({ redirectUri, state, challenge, signUp = false, fresh = false }) {
+  function signInUrl({ redirectUri, state, challenge, signUp = false, fresh = false, provider = 'authkit', loginHint = null }) {
     const q = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      provider: 'authkit',
+      // AuthKit's own page, or straight to one of the accounts elsewhere it offers (`GoogleOAuth`).
+      provider,
       state,
       code_challenge: challenge,
       code_challenge_method: 'S256',
     });
     if (signUp) q.set('screen_hint', 'sign-up');
     if (fresh) q.set('max_age', '0');
+    // The email AuthKit's page starts with written (a creator's invitation names the person's).
+    if (loginHint) q.set('login_hint', loginHint);
     return `${API_URL}/user_management/authorize?${q}`;
   }
 
@@ -250,6 +253,39 @@ export function createWorkosClient({
     if (ok && body?.id) return { user: body };
     if (unavailable(status) || ok) throw new WorkosUnavailable(`WorkOS answered ${status}`);
     return { refused: body?.errors?.[0]?.message || body?.message || `WorkOS answered ${status}` };
+  }
+
+  /**
+   * A sign-in with an email and a password from a page of the app itself, not AuthKit's (a creator's
+   * invitation, which has just made the login): the password grant, answered as exchangeCode
+   * answers a return from AuthKit. `{ step }` instead when WorkOS wants one more step first
+   * (`mfa_enrollment`, `mfa_challenge`…), which only AuthKit's page can take; `{ refused }` when the
+   * password isn't theirs. The password goes nowhere else.
+   * @returns {{ account, sessionId, method, authTime } | { step: string } | { refused: string }}
+   * @throws {WorkosUnavailable}
+   */
+  async function authenticateWithPassword({ email, password, ip = null, userAgent = null }) {
+    const { ok, status, body } = await request(`${API_URL}/user_management/authenticate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'password', client_id: clientId, client_secret: apiKey, email, password,
+        ...(ip ? { ip_address: ip } : {}), ...(userAgent ? { user_agent: userAgent } : {}),
+      }),
+    });
+    if (ok && body?.user?.id) {
+      const token = claims(body.access_token);
+      return {
+        account: body.user, sessionId: token?.sid || null, method: body.authentication_method || 'Password',
+        authTime: Number.isFinite(token?.auth_time) ? token.auth_time * 1000 : null,
+      };
+    }
+    if (unavailable(status) || ok) throw new WorkosUnavailable(`WorkOS answered ${status}`);
+    const code = String(body?.code || body?.error || '');
+    if (['mfa_challenge', 'mfa_enrollment', 'email_verification_required', 'organization_selection_required'].includes(code)) {
+      return { step: code };
+    }
+    return { refused: code || `WorkOS answered ${status}` };
   }
 
   /**
@@ -505,7 +541,7 @@ export function createWorkosClient({
 
   return {
     authkitDomain: AUTHKIT,
-    missingConfig, pkcePair, signInUrl, exchangeCode, signOutUrl, revokeSession, deleteUser, setMetadata, account, knows,
+    missingConfig, pkcePair, signInUrl, exchangeCode, authenticateWithPassword, signOutUrl, revokeSession, deleteUser, setMetadata, account, knows,
     authorizedApplications, revokeApplication, listEvents, verifyToken, resourceMetadata, authorizationServerMetadata,
     checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor, userByEmail, createUser,
   };

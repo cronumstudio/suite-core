@@ -10,7 +10,7 @@
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
-import { sendJson, localPath, signInFlowCookies } from './http.js';
+import { HttpError, sendJson, localPath, signInFlowCookies } from './http.js';
 import { safeEqual } from './crypto.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
@@ -22,6 +22,14 @@ function redirect(res, target) {
   res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
   res.end();
 }
+
+/** `/auth/login?provider=`: the accounts elsewhere a sign-in may go straight to, as WorkOS names them. */
+const STRAIGHT_TO = Object.freeze({ __proto__: null, google: 'GoogleOAuth' });
+/** `/auth/login?hint=`: an email to start AuthKit's page with, or null when it isn't one. */
+const hintOf = (value) => {
+  const email = String(value ?? '').trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) ? email : null;
+};
 
 /**
  * The `users` that `createWorkosAccounts` needs, made on the suite's accounts
@@ -517,6 +525,10 @@ export function createWorkosAccounts({
         // The device connect page asks for it (device-pages.js), to sign in as someone else, and the
         // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin).
         fresh: url.searchParams.get('prompt') === 'login',
+        // Straight to Google rather than AuthKit's page (a creator's invitation's «or with Google»).
+        ...(STRAIGHT_TO[url.searchParams.get('provider')] ? { provider: STRAIGHT_TO[url.searchParams.get('provider')] } : {}),
+        // AuthKit's page with their email already written (an invitation to an email that has a login).
+        ...(hintOf(url.searchParams.get('hint')) ? { loginHint: hintOf(url.searchParams.get('hint')) } : {}),
       }));
       return true;
     }
@@ -587,6 +599,31 @@ export function createWorkosAccounts({
   }
 
   /**
+   * A sign-in with a password typed on a page of this app, not AuthKit's: a creator's invitation,
+   * which has just made their login (creator-invitations.js). The password grant at WorkOS, then the
+   * same as a return from AuthKit: the account here (made now if it isn't yet, with the request's
+   * hooks: its origin, a code's link), how they signed in, this app's mark, and the session.
+   * → `{ user }` signed in; `{ user: null, step }` when WorkOS wants one more step first (a second
+   * factor), which only AuthKit's page takes, so no session is opened; 401 `bad_credentials` for a
+   * password that isn't theirs, 403 `account_disabled` for an account that is.
+   * @throws {WorkosUnavailable}
+   */
+  async function signInWithPassword(req, res, { email, password, ip = null }) {
+    const answer = await workos.authenticateWithPassword({
+      email, password, ip, userAgent: String(req?.headers?.['user-agent'] || '').slice(0, 400) || null,
+    });
+    if (answer.step) return { user: null, step: answer.step };
+    if (!answer.account) throw new HttpError(401, 'bad_credentials');
+    const { account, sessionId, method, authTime } = answer;
+    const user = await localUser(account);
+    if (user.disabled_at) throw new HttpError(403, 'account_disabled');
+    users.signedIn?.(user, account, method);
+    markOnce(account.id);
+    sessions.open(res, user.id, { workosSessionId: sessionId, req, authTime });
+    return { user };
+  }
+
+  /**
    * The person goes at WorkOS too, when the account here is deleted and the
    * login goes with it (config.accounts.sharedIdentity, account-deletion.js).
    */
@@ -596,7 +633,7 @@ export function createWorkosAccounts({
   }
 
   return {
-    id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser,
+    id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser, signInWithPassword,
     ...(users.workosIdOf ? { connectionsOf, revokeConnection, revokeAllConnections, deleteIdentity } : {}),
     ...(mark && users.workosIdOf ? { markAll, otherApps, unmark } : {}),
     signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,

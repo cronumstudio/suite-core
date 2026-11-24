@@ -497,6 +497,8 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-fold__now--warn { color: var(--kit-warn); font-weight: 600; }
 .kit-grid--3 { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
 .kit-grid--4 { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
+/* Fields of a row each as tall as its own: one with a hint under it doesn't stretch the one beside it. */
+.kit-grid--top { align-items: start; }
 .kit-row--end { align-items: end; }
 .kit-row__last { margin-inline-start: auto; }
 .kit-warning {
@@ -1704,6 +1706,14 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-about-card__text strong { font-weight: 600; }
 .kit-about-card__text p { margin: 0; color: var(--kit-muted); font-size: var(--look-footnote); line-height: 1.35; }
 .kit-about-card__text small { color: var(--kit-muted); font: var(--look-caption)/1.4 var(--kit-font-mono); font-variant-numeric: tabular-nums; }
+
+/* Settings › Sample data: one button for each example to choose from (settings.js sampleSection). */
+.kit-sample-choices { display: grid; gap: 8px; margin-top: 12px; }
+.kit-sample-choice { display: grid; gap: 3px; justify-items: start; text-align: start; width: 100%; padding: 14px; border: 1px solid var(--kit-border); border-radius: var(--look-r-lg); background: var(--kit-panel); color: inherit; font: inherit; cursor: pointer; }
+.kit-sample-choice:hover { background: var(--kit-hover); }
+.kit-sample-choice:focus-visible { outline: 2px solid var(--app-accent, currentColor); outline-offset: 2px; }
+.kit-sample-choice strong { font-weight: 600; }
+.kit-sample-choice span { color: var(--kit-muted); font-size: var(--look-footnote); line-height: 1.35; }
 
 .kit-about { display: flex; align-items: center; gap: 14px; }
 .kit-about img { width: 54px; height: 54px; border-radius: 14px; }
