@@ -28,7 +28,8 @@
  * events (billing.whenPaid, with what was charged, tax included, in the currency's smallest unit)
  * and the stores' purchases and renewals (stores.whenApplied), which bring no amount: theirs is
  * the product's `amount` in `stores.products`, marked `estimated`. A refund marks its payment. An
- * account that goes takes its origin with it; its payments stay as figures, with no one's name.
+ * account that goes takes its origin and its payments' rows with it: they name the provider's
+ * transaction and subscription, which are that person's.
  *
  *   const origins = createOrigins({ database, accounts, baseUrl, products, log });
  *   accounts.whenCreated(origins.noteCreated); accounts.whenRemoved(origins.forget);
@@ -38,7 +39,7 @@
  *   registerOriginsApi(api, { origins });   // GET /api/admin/users/:id/origin
  */
 import { sendJson, requireAdmin, notFound, int, parseCookies } from './http.js';
-import { currentRequest } from './request-scope.js';
+import { currentRequest, byTheAdmin } from './request-scope.js';
 import { iso } from './time.js';
 
 /** A link's tag: what `?src=` may say. */
@@ -72,7 +73,7 @@ export function cleanHost(value, own = []) {
 }
 
 /**
- * Migration 36: each account's origin, and each payment with the origin its account had.
+ * Migration 38: each account's origin, and each payment with the origin its account had.
  * `origin_payments.amount` is in the currency's smallest unit; `estimated` when it is the
  * product's listed amount and not what the provider said it charged.
  */
@@ -171,14 +172,15 @@ export function createOrigins({
 
   /**
    * accounts.whenCreated: the account's origin, written with it. Inside the account's transaction,
-   * so it never throws. Not for an account the admin makes, nor for one made outside a request (an
-   * import, a script): those came from nowhere a link or a site could say.
+   * so it never throws. Not for an account the admin makes (in /admin or through the
+   * administrator's connector: request-scope.js byTheAdmin), nor for one made outside a request
+   * (an import, a script): those came from nowhere a link or a site could say.
    */
   function noteCreated(user) {
     if (!user?.id) return;
     try {
       const scope = currentRequest();
-      if (!scope?.req || scope.path.startsWith('/api/admin/')) return;
+      if (!scope?.req || byTheAdmin(scope)) return;
       const came = arrivals.get(scope.req) || {};
       arrivals.delete(scope.req);
       const fromApp = Boolean(appCookie && parseCookies(scope.req)[appCookie] != null);
@@ -265,10 +267,14 @@ export function createOrigins({
     FROM origin_payments WHERE user_id = ? ORDER BY at DESC, id DESC LIMIT 200`, userId)
     .map((row) => ({ ...row, first: Boolean(row.first), estimated: Boolean(row.estimated) }));
 
-  /** accounts.whenRemoved: the account's origin goes with it; its payments stay as figures, nobody's. */
+  /**
+   * accounts.whenRemoved: the account's origin goes with it, and so do its payments' rows. Each
+   * keeps the provider's transaction and subscription, which say whose it was to whoever has the
+   * provider's records; and no figure reads a payment without its account.
+   */
   function forget(userId) {
     database.run('DELETE FROM account_origins WHERE user_id = ?', userId);
-    database.run('UPDATE origin_payments SET user_id = NULL WHERE user_id = ?', userId);
+    database.run('DELETE FROM origin_payments WHERE user_id = ?', userId);
   }
 
   return { fromLogin, pack, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own };

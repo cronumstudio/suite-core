@@ -26,7 +26,8 @@ change an interface and a patch never does. Apps pin a version through the submo
   (`stores.whenApplied`). A store's purchase arrives without an amount, so a store product may now
   say `amount` and `currency` (`stores.products.<key>`, both or neither, never charged from
   here): its payments are noted with that, marked as an estimate. A refund marks its payment. An
-  account that goes takes its origin with it; its payments stay as figures, nobody's.
+  account that goes takes its origin and its payments' rows with it. An account the admin makes, in
+  /admin or through the administrator's connector, has no origin.
 - **The admin sees an account's origin** in its dialog, in a fold of its own: the link's tag, the
   site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
   host it is the root's, as the affiliates are.
