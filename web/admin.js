@@ -2000,8 +2000,9 @@ async function invitationsBlock(view) {
   const shown = invitations.filter((inv) => !inv.ended);
   const ended = invitations.length - shown.length;
   const rows = shown.map((inv) => el('tr', {},
-    el('td', {}, el('strong', { text: inv.name || inv.user?.display_name || t('admin.creatorInvites.anyone') }),
-      el('small', { text: inv.email || inv.user?.email || (inv.uses > 1 ? t('admin.creatorInvites.many', { n: inv.uses }) : '') })),
+    // One person's by their name and email (the account's, once used); a link for many by its label.
+    el('td', {}, el('strong', { text: inv.name || (inv.uses === 1 ? inv.user?.display_name : null) || t('admin.creatorInvites.anyone') }),
+      el('small', { text: inv.uses > 1 ? t('admin.creatorInvites.many', { n: inv.uses }) : inv.email || inv.user?.email || '' })),
     el('td', { text: proFor(inv) }),
     el('td', {}, inv.creator
       ? (inv.code ? el('code', { class: 'kit-mono', text: inv.code }) : el('span', { text: t('admin.creatorInvites.codeLater') }))
@@ -2035,7 +2036,7 @@ async function invitationsBlock(view) {
       onClick: () => invitationDialog(view, defaults),
     })),
     shown.length ? table([
-      t('fields.name'), t('admin.creatorInvites.pro'), t('fields.code'), t('fields.state'), '',
+      t('fields.name'), t('admin.creatorInvites.pro'), t('fields.code'), t('admin.affiliates.state'), '',
     ], rows) : el('p', { class: 'kit-empty', text: t('admin.creatorInvites.none') }),
     ended ? el('p', { class: 'kit-hint', text: t('admin.creatorInvites.ended', { n: ended }) }) : null,
   ];
@@ -2044,7 +2045,8 @@ async function invitationsBlock(view) {
 /** The link of an invitation just made, to copy and send in person. */
 function invitationLink(inv) {
   const shown = el('code', { class: 'kit-mono', text: inv.link });
-  const whom = inv.name || inv.email;
+  // One person's, by their name; a link for many is no one's, whatever its label.
+  const whom = inv.uses === 1 ? inv.name || inv.email : null;
   openDialog({
     title: t('admin.creatorInvites.made'),
     content: [
@@ -2100,10 +2102,10 @@ function invitationDialog(view, defaults) {
   const days = el('input', { inputmode: 'numeric', autocomplete: 'off', value: String(defaults.days) });
   const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
   const creatorPart = el('div', { class: 'kit-stack' },
-    el('div', { class: 'kit-grid' },
+    el('div', { class: 'kit-grid kit-grid--top' },
       field(t('fields.code'), code, t('admin.creatorInvites.codeHint')),
       field(t('fields.campaign'), campaign)),
-    el('div', { class: 'kit-grid' },
+    el('div', { class: 'kit-grid kit-grid--top' },
       field(t('fields.offer'), offerType),
       field(t('admin.affiliates.offerValue'), offerValue),
       field(t('fields.reward'), reward, t('admin.affiliates.rewardHint', { currency: defaults.reward.currency }))),
@@ -2141,15 +2143,15 @@ function invitationDialog(view, defaults) {
     title: t('admin.creatorInvites.new'),
     content: [
       el('p', { class: 'kit-hint', text: t('admin.creatorInvites.newLead') }),
-      el('div', { class: 'kit-grid' },
+      el('div', { class: 'kit-grid kit-grid--top' },
         field(t('fields.name'), name),
         field(t('fields.email'), email, t('admin.creatorInvites.emailHint'))),
-      el('div', { class: 'kit-grid' },
+      el('div', { class: 'kit-grid kit-grid--top' },
         field(t('admin.creatorInvites.pro'), months),
         untilField),
       el('label', { class: 'kit-check' }, creator, el('span', { text: t('admin.creatorInvites.withCode') })),
       creatorPart,
-      el('div', { class: 'kit-grid' },
+      el('div', { class: 'kit-grid kit-grid--top' },
         usesField,
         field(t('admin.creatorInvites.days'), days),
         field(t('fields.note'), note)),

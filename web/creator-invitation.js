@@ -230,12 +230,13 @@ function form(inv, { message = '', typed = '' } = {}) {
     act = () => api.post(`${base}/accept`, { password: password.value, ...(inv.email ? {} : { email: address() }), ...choices(code, sample) });
   }
 
+  const passwordField = password ? labelled(t('creatorInvite.password'), password,
+    el('p', { class: 'kit-hint', text: t('creatorInvite.passwordHint', { n: inv.password_min || 10 }) })) : null;
   const node = el('form', { class: 'kit-stack', novalidate: true },
     el('p', { class: 'kit-hint', text: plan }),
     intro ? el('p', { text: intro }) : null,
     labelled(t('fields.email'), email),
-    password ? labelled(t('creatorInvite.password'), password,
-      el('p', { class: 'kit-hint', text: t('creatorInvite.passwordHint', { n: inv.password_min || 10 }) })) : null,
+    passwordField,
     code?.node,
     sample ? el('label', { class: 'kit-check' }, sample, el('span', { text: t('creatorInvite.sample') })) : null,
     error,
@@ -264,6 +265,16 @@ function form(inv, { message = '', typed = '' } = {}) {
     } catch (err) {
       // The email has an account: they sign in with it. One they wrote: said, with that email.
       if (err instanceof ApiError && err.code === 'account_exists') return inv.email ? start() : form(inv, { typed: address() });
+      // A code refused once the account was made: they are in already, and the next try only activates.
+      if (password && code && err instanceof ApiError && ['affiliate_code_taken', 'discount_code_taken'].includes(err.code)) {
+        const now = await api.get(base).catch(() => null);
+        if (now?.signed_in) {
+          act = () => api.post(`${base}/claim`, choices(code, sample));
+          passwordField.hidden = true;
+          password = null;
+          submit.textContent = t('creatorInvite.activate');
+        }
+      }
       failed(err, code, error);
     } finally {
       submit.disabled = false;
