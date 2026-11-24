@@ -2651,10 +2651,11 @@ test('keyboard: one that makes the page shorter is told while typing, against th
   doc.dispatch('focusin');
   await new Promise((done) => setTimeout(done, 40));
   assert.deepEqual(told, [true, false, true, false, true], 'the focus came back to a field: up all along');
-  // Short a while with nothing typed in: not a keyboard's, down after the wait.
+  // Short a while with nothing typed in: not a keyboard's, down after the wait. Two timers in a row
+  // (the focus's, then the wait's), which on a busy machine can take longer than twice the wait.
   doc.activeElement = null;
   doc.dispatch('focusout');
-  await new Promise((done) => setTimeout(done, 40));
+  for (let i = 0; i < 300 && told.length < 6; i += 1) await new Promise((done) => setTimeout(done, 10));
   assert.deepEqual(told, [true, false, true, false, true, false]);
   // A frame with the focus: what it types in can't be seen from here.
   doc.activeElement = { tagName: 'IFRAME' };

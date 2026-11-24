@@ -386,7 +386,8 @@ test('an app: its 5xx over HTTP make an email to ALERT_EMAIL, with the route and
   for (const secret of ['s3cr3t', 'token=', '/notes/42', 'private words', 'cookie-value', 'mcp_bearer', 'ana@example.com', 'not-a-real-query-value']) {
     assert.ok(!mail.text.includes(secret), `the email doesn’t carry "${secret}"`);
   }
-  assert.ok(lines.includes('[alerts] "errors" alert sent'));
+  // The line is written once the mail server has answered, which can be after it has the email.
+  assert.ok(await until(() => lines.includes('[alerts] "errors" alert sent')).catch(() => false), 'the log says it was sent');
 
   // Half an hour later at the earliest: more errors are held back.
   for (let i = 0; i < ERROR_BURST.count; i++) await fail();
