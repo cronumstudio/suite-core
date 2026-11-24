@@ -27,6 +27,7 @@ const TABS = [
   ['data', 'admin.tabs.data'],
   ['notices', 'admin.tabs.notices'],
   ['affiliates', 'admin.tabs.affiliates'],
+  ['origins', 'admin.tabs.origins'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -156,6 +157,8 @@ async function start() {
   state.notices = Boolean(state.config.app?.modules?.notices);
   // Referrals and creators' campaigns, with payments (affiliates.js): whether the program is on or not.
   state.affiliates = Boolean(state.config.app?.modules?.affiliates);
+  // Where accounts come from, and what each origin brought, with modules.origins (origins.js).
+  state.origins = Boolean(state.config.app?.modules?.origins);
 
   const app = state.config.app || {};
   // The app's icon, as the server wrote it into the page (app.icon).
@@ -181,12 +184,12 @@ async function start() {
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
     && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
-    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates));
+    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates) && (id !== 'origins' || state.origins));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, notices: renderNotices, affiliates: renderAffiliates, audit: renderAudit,
+  data: renderData, notices: renderNotices, affiliates: renderAffiliates, origins: renderOrigins, audit: renderAudit,
 };
 
 let showing = 0;
@@ -1950,6 +1953,78 @@ async function renderAffiliates(main) {
       t('admin.affiliates.owner'), t('fields.kind'), t('fields.campaign'), t('fields.code'), t('admin.affiliates.accounts'),
       t('admin.affiliates.sales'), t('admin.affiliates.earned'), t('admin.affiliates.paid'), t('admin.affiliates.balance'), '',
     ], rows) : el('p', { class: 'kit-empty', text: t('admin.affiliates.none') }),
+  );
+}
+
+/* --------------------------------- origins --------------------------------- */
+
+/** How many weeks back the figures can go. */
+const ORIGIN_SPANS = [4, 8, 12, 26];
+
+/**
+ * Where accounts come from and what each origin brought (origins.js `report`): a table per week,
+ * the week the accounts were made in, with a row per origin and the week's total under them; then
+ * what people answered to how they heard of the app. The same figures as a CSV.
+ */
+async function renderOrigins(main) {
+  const asked = Number(hashQuery().get('weeks'));
+  const weeks = ORIGIN_SPANS.includes(asked) ? asked : 8;
+  const view = await api.get(`/api/admin/origins?weeks=${weeks}`);
+  const span = segmented(ORIGIN_SPANS.map((n) => ({ value: String(n), label: t('admin.origins.weeks', { n }) })), String(weeks),
+    (value) => { window.location.hash = `#/origins?weeks=${value}`; });
+  span.setAttribute('aria-label', t('admin.origins.span'));
+  const planName = (id) => t(String(state.catalog?.plans?.find((plan) => plan.id === id)?.name ?? id ?? ''));
+  const originText = (row) => (row.kind === 'none' ? t('admin.origins.unknown')
+    : row.kind === 'answer' ? t(`kit.firstQuestions.heard.${row.origin}`)
+      : row.kind === 'entry' ? t(`admin.origin.entry.${row.origin}`) : row.origin);
+  const payingText = (row) => (row.paying
+    ? [String(row.paying), Object.entries(row.plans).map(([plan, n]) => `${planName(plan)} ${n}`).join(', ')].filter(Boolean).join(' · ') : '0');
+  const incomeText = (income) => Object.entries(income).map(([currency, amount]) => moneyText(amount, currency)).join(' + ') || '—';
+  const number = (n) => numberFormat().format(n);
+  const weekTitle = (monday) => t('admin.origins.week', {
+    date: new Date(`${monday}T12:00:00Z`).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }),
+  });
+  const headers = [t('admin.origins.origin'), t('admin.origins.kind'), t('admin.origins.visits'), t('admin.origins.signups'),
+    t('admin.origins.activated'), t('admin.origins.limited'), t('admin.origins.paying'), t('admin.origins.income')];
+  const tables = view.weeks.map((monday) => {
+    const rows = view.rows.filter((row) => row.week === monday);
+    if (!rows.length) return null;
+    const total = { visits: 0, signups: 0, activated: 0, limited: 0, paying: 0, plans: {}, income: {} };
+    for (const row of rows) {
+      for (const key of ['visits', 'signups', 'activated', 'limited', 'paying']) total[key] += row[key];
+      for (const [plan, n] of Object.entries(row.plans)) total.plans[plan] = (total.plans[plan] || 0) + n;
+      for (const [currency, amount] of Object.entries(row.income)) total.income[currency] = (total.income[currency] || 0) + amount;
+    }
+    const line = (row, first, kind, strong = false) => el('tr', {},
+      el('td', {}, strong ? el('strong', { text: first }) : first),
+      el('td', { text: kind }),
+      ...['visits', 'signups', 'activated', 'limited'].map((key) => el('td', { text: number(row[key]) })),
+      el('td', { text: payingText(row) }),
+      el('td', { text: incomeText(row.income) }));
+    return el('section', { class: 'kit-stack' },
+      el('h3', { text: weekTitle(monday) }),
+      table(headers, [
+        ...rows.map((row) => line(row, originText(row), t(`admin.origins.kind.${row.kind}`))),
+        line(total, t('admin.origins.total'), '', true),
+      ]));
+  }).filter(Boolean);
+  const answered = view.weeks.map((monday) => {
+    const said = view.answers.filter((answer) => answer.week === monday);
+    return said.length ? el('tr', {},
+      el('td', { text: weekTitle(monday) }),
+      el('td', { text: said.map((answer) => `${t(`kit.firstQuestions.heard.${answer.heard}`)} ${number(answer.n)}`).join(' · ') })) : null;
+  }).filter(Boolean);
+  append(main,
+    el('h2', { text: t('admin.origins.title') }),
+    el('p', { class: 'kit-lead', text: t('admin.origins.lead') }),
+    el('div', { class: 'kit-toolbar' },
+      span,
+      el('a', { class: 'kit-btn', href: `/api/admin/origins/export?weeks=${weeks}`, download: '', text: t('admin.origins.export') })),
+    tables.length ? tables : el('p', { class: 'kit-empty', text: t('admin.origins.none') }),
+    answered.length ? el('section', { class: 'kit-stack' },
+      el('h3', { text: t('admin.origins.answers') }),
+      el('p', { class: 'kit-hint', text: t('admin.origins.answersLead') }),
+      table([t('admin.origins.weekColumn'), t('admin.origins.answers')], answered)) : null,
   );
 }
 

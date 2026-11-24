@@ -983,6 +983,8 @@ export async function createHost({
     if (entitlements.errors.length) {
       throw new SuiteConfigError(entitlements.errors.map((e) => `${entry.mount}: the plan catalog (PLANS) has errors: ${e}`));
     }
+    // A limit of their plan someone runs into in this module counts in the root's figures by origin (origins.js).
+    if (suite.origins) entitlements.whenLimit(suite.origins.limitReached);
     // Two modules whose data lives in a table of the same name would write in each other's rows.
     const made = tablesMadeBy(ownMigrations, app.id) ?? [];
     const clashes = made.flatMap((table) => joined.filter((m) => Object.hasOwn(m.parts?.portable?.tables || {}, table))
@@ -1073,8 +1075,10 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
-      // And the origins: an account is made at the root, and the admin reads them there.
+      // And the origins: an account is made at the root, and the admin reads them there. What is
+      // made in a module counts for them all the same (`made`, the root's).
       origins: null,
+      made: suite.made ?? null,
       // Whose something is, in the module's words, with the host's one brake on deletion notices:
       // its email, its push and that brake as the module's suite has them when a notice goes.
       ownership: createOwnership({

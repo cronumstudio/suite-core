@@ -349,6 +349,8 @@ export function createSuite({
     billing?.whenPaid((paid) => origins.paid(paid, { provider: billing.provider }));
     billing?.whenRefunded((refund) => origins.refunded(refund, { provider: billing.provider }));
     stores?.whenApplied(origins.applied);
+    // A limit of its plan an account runs into, once each (a host tells of its modules' too).
+    entitlements.whenLimit(origins.limitReached);
   }
   // An account that goes lets go of its links, subscriptions and grants here, never of its login.
   if (config.billing?.forgetOnRemove && (billing || stores)) {
@@ -535,6 +537,8 @@ export function createSuite({
     database, texts, mailer, sign: sessions.sign, appName: config.app.name, baseUrl: install.baseUrl,
     countryOf: behindCloudflare ? (req) => cloudflareCountry(req, { trustProxy: install.trustProxy }) : null,
     planName: (id) => entitlements.describe().plans.find((p) => p?.id === id)?.name ?? id,
+    // Where the day's new accounts came from, for the daily summary (origins.js).
+    originsSince: origins ? (from, to) => origins.topSince(from, to) : null,
     log: (line) => log(`${tag} ${line}`),
   }) : null;
   if (notices) {
@@ -702,6 +706,8 @@ export function createSuite({
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
     shareMail, shareBrake, goneBrake, affiliates, origins,
+    // The first thing someone creates, noted once for the figures by origin; null without them.
+    made: origins?.made ?? null,
     /**
      * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
      * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
@@ -913,6 +919,8 @@ export function createApp({
         ...(suite.notices && config.modules.admin ? { notices: true } : {}),
         // With payments, /admin › Affiliates (affiliates.js), whether the program is on or not.
         ...(suite.affiliates && config.modules.admin ? { affiliates: true } : {}),
+        // With origins kept, /admin › Origins (origins.js).
+        ...(suite.origins && config.modules.admin ? { origins: true } : {}),
         // The program on: Settings links to the person's panel (/afiliados), on the web only.
         ...(suite.affiliates?.enabled ? { recommend: true } : {}),
         // Read each time the config is sent: a host's module learns late whether the host has one.
@@ -976,7 +984,9 @@ export function createApp({
   // The affiliate's own panel and, for the admin, every code (affiliates.js).
   if (suite.affiliates) registerAffiliatesApi(api, { affiliates: suite.affiliates, audit, admin: config.modules.admin });
   // An account's origin and its payments, for the admin's panel (origins.js).
-  if (suite.origins && config.modules.admin) registerOriginsApi(api, { origins: suite.origins, accounts });
+  if (suite.origins && config.modules.admin) {
+    registerOriginsApi(api, { origins: suite.origins, accounts, visitsToken: install.originVisitsToken });
+  }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) {
     registerPushApi(api, {
@@ -1061,11 +1071,20 @@ export function createApp({
     const declared = entitlements.describe().features;
     if (declared['mcp.calls_per_week']) {
       const week = entitlements.countWeekly(user, 'mcp.calls_per_week');
+      if (week.allowed) suite.origins?.usedMcp(user);
+      else entitlements.limitReached(user, 'mcp.calls_per_week');
       return week.allowed || weeklyLimitText(week, config.app.name);
     }
-    if (!declared['mcp.calls_per_day']) return true;
+    if (!declared['mcp.calls_per_day']) {
+      suite.origins?.usedMcp(user);
+      return true;
+    }
     const day = entitlements.countDaily(user, 'mcp.calls_per_day');
-    if (day.allowed) return true;
+    if (day.allowed) {
+      suite.origins?.usedMcp(user);
+      return true;
+    }
+    entitlements.limitReached(user, 'mcp.calls_per_day');
     return dailyLimitText(day, config.app.name);
   };
 
@@ -1280,6 +1299,9 @@ export function createApp({
         // Nor one that keys its writes itself, for an account it finds on its own (keyedByRoute).
         const replayable = suite.idempotency && !match.handler.answeredOnce && !match.handler.keyedByRoute;
         await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
+        // The first thing someone creates here (a 201 to them, not from the admin's panel), for the
+        // figures by origin: noted once an account, and never a reason for the answer to fail.
+        if (suite.made && res.statusCode === 201 && ctx.user && !pathname.startsWith('/api/admin/')) suite.made(ctx.user);
         return;
       }
 

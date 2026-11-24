@@ -635,6 +635,18 @@ export function createEntitlements({
    * limit, 402 `plan_limit` when `current` has reached it. The details let the
    * interface and the assistant say which plan and which limit.
    */
+  /**
+   * Who hears that someone ran into a limit of their plan (whenLimit): `hook(user, feature)`, as
+   * `require` refuses it, and when the storage (storage.js) or the calls of an assistant (the MCP's
+   * quota) say so with `limitReached`. A hook that throws changes nothing of the refusal.
+   */
+  const limitHooks = [];
+  function limitReached(user, feature) {
+    for (const hook of limitHooks) {
+      try { hook(user, feature); } catch { /* a listener never changes what is refused */ }
+    }
+  }
+
   function require(user, feature, { current = 0 } = {}) {
     const spec = known(feature);
     const entitled = of(user);
@@ -643,6 +655,7 @@ export function createEntitlements({
       throw new HttpError(402, 'plan_feature', { feature, plan: entitled.plan.id, plan_name: entitled.plan.name });
     }
     if (spec.type === 'limit' && value !== null && current >= value) {
+      limitReached(user, feature);
       throw new HttpError(402, 'plan_limit', { feature, limit: value, current, plan: entitled.plan.id, plan_name: entitled.plan.name });
     }
   }
@@ -789,6 +802,7 @@ export function createEntitlements({
   return {
     errors, ignored, knows, of, ofMany, plansOfMany, ofOrganization, sourceOf, can, limit, require, allows, cutoff, cutoffOrganization, better, countDaily, countWeekly, dailyUsage, usedToday, usedThisWeek,
     grant, revoke, setPlan, earlyAccessState, keepEarlyAccess, seatsOf, grantsOf, describe, forgetUsage,
+    whenLimit: (hook) => { limitHooks.push(hook); }, limitReached,
   };
 }
 

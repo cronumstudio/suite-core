@@ -42,6 +42,7 @@ export function createStorage({ entitlements, used }) {
     const current = used(payer.id);
     if (current + adding <= limit * MB) return;
     const { plan } = entitlements.of(payer);
+    entitlements.limitReached?.(payer, 'storage.mb');
     throw new HttpError(402, 'plan_limit', {
       feature: 'storage.mb', limit: `${limit} MB`, current: `${Math.ceil(current / MB)} MB`, plan: plan.id, plan_name: plan.name,
     });

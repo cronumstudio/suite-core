@@ -526,6 +526,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     push,
     // With push.native: { apns, fcm }, each null when its credentials aren't set.
     ...(nativePush ? { nativePush } : {}),
+    // What a site's own server says to tell of a visit (ORIGIN_VISITS_TOKEN, origins.js): with
+    // modules.origins, POST /api/origins/visits takes it; empty, that route isn't there.
+    originVisitsToken: originVisitsTokenOf(env.ORIGIN_VISITS_TOKEN, modules, warnings),
     // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT).
     securityContact: securityContactOf(env.SECURITY_CONTACT, warnings),
     // The biggest copy of data an import takes over HTTP, in MB (IMPORT_MAX_MB); null: portability.js's own.
@@ -816,6 +819,24 @@ function securityContactOf(value, warnings) {
  * before it reaches the server: an install behind it takes copies of up to 95 MB, and says so.
  */
 export const CLOUDFLARE_IMPORT_MB = 95;
+
+/**
+ * ORIGIN_VISITS_TOKEN: a secret of 24 characters or more, without spaces. A shorter one could be
+ * guessed, and whoever holds it writes this install's visits: it is left out, with a warning.
+ */
+function originVisitsTokenOf(value, modules, warnings) {
+  const token = String(value ?? '').trim();
+  if (!token) return '';
+  if (!modules.origins) {
+    warnings.push('ORIGIN_VISITS_TOKEN is set, but the app keeps no origins (modules.origins): visits are not counted');
+    return '';
+  }
+  if (token.length < 24 || /\s/.test(token)) {
+    warnings.push('ORIGIN_VISITS_TOKEN must be 24 characters or more, without spaces: visits are not counted');
+    return '';
+  }
+  return token;
+}
 
 /** IMPORT_MAX_MB: a whole number of MB; by default 95 behind Cloudflare (`trustProxy: 'cloudflare'`), else null. */
 function importMaxMbOf(value, trustProxy, errors) {
