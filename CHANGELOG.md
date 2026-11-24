@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.321.0 — 2026-11-24
+## 0.323.0 — 2026-11-24
 
 - **Creators invited before they have an account** (`creator-invitations.js`, with the affiliates and
   `affiliates.invitations`; new suite migration 38, `creator_invitations`). The admin names someone
