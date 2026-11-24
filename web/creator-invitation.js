@@ -13,6 +13,9 @@
  *   - signed in already: «Activate», on that account; with someone else's account, a word about it
  *     and the way to sign out first
  *   - used, revoked, expired or unknown: a line that says so
+ * An email they wrote (an invitation that names none) is confirmed here too, with the code the
+ * identity provider has just mailed it: the provider's own page could answer with another account
+ * still signed in there.
  * Back from signing in elsewhere (`?claim=1`, with the code and the sample data chosen) it claims at
  * once and opens the app.
  */
@@ -156,6 +159,52 @@ function failed(err, code, error) {
 /** The app, signed in: or the identity provider's page for the step it still wants. */
 const into = (answer) => window.location.replace(answer?.signed_in === false ? '/auth/login?return=%2F' : '/');
 
+/**
+ * The code their inbox just got, when the email was one they wrote: confirmed, the app opens signed
+ * in. A code that can't be used any more sends them to sign in from the start, which mails a new one.
+ */
+function confirmForm(inv, { id, email }) {
+  const input = el('input', {
+    id: 'invite-confirm', class: 'kit-input', type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code',
+    maxlength: '6', required: true, spellcheck: 'false', autocapitalize: 'none',
+  });
+  const error = el('p', { class: 'kit-error', role: 'alert', hidden: true });
+  const submit = el('button', { type: 'submit', class: 'kit-btn kit-btn--primary kit-btn--block', text: t('creatorInvite.enter') });
+  const node = el('form', { class: 'kit-stack', novalidate: true },
+    el('p', { text: t('creatorInvite.confirmText', { email }) }),
+    labelled(t('creatorInvite.confirmCode'), input),
+    error,
+    submit);
+  node.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    error.hidden = true;
+    const typed = input.value.replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(typed)) {
+      error.textContent = t('errors.confirm_code_wrong');
+      error.hidden = false;
+      input.focus();
+      return;
+    }
+    submit.disabled = true;
+    try {
+      into(await api.post(`${base}/confirm`, { id, code: typed }));
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'confirm_expired') {
+        window.location.replace(`/auth/login?${new URLSearchParams({ return: '/', hint: email })}`);
+        return;
+      }
+      error.textContent = errorMessage(err);
+      error.hidden = false;
+      input.focus();
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  frame(hello(inv), t('creatorInvite.confirmTitle'), node);
+  input.focus();
+  return node;
+}
+
 /** Where to sign in elsewhere and come back here to claim it: Google, or the provider's page with their email. */
 async function signInElsewhere(code, sample, provider = null, email = '') {
   const query = new URLSearchParams();
@@ -261,6 +310,7 @@ function form(inv, { message = '', typed = '' } = {}) {
     submit.disabled = true;
     try {
       const answer = await act();
+      if (answer?.confirm) return confirmForm(inv, answer.confirm);
       if (answer) into(answer);
     } catch (err) {
       // The email has an account: they sign in with it. One they wrote: said, with that email.
