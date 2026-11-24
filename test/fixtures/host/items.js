@@ -130,3 +130,31 @@ export function doneRoute(api, { suite, table }) {
     sendJson(ctx.res, 200, { ok: true });
   });
 }
+
+/**
+ * A test module's example (sample-data.js): two items, in the language asked and dated by the
+ * person's today, the second one the anchor `shared`. Taking it away deletes the ones whose text
+ * is still as made.
+ */
+export function itemSampleData({ suite, table }) {
+  return {
+    seed: ({ userId, locale, today }) => {
+      const texts = [`${table} ${locale} ${today}`, `${table} shared`];
+      const ids = texts.map((text) => suite.database.run(`INSERT INTO ${table} (user_id, text) VALUES (?, ?)`, userId, text).lastInsertRowid);
+      return {
+        items: ids.map((id, i) => ({ type: 'item', id, stamp: texts[i] })),
+        anchors: { shared: { type: 'item', id: ids[1] } },
+      };
+    },
+    remove: ({ userId, items }) => {
+      const removed = [];
+      for (const item of items) {
+        const row = suite.database.get(`SELECT text FROM ${table} WHERE id = ? AND user_id = ?`, Number(item.id), userId);
+        if (row?.text !== item.stamp) continue;
+        suite.database.run(`DELETE FROM ${table} WHERE id = ?`, Number(item.id));
+        removed.push(item);
+      }
+      return { removed };
+    },
+  };
+}

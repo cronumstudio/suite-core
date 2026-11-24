@@ -3,6 +3,21 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.322.0 — 2026-11-24
+
+- **Sample data** (`sample-data.js`, `createHost({ sampleData: true })`): one example in every
+  module someone uses, to try the app or record it without typing anything in. Each module gives its
+  part in `createModule().sampleData` (`seed` and `remove`, both synchronous); the host asks the
+  modules the person uses, each in a transaction of its own and in their zone, in the language they
+  asked for, chose or browse in, writes down what was made (`host_sample_items`, host migration 13)
+  and links the things that play the same part in the story across modules (`anchors`). Taking it
+  away gives each module back what it made, with the stamps that tell whether the person changed
+  it: what is still as made goes, what they changed or wrote stays. `GET`, `POST` and `DELETE
+  /api/me/sample-data` at the host's root, `suite.sampleData` for the host's own code, and Settings
+  › Sample data in the host's group, in every module (its config says `host.sampleData`). One
+  example at a time: a second is 409 `sample_data_present`. A module whose seed fails is named in
+  `failed`, never the whole answer. Without the option, nothing of it is there.
+
 ## 0.317.0 — 2026-11-20
 
 - **Breaking for installs: the two catalogs besides `cronum-work` are named by how their plans are

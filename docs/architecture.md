@@ -2454,6 +2454,50 @@ older host took only a list).
   switch of it; on its own an app has no `daySummary` and nothing changes.
 
 
+### 21.3.3 Sample data
+
+`sample-data.js` (v0.322.0), with `createHost({ sampleData: true })`: one example in every module
+someone uses, to try the app or record it without typing anything in, added and taken away from
+Settings › Sample data. Without the option nothing of it is there. A module says how, next to its
+`day`:
+
+```js
+// server/module.js
+sampleData: {
+  // Makes the module's part of the example for `user`, in `locale` (one of the suite's languages),
+  // its dates around `today` ('YYYY-MM-DD' in their zone). Synchronous: the host runs it in a
+  // transaction of its own and in the person's zone, and one that throws leaves nothing behind.
+  seed: ({ user, userId, locale, today }) => ({
+    items: [{ type: 'task', id: 12, stamp: '…' }],   // what it made, each with the module's stamp
+    anchors: { menu: { type: 'task', id: 12 } },      // its part in the story, for links
+  }),
+  // Takes away what the seed made (`items`, with their stamps): what is still as made goes, what
+  // the person changed stays, and so does a container holding something of theirs. Synchronous.
+  remove: ({ user, userId, items }) => ({ removed: [{ type: 'task', id: 12 }] }),
+},
+```
+
+A `stamp` is the module's: a short text that changes when the person changes what they wrote in
+the thing (a title, a text), and stays when they only use it (tick it, move its dates, star it). The
+host keeps what each seed made in `host_sample_items` (host migration 13): it is how Settings know
+there is an example, and what each module gets back to remove. Anchors of the same name in two
+modules are linked (links.js `connect`, as the person), and those links are the host's to take away
+with a side that went.
+
+- **`GET /api/me/sample-data`** → `{ present, modules, available }`: whether the person has an
+  example, in which modules, and which of the modules they use have one.
+- **`POST /api/me/sample-data { locale? }`** → 201 `{ present, modules, failed, links }`. The
+  language asked for, else the one they chose, else the browser's, else English. Only the modules
+  they use; one whose seed throws is logged and named in `failed`, never the whole answer. 409
+  `sample_data_present` while an example is there: one at a time.
+- **`DELETE /api/me/sample-data`** → `{ present, removed, kept, failed }`: what went, what stayed
+  because it was changed (it is theirs from then on), and any module that couldn't (its part is kept
+  for a next try).
+- **From the host's own code**: `suite.sampleData.seed(user, { locale })`, `.status(user)` and
+  `.remove(user)`, the same as the routes (a page that makes an account ready for someone).
+- Each module's config says `host.sampleData: true`, and its Settings show the section in the
+  host's group.
+
 ### 21.4 From one module to another
 
 Going from one module to another (the rail, or the menu at the drawer's head on a phone) opens

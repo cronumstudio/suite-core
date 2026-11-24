@@ -481,6 +481,9 @@ export function openSettings(options) {
     // The host's daily summary (host.js `day`), where it sends notices: the whole app's, not a module's.
     host.day && host.push && !alone() ? { group: host.name, id: 'day', iconName: 'sun', label: t('kit.day.title'),
       hint: () => t('kit.day.hint'), render: () => needsServer(daySummary) } : null,
+    // The host's example to try it with (host.js `sampleData`, sample-data.js): added and taken away here.
+    host.sampleData && !alone() ? { group: host.name, id: 'sample-data', iconName: 'list-todo', label: t('kit.sample.title'),
+      hint: () => t('kit.sample.hint'), render: () => needsServer(sampleSection) } : null,
     // The host's calendar (host.js `calendar`): which modules show on it and, where the host has
     // one, its link for the person's own calendar app (`calendarFeed`). The whole app's.
     (host.calendarModules || host.calendarFeed) && !alone() ? { group: host.name, id: 'calendar-feed', iconName: 'calendar',
@@ -1721,6 +1724,52 @@ export function openSettings(options) {
    * The time is two lists, its hour and its minutes every five, the steps the server keeps: a time
    * field took any minute on an iPhone (its wheel has no steps), and 16:37 was kept as 16:35.
    */
+  /**
+   * Settings › Sample data (sample-data.js): an example in every module the person uses, to try the
+   * app or record it without filling anything by hand. Added with one button; once there, what it is
+   * in and another button to take it away, which asks first: only what is still as it was made goes,
+   * and what they wrote stays.
+   */
+  function sampleSection() {
+    const box = el('div', {});
+    const names = (mounts) => listFormat({ type: 'conjunction' })
+      .format(mounts.map((mount) => inUse.find((m) => m.mount === mount)?.name || mount));
+    const busy = (target, on) => { if (target) target.disabled = on; };
+    const paint = (answer) => {
+      if (closed || !answer) return;
+      if (answer.present) {
+        const take = button(t('kit.sample.remove'), async () => {
+          if (!(await confirmDialog(t('kit.sample.confirmRemove'), { title: t('kit.sample.confirmTitle'), confirm: t('kit.sample.remove') }))) return;
+          busy(take, true);
+          try {
+            const out = await api.root.delete('/api/me/sample-data');
+            toast(out.kept ? t('kit.sample.removedKept', { n: out.kept }) : t('kit.sample.removed'));
+            paint(await api.root.get('/api/me/sample-data'));
+          } catch (err) { busy(take, false); fail(err); }
+        });
+        clear(box).append(block(t('kit.sample.title'),
+          hint(t('kit.sample.present', { modules: names(answer.modules) })),
+          hint(t('kit.sample.removeHint')),
+          row(take)));
+        return;
+      }
+      const add = answer.available?.length ? button(t('kit.sample.add'), async () => {
+        busy(add, true);
+        try {
+          const out = await api.root.post('/api/me/sample-data', { locale: currentLanguage() });
+          toast(t('kit.sample.added', { modules: names(out.modules || []) }));
+          paint(await api.root.get('/api/me/sample-data'));
+        } catch (err) { busy(add, false); fail(err); }
+      }, 'primary') : null;
+      clear(box).append(block(t('kit.sample.title'),
+        hint(t('kit.sample.intro', { app: host.name })),
+        add ? hint(t('kit.sample.removeLater')) : hint(t('kit.sample.none')),
+        add ? row(add) : null));
+    };
+    api.root.get('/api/me/sample-data').then(paint, fail);
+    return box;
+  }
+
   /**
    * Settings › Calendar: a switch for each module with dates that the person uses, whether it shows
    * on the calendar (its page, its link and the assistants' tool, calendar.js), for every plan; and
