@@ -2067,5 +2067,6 @@
   "admin.creatorInvites.emailHint": "Facoltativa: senza, chi entra scrive la sua.",
   "fields.pro_until": "Pro fino al",
   "fields.uses": "Account che crea",
-  "fields.creator": "Creator"
+  "fields.creator": "Creator",
+  "fields.invitation_id": "Invito"
 }

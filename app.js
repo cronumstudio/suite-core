@@ -1051,7 +1051,7 @@ export function createApp({
         { admin_password: form.get('admin_password'), admin_code: form.get('admin_code') }),
       again: (back) => `/auth/login?prompt=login&return=${encodeURIComponent(back)}`,
     } : localConfirmation({ limiter, twoFactor: localPasswords ? twoFactor : null }),
-    affiliates: suite.affiliates ?? null, usageFor: adminUsage, devices: suite.devices ?? null,
+    affiliates: suite.affiliates ?? null, creatorInvitations: suite.creatorInvitations ?? null, usageFor: adminUsage, devices: suite.devices ?? null,
     overview: billing?.enabled || suite.stores?.enabled
       ? (user) => billingOverview(user, { instances: [billing, suite.stores], entitlements, organizations }) : null,
     sharedLogin: config.accounts.sharedIdentity ? suite.idp : null,

@@ -2067,5 +2067,6 @@
   "admin.creatorInvites.emailHint": "Optional: without it, whoever enters writes theirs.",
   "fields.pro_until": "Pro until",
   "fields.uses": "Accounts it makes",
-  "fields.creator": "Creator"
+  "fields.creator": "Creator",
+  "fields.invitation_id": "Invitation"
 }

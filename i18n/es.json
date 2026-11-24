@@ -2067,5 +2067,6 @@
   "admin.creatorInvites.emailHint": "Opcional: sin él, quien entra escribe el suyo.",
   "fields.pro_until": "Pro hasta",
   "fields.uses": "Cuentas que crea",
-  "fields.creator": "Creador"
+  "fields.creator": "Creador",
+  "fields.invitation_id": "Invitación"
 }
