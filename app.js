@@ -50,6 +50,7 @@ import {
 import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createAffiliates, registerAffiliatesApi } from './affiliates.js';
 import { createOrigins, registerOriginsApi } from './origins.js';
+import { createCreatorInvitations, registerCreatorInvitationsApi, INVITATION_PATH } from './creator-invitations.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
@@ -65,7 +66,7 @@ import { createOwnership, createGoneBrake } from './ownership.js';
 import { inZoneOf } from './time.js';
 import { createAlerts } from './alerts.js';
 import { createAdminNotices, registerAdminNoticesApi } from './admin-notices.js';
-import { cloudflareCountry } from './http.js';
+import { cloudflareCountry, clientIp, conflict } from './http.js';
 import { createAccountMail } from './account-mail.js';
 import { createAccountDeletion, deletionTicket } from './account-deletion.js';
 import { createTexts } from './i18n.js';
@@ -702,10 +703,57 @@ export function createSuite({
   // every module's (audit sc-data-22), so four modules don't make four limits and four notices.
   const shareBrake = createShareBrake({ offersPerHour: SUITE_OFFERS_PER_HOUR });
   const goneBrake = createGoneBrake();
+  // Creators invited before they have an account (creator-invitations.js), with the affiliates and
+  // `affiliates.invitations`. Their page makes the login with a password where this install may:
+  // its own passwords, or WorkOS where it owns the logins (accounts.adminIdentity); elsewhere (OIDC)
+  // they sign in at the provider and come back.
+  const workosLogins = workos && workosClient && config.accounts.adminIdentity === true;
+  const invitationMark = config.accounts.sharedIdentity ? identityMark(config.app) : null;
+  const creatorInvitations = affiliates && config.affiliates.invitations ? createCreatorInvitations({
+    database, affiliates, accounts, entitlements, billing, audit, origins, sign: sessions.sign, config: config.affiliates.invitations,
+    baseUrl: install.baseUrl, passwordMin: config.accounts.minPasswordLength, log,
+    sampleData: () => made?.sampleData ?? null,
+    signUp: workosLogins ? async ({ email, password, name, locale, req, res }) => {
+      // The login with its email confirmed (the invitation's link reached it), and this app's mark.
+      const done = await workosClient.createUser({
+        email, password, firstName: name, emailVerified: true, metadata: invitationMark ? { [invitationMark.key]: invitationMark.name } : null,
+      });
+      if (done.refused) {
+        if (await workosClient.userByEmail(email)) throw conflict('account_exists');
+        throw badRequest('password_rejected', { n: config.accounts.minPasswordLength, detail: done.refused });
+      }
+      // Signed in as a return from AuthKit would. With one more step to take (a second factor), or a
+      // grant WorkOS refused all the same, the account here and its invitation, and AuthKit's page
+      // for the rest: the login is made, and what it is given must not wait on that.
+      let signed = { user: null };
+      try {
+        signed = await workos.signInWithPassword(req, res, { email, password, ip: clientIp(req, { trustProxy: install.trustProxy }) });
+      } catch (err) {
+        if (err instanceof WorkosUnavailable || err?.status === 403) throw err;
+        log(`${tag} a creator's new login could not sign in here at once (${err?.code || err?.message || err}): AuthKit's page next`);
+      }
+      const user = signed.user ?? await workos.localUser(done.user);
+      if (locale && !user.locale) accounts.update(user.id, { locale });
+      return { user: accounts.byId(user.id), signedIn: Boolean(signed.user) };
+    } : install.authProvider === 'local' ? async ({ email, password, name, locale, req, res }) => {
+      const user = accounts.create({
+        username: accounts.freeUsername(email), displayName: name, password, email, role: 'user', locale, emailVerified: true,
+      });
+      sessions.open(user.id, { req, res });
+      accounts.signedIn(user.id);
+      audit.record({ action: 'auth.login', actor: user, req, meta: { invited: true } });
+      return { user: accounts.byId(user.id), signedIn: true };
+    } : null,
+    taken: workos && workosClient ? async (email) => ((await workosClient.userByEmail(email)) ? 'provider' : null) : async () => null,
+    signInUrl: idp ? (back, { provider = null, hint = null, src = null } = {}) => `/auth/login?${new URLSearchParams({
+      return: back, ...(provider ? { provider } : {}), ...(hint ? { hint } : {}), ...(src ? { src } : {}),
+    })}` : null,
+  }) : null;
+  if (creatorInvitations) accounts.whenRemoved((userId) => creatorInvitations.forget(userId));
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    shareMail, shareBrake, goneBrake, affiliates, origins,
+    shareMail, shareBrake, goneBrake, affiliates, origins, creatorInvitations,
     // The first thing someone creates, noted once for the figures by origin; null without them.
     made: origins?.made ?? null,
     /**
@@ -922,6 +970,8 @@ export function createApp({
         ...(suite.notices && config.modules.admin ? { notices: true } : {}),
         // With payments, /admin › Affiliates (affiliates.js), whether the program is on or not.
         ...(suite.affiliates && config.modules.admin ? { affiliates: true } : {}),
+        // And its creators' invitations (creator-invitations.js), with affiliates.invitations.
+        ...(suite.creatorInvitations && config.modules.admin ? { creator_invitations: true } : {}),
         // With origins kept, /admin › Origins (origins.js).
         ...(suite.origins && config.modules.admin ? { origins: true } : {}),
         // The program on: Settings links to the person's panel (/afiliados), on the web only.
@@ -986,6 +1036,12 @@ export function createApp({
   if (config.modules.admin && suite.notices) registerAdminNoticesApi(api, { notices: suite.notices, audit });
   // The affiliate's own panel and, for the admin, every code (affiliates.js).
   if (suite.affiliates) registerAffiliatesApi(api, { affiliates: suite.affiliates, audit, admin: config.modules.admin });
+  // A creator's invitation: its page's routes, by its token, and the admin's (creator-invitations.js).
+  if (suite.creatorInvitations) {
+    registerCreatorInvitationsApi(api, {
+      invitations: suite.creatorInvitations, limiter, baseUrl: install.baseUrl, admin: config.modules.admin,
+    });
+  }
   // An account's origin and its payments, for the admin's panel (origins.js).
   if (suite.origins && config.modules.admin) {
     registerOriginsApi(api, { origins: suite.origins, accounts, visitsToken: install.originVisitsToken });
@@ -1356,6 +1412,16 @@ export function createApp({
       if (suite.affiliates && (pathname === '/afiliados' || pathname === '/afiliados/')) {
         const page = brandedAdmin(fs.readFileSync(path.join(WEB_DIR, 'affiliates.html'), 'utf8'), config.app);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+        res.end(req.method === 'HEAD' ? undefined : page);
+        return;
+      }
+      // A creator's invitation (`/i/<token>`): its one page, in the app's clothes. What it shows is the
+      // API's answer for the token, so a link that is no longer valid gets the page that says so.
+      if (suite.creatorInvitations && pathname.startsWith(INVITATION_PATH) && /^\/i\/[^/]+$/.test(pathname)) {
+        const page = brandedAdmin(fs.readFileSync(path.join(WEB_DIR, 'creator-invitation.html'), 'utf8'), config.app);
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex',
+        });
         res.end(req.method === 'HEAD' ? undefined : page);
         return;
       }

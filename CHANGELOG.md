@@ -3,6 +3,45 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.321.0 — 2026-11-24
+
+- **Creators invited before they have an account** (`creator-invitations.js`, with the affiliates and
+  `affiliates.invitations`; new suite migration 38, `creator_invitations`). The admin names someone
+  (a name and an email), how long their plan lasts (months, or for good), the code it starts with
+  (one from the name when none is given: `MARIA20`) and the campaign's terms, the creators' own by
+  default, and gets a link, `<baseUrl>/i/<token>`, to send them in person: no email goes from here.
+  Nothing of theirs is made until they open it and enter: no account, no code, no discount at the
+  provider. Then, at once, their account (with a password where the install may make one: its own
+  passwords, or WorkOS where it owns the logins, `accounts.adminIdentity`; the email taken as
+  confirmed, since the link reached it), the plan as a grant of the admin's that ends after those
+  months, their creator's code with its discount at the provider, and the sample data when they ask
+  and the install has them (`suite.sampleData.seed(user, { locale })`). An email that has an account
+  (here, or a login of another app of the suite) signs in with it and gets the plan and the code on
+  the way back; so does whoever goes by Google (`affiliates.invitations.google`).
+- **Its page** (`web/creator-invitation.js`), one short screen in the app's colours: the greeting,
+  the email fixed, a password, their code written already and checked as they type (capitals and
+  digits, no hyphens, free; a free one like it offered when it isn't), the sample data's box, the
+  terms' line (`affiliates.invitations.terms` and `privacy`: an address, or one per language) and
+  «or sign in with Google». An account made there has `creator` as its origin's tag (origins.js).
+- **Its days** (`affiliates.invitations.days`, 30): an invitation nobody used is deleted with the
+  name and the email it held, and its link opens nothing; a keyed hash of the email stays, so a
+  second invitation to the same address is 409 `already_invited` (or `force`), as is one to an
+  account that is a creator's already. A used one forgets the name and the email at once: the
+  account has them. The hourly sweep (runtime.js) does it.
+- **/admin › Affiliates › Creators' invitations**: «Invite a creator», the list with each one's
+  state (pending, activated, revoked, expired), its link to copy while pending and the way to revoke
+  it. The same for other callers: `suite.creatorInvitations` `create`, `list`, `get`, `revoke`, and
+  `/api/admin/creator-invitations` (GET, POST, GET and DELETE `/:id`). /api/auth/config says
+  `modules.creator_invitations`.
+- **For it, elsewhere**: `affiliates.campaignFor(owner, body, admin, { also })`, a creator's campaign
+  for an account the caller has, with what runs in the transaction that keeps its code (its discount
+  switched off again at the provider when that fails); `affiliates.freeCode(seed)` and
+  `campaignTerms(body)`. WorkOS: `workos.authenticateWithPassword` (the password grant, a step it
+  still wants said as `{ step }`), `signInWithPassword(req, res, …)` on the accounts of WorkOS (a
+  sign-in from a page of the app, which ends as a return from AuthKit does), and `/auth/login`
+  takes `provider=google` (straight to Google) and `hint=<email>` (AuthKit's page with it written).
+- The hint of a campaign's code in /admin no longer says it takes hyphens: the provider takes none.
+
 ## 0.320.0 — 2026-11-24
 
 - **/admin › Origins: what each origin brought** (`origins.js` `report`, `GET /api/admin/origins?weeks=`,

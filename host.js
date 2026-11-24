@@ -1075,6 +1075,8 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
+      // And the creators' invitations: their page at /i/ and the admin's at the root.
+      creatorInvitations: null,
       // And the origins: an account is made at the root, and the admin reads them there. What is
       // made in a module counts for them all the same (`made`, the root's).
       origins: null,

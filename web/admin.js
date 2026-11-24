@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, numberFormat } from './i18n.js';
-import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu, copyText } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 import { dayKey } from './days.js';
@@ -16,6 +16,7 @@ const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
 const state = {
   config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, affiliates: false,
+  creatorInvitations: false,
   affiliateMinimum: null, usersQuery: '',
 };
 
@@ -157,6 +158,8 @@ async function start() {
   state.notices = Boolean(state.config.app?.modules?.notices);
   // Referrals and creators' campaigns, with payments (affiliates.js): whether the program is on or not.
   state.affiliates = Boolean(state.config.app?.modules?.affiliates);
+  // And the creators invited before they have an account (creator-invitations.js), in the same tab.
+  state.creatorInvitations = Boolean(state.config.app?.modules?.creator_invitations);
   // Where accounts come from, and what each origin brought, with modules.origins (origins.js).
   state.origins = Boolean(state.config.app?.modules?.origins);
 
@@ -1965,6 +1968,179 @@ async function renderAffiliates(main) {
       t('admin.affiliates.sales'), t('admin.affiliates.earned'), t('admin.affiliates.paid'), t('admin.affiliates.balance'), '',
     ], rows) : el('p', { class: 'kit-empty', text: t('admin.affiliates.none') }),
   );
+  if (state.creatorInvitations) append(main, ...(await invitationsBlock(view)));
+}
+
+/* ------------------------------ creators' invitations ----------------------------- */
+
+/** How long an invitation's plan lasts: some months, or for good. */
+const proFor = (months) => (months == null ? t('admin.creatorInvites.forever') : t('affiliates.months', { n: months }));
+const inviteBadge = (status) => el('span', {
+  class: `kit-badge kit-badge--${{ pending: 'accent', claimed: 'ok', revoked: 'warn', expired: 'warn' }[status] || 'accent'}`,
+  text: t(`admin.creatorInvites.status.${status}`),
+});
+/** When it ends, or what came of it and when. */
+const inviteWhen = (inv) => ({
+  pending: () => t('admin.creatorInvites.expires', { date: formatDate(inv.expires_at) }),
+  claimed: () => t('admin.creatorInvites.claimedOn', { date: formatDate(inv.claimed_at) }),
+  revoked: () => t('admin.creatorInvites.revokedOn', { date: formatDate(inv.revoked_at) }),
+  expired: () => t('admin.creatorInvites.expiredOn', { date: formatDate(inv.expires_at) }),
+}[inv.status] || (() => ''))();
+
+/**
+ * Creators invited before they have an account (creator-invitations.js): each with its state, its
+ * link to copy while it is pending and the way to take it back. Those whose days are over are only
+ * counted: nothing of them is left to show but their email's hash.
+ */
+async function invitationsBlock(view) {
+  const { invitations, defaults } = await api.get('/api/admin/creator-invitations');
+  const shown = invitations.filter((inv) => !inv.ended);
+  const ended = invitations.length - shown.length;
+  const rows = shown.map((inv) => el('tr', {},
+    el('td', {}, el('strong', { text: inv.name || inv.user?.display_name || t('admin.affiliates.gone') }),
+      el('small', { text: inv.email || inv.user?.email || '' })),
+    el('td', { text: proFor(inv.pro_months) }),
+    el('td', {}, inv.code ? el('code', { class: 'kit-mono', text: inv.code }) : null),
+    el('td', {}, inviteBadge(inv.status), el('small', { text: inviteWhen(inv) })),
+    el('td', {},
+      inv.link ? el('button', {
+        type: 'button', class: 'kit-link', text: t('admin.creatorInvites.copy'),
+        onClick: () => copyText(inv.link),
+      }) : null,
+      inv.status === 'pending' ? el('button', {
+        type: 'button', class: 'kit-link', text: t('admin.creatorInvites.revoke'),
+        onClick: async () => {
+          const asked = t('admin.creatorInvites.revokeConfirm', { name: inv.name || inv.email || '' });
+          if (!(await confirmDialog(asked, { confirm: t('admin.creatorInvites.revoke') }))) return;
+          try {
+            await api.delete(`/api/admin/creator-invitations/${inv.id}`);
+            show();
+          } catch (err) { fail(err); }
+        },
+      }) : null,
+      inv.status === 'claimed' && inv.code_id ? el('button', {
+        type: 'button', class: 'kit-link', text: t('admin.affiliates.open'),
+        onClick: () => affiliateDialog(inv.code_id).catch(fail),
+      }) : null)));
+  return [
+    el('h2', { text: t('admin.creatorInvites.title') }),
+    el('p', { class: 'kit-lead', text: t('admin.creatorInvites.lead', { days: defaults.days }) }),
+    el('div', { class: 'kit-toolbar' }, el('button', {
+      type: 'button', class: 'kit-btn kit-btn--primary', text: t('admin.creatorInvites.new'),
+      onClick: () => invitationDialog(view, defaults),
+    })),
+    shown.length ? table([
+      t('fields.name'), t('admin.creatorInvites.pro'), t('fields.code'), t('fields.state'), '',
+    ], rows) : el('p', { class: 'kit-empty', text: t('admin.creatorInvites.none') }),
+    ended ? el('p', { class: 'kit-hint', text: t('admin.creatorInvites.ended', { n: ended }) }) : null,
+  ];
+}
+
+/** The link of an invitation just made, to copy and send in person. */
+function invitationLink(inv) {
+  const shown = el('code', { class: 'kit-mono', text: inv.link });
+  openDialog({
+    title: t('admin.creatorInvites.made'),
+    content: [
+      el('p', { text: t('admin.creatorInvites.madeLead', { name: inv.name, date: formatDate(inv.expires_at) }) }),
+      el('div', { class: 'kit-copy' }, shown, el('button', {
+        type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.creatorInvites.copy'), onClick: () => copyText(inv.link, shown),
+      })),
+    ],
+    actions: [{ label: t('admin.creatorInvites.done'), primary: true }],
+  });
+}
+
+/**
+ * A new invitation: whom (a name and an email), how long their Pro lasts, the code it starts with
+ * (one from the name when left empty), and the campaign's terms, the program's by default.
+ */
+function invitationDialog(view, defaults) {
+  const name = el('input', { maxlength: '80', autocomplete: 'off' });
+  const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
+  const months = el('select', {}, [1, 3, 6, 12, 24].map((n) => el('option', { value: String(n), text: t('affiliates.months', { n }) })),
+    el('option', { value: 'forever', text: t('admin.creatorInvites.forever') }));
+  months.value = defaults.pro_months == null ? 'forever' : String(defaults.pro_months);
+  if (!months.value) months.value = '12';
+  const code = el('input', { autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '32', placeholder: 'MARIA20' }); // i18n-exempt: a code, the same in every language
+  code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+  const campaign = el('input', { maxlength: '80', autocomplete: 'off', placeholder: t('admin.users.optional') });
+  const offerType = el('select', {},
+    el('option', { value: 'percent', text: t('admin.affiliates.offerPercent') }),
+    el('option', { value: 'flat', text: t('admin.affiliates.offerFlat') }));
+  offerType.value = defaults.offer.type;
+  const offerValue = el('input', {
+    inputmode: 'decimal', autocomplete: 'off',
+    value: defaults.offer.type === 'flat' ? String(defaults.offer.amount / 100) : String(defaults.offer.percent),
+  });
+  const reward = el('input', { inputmode: 'decimal', autocomplete: 'off', value: String(defaults.reward.cash / 100) });
+  const products = (view.products.length ? view.products : defaults.products).map((key) => {
+    const box = el('input', { type: 'checkbox', value: key });
+    box.checked = defaults.products.includes(key);
+    return box;
+  });
+  const days = el('input', { inputmode: 'numeric', autocomplete: 'off', value: String(defaults.days) });
+  const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
+  const bodyOf = (force = false) => {
+    const flat = offerType.value === 'flat';
+    return {
+      name: name.value.trim(), email: email.value.trim(), code: code.value.trim() || null,
+      pro_months: months.value === 'forever' ? null : Number(months.value),
+      campaign: campaign.value.trim() || null, note: note.value.trim() || null, days: Math.round(Number(days.value)),
+      offer: flat ? { type: 'flat', amount: centsOf(offerValue.value), currency: defaults.reward.currency }
+        : { type: 'percent', percent: Math.round(Number(offerValue.value.replace(',', '.'))) },
+      products: products.filter((box) => box.checked).map((box) => box.value),
+      reward: { cash: centsOf(reward.value), currency: defaults.reward.currency },
+      ...(force ? { force: true } : {}),
+    };
+  };
+  formDialog({
+    title: t('admin.creatorInvites.new'),
+    content: [
+      el('p', { class: 'kit-hint', text: t('admin.creatorInvites.newLead') }),
+      el('div', { class: 'kit-grid' },
+        field(t('fields.name'), name),
+        field(t('fields.email'), email),
+        field(t('admin.creatorInvites.pro'), months),
+        field(t('fields.code'), code, t('admin.creatorInvites.codeHint'))),
+      el('div', { class: 'kit-grid' },
+        field(t('fields.offer'), offerType),
+        field(t('admin.affiliates.offerValue'), offerValue),
+        field(t('fields.reward'), reward, t('admin.affiliates.rewardHint', { currency: defaults.reward.currency }))),
+      el('div', { class: 'kit-field', role: 'group', 'aria-label': t('fields.products') },
+        el('span', { text: t('fields.products') }),
+        products.map((box) => el('label', { class: 'kit-check' }, box, el('span', { text: box.value })))),
+      el('div', { class: 'kit-grid' },
+        field(t('fields.campaign'), campaign),
+        field(t('admin.creatorInvites.days'), days),
+        field(t('fields.note'), note)),
+    ],
+    actions: [
+      { label: t('admin.cancel') },
+      { label: t('admin.creatorInvites.create'), primary: true, submit: true },
+    ],
+    onSubmit: async () => {
+      let made;
+      try {
+        made = await api.post('/api/admin/creator-invitations', bodyOf());
+      } catch (err) {
+        if (err?.code !== 'already_invited') throw err;
+        // Invited before, or a creator already: said, and only again if the admin says so.
+        const before = err.data || {};
+        const asked = before.status === 'creator'
+          ? t('admin.creatorInvites.alreadyCreator', { email: email.value.trim(), code: before.code || '' })
+          : t('admin.creatorInvites.already', {
+            email: email.value.trim(), date: formatDate(before.at), status: t(`admin.creatorInvites.status.${before.status}`),
+          });
+        if (!(await confirmDialog(asked, { confirm: t('admin.creatorInvites.again'), danger: false }))) return false;
+        made = await api.post('/api/admin/creator-invitations', bodyOf(true));
+      }
+      show();
+      invitationLink(made.invitation);
+      return true;
+    },
+  });
+  name.focus();
 }
 
 /* --------------------------------- origins --------------------------------- */

@@ -126,6 +126,18 @@ function cashProblem(reward) {
 const productsProblem = (products) => (Array.isArray(products) && products.length
   && products.every((p) => typeof p === 'string' && /^[a-z0-9_-]{1,40}$/.test(p)) ? null : 'products is a list of the catalog\'s product keys');
 
+/** A page's address for the invitations' line of terms: https, or one per language ({ en, es… }). */
+const legalProblem = (value) => {
+  const https = (text) => /^https:\/\/[^\s/]+(\/\S*)?$/.test(String(text ?? ''));
+  if (typeof value === 'string') return https(value) ? null : 'an https address, or one per language ({ en, es })';
+  if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length
+    && Object.entries(value).every(([lang, url]) => /^[a-z]{2}$/.test(lang) && https(url))) return null;
+  return 'an https address, or one per language ({ en, es })';
+};
+
+/** What `affiliates.invitations` is when it says only `true`: creator-invitations.js's defaults. */
+export const INVITATION_DEFAULTS = Object.freeze({ days: 30, proMonths: 12, google: false, terms: null, privacy: null });
+
 /**
  * suite.config.js `affiliates`, resolved over the program's defaults (CONTRACT.md §4). `appId` gives
  * the referral codes' prefix when the app names none (`work` → `WORK7KQ2`). → { affiliates, errors }
@@ -151,10 +163,12 @@ export function resolveAffiliates(given, { appId = 'app' } = {}) {
       reward: { cash: 600, currency: 'EUR' },
       payoutMinimum: 3000,
     },
+    // Creators invited before they have an account (creator-invitations.js): off unless the app says.
+    invitations: null,
   };
   if (given === undefined || given === null) return { affiliates: out, errors };
   if (typeof given !== 'object' || Array.isArray(given)) return { affiliates: out, errors: ['affiliates: an object, such as { enabled: true }'] };
-  const known = new Set(['enabled', 'confirmDays', 'cookieDomain', 'pressKitUrl', 'referral', 'creator']);
+  const known = new Set(['enabled', 'confirmDays', 'cookieDomain', 'pressKitUrl', 'referral', 'creator', 'invitations']);
   for (const key of Object.keys(given)) if (!known.has(key)) errors.push(`affiliates.${key} is not a setting (a typo?)`);
   if (given.enabled !== undefined) {
     if (typeof given.enabled !== 'boolean') errors.push('affiliates.enabled must be true or false');
@@ -226,6 +240,38 @@ export function resolveAffiliates(given, { appId = 'app' } = {}) {
       else out.creator.payoutMinimum = c.payoutMinimum;
     }
   });
+  // `true` for the defaults, or what differs from them. The offer and the reward are the creators'
+  // (`creator` above): an invitation takes them unless the admin gives others for it.
+  if (given.invitations === true) out.invitations = { ...INVITATION_DEFAULTS };
+  else if (given.invitations !== undefined && given.invitations !== false) {
+    if (!given.invitations || typeof given.invitations !== 'object' || Array.isArray(given.invitations)) {
+      errors.push('affiliates.invitations: true, or an object such as { days: 30 }');
+    } else {
+      const inv = { ...INVITATION_DEFAULTS };
+      part('invitations', ['days', 'proMonths', 'google', 'terms', 'privacy'], (i) => {
+        if (i.days !== undefined) {
+          if (!Number.isInteger(i.days) || i.days < 1 || i.days > 90) errors.push('affiliates.invitations.days: whole days, 1 to 90');
+          else inv.days = i.days;
+        }
+        if (i.proMonths !== undefined) {
+          if (i.proMonths !== null && (!Number.isInteger(i.proMonths) || i.proMonths < 1 || i.proMonths > 120)) {
+            errors.push('affiliates.invitations.proMonths: whole months, 1 to 120, or null for good');
+          } else inv.proMonths = i.proMonths;
+        }
+        if (i.google !== undefined) {
+          if (typeof i.google !== 'boolean') errors.push('affiliates.invitations.google must be true or false');
+          else inv.google = i.google;
+        }
+        for (const name of ['terms', 'privacy']) {
+          if (i[name] == null) continue;
+          const problem = legalProblem(i[name]);
+          if (problem) errors.push(`affiliates.invitations.${name}: ${problem}`);
+          else inv[name] = typeof i[name] === 'string' ? i[name] : { ...i[name] };
+        }
+      });
+      out.invitations = inv;
+    }
+  }
   return { affiliates: out, errors };
 }
 
@@ -953,11 +999,22 @@ export function createAffiliates({
    * `createDiscount`, the code works by its link alone.
    */
   async function createCampaign(body, admin) {
-    const wanted = campaignOf(body || {});
+    campaignOf(body || {});
     const email = String(body?.email ?? '').trim();
     if (!email) throw badRequest('field_required', { field: 'email' });
     const owner = accounts.byEmail(email);
     if (!owner) throw notFound('user_not_found');
+    return campaignFor(owner, body, admin);
+  }
+
+  /**
+   * A creator's campaign for an account the caller already has (createCampaign's, or one a creator's
+   * invitation just made: creator-invitations.js), with what the body says of it as createCampaign
+   * reads it. `also(codeId)` runs in the transaction that keeps the code: if it throws, no code is
+   * kept, and the discount just made at the provider is switched off again.
+   */
+  async function campaignFor(owner, body, admin = null, { also = null } = {}) {
+    const wanted = campaignOf(body || {});
     if (byCode(wanted.code)) throw conflict('affiliate_code_taken');
     const draft = { code: wanted.code, kind: 'creator', offer: wanted.offer, products: wanted.products };
     let discount = null;
@@ -972,19 +1029,49 @@ export function createAffiliates({
         throw new HttpError(502, 'discount_failed');
       }
     }
-    const id = database.tx(() => {
-      if (byCode(wanted.code)) throw conflict('affiliate_code_taken');
-      const made = database.run(`INSERT INTO affiliate_codes (code, kind, user_id, campaign, offer, products, reward, currency, active, note,
-          created_by, created_at) VALUES (?, 'creator', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`, wanted.code, owner.id, wanted.campaign,
-      JSON.stringify(wanted.offer), wanted.products.join(','), `cash:${wanted.reward.cash}`, wanted.reward.currency, wanted.note,
-      admin?.id ?? null, iso(clock())).lastInsertRowid;
-      if (discount) {
-        database.run('INSERT INTO affiliate_discounts (code_id, provider, discount_id, created_at) VALUES (?, ?, ?, ?)',
-          Number(made), key, String(discount), iso(clock()));
+    let id;
+    try {
+      id = database.tx(() => {
+        if (byCode(wanted.code)) throw conflict('affiliate_code_taken');
+        const made = Number(database.run(`INSERT INTO affiliate_codes (code, kind, user_id, campaign, offer, products, reward, currency,
+            active, note, created_by, created_at) VALUES (?, 'creator', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`, wanted.code, owner.id, wanted.campaign,
+        JSON.stringify(wanted.offer), wanted.products.join(','), `cash:${wanted.reward.cash}`, wanted.reward.currency, wanted.note,
+        admin?.id ?? null, iso(clock())).lastInsertRowid);
+        if (discount) {
+          database.run('INSERT INTO affiliate_discounts (code_id, provider, discount_id, created_at) VALUES (?, ?, ?, ?)',
+            made, key, String(discount), iso(clock()));
+        }
+        also?.(made);
+        return made;
+      });
+    } catch (err) {
+      // Nothing kept here: the discount just made at the provider would sell a code nobody has.
+      if (discount && on('setDiscountActive')) {
+        await provider.setDiscountActive(discount, false)
+          .catch((e) => log(`[affiliates] the discount of ${wanted.code} stays on at the provider with no code here: ${e?.message || e}`));
       }
-      return Number(made);
-    });
+      throw err;
+    }
     return { ...byId(id), owner: ownerOf(owner.id), discount: Boolean(discount), link: linkOf(wanted.code), figures: figuresOf(id) };
+  }
+
+  /**
+   * A code free to be a creator's, from what someone would like it to be (`MARIA20`): that one when
+   * no code here has it, else the first free of it with a digit after (MARIA202…), else with two
+   * digits. → the code, or null when `seed` can't be one. Free here: the provider may still have it
+   * (createDiscount then says 409 discount_code_taken).
+   */
+  function freeCode(seed) {
+    const base = normalizeCode(seed);
+    if (!base) return null;
+    if (!byCode(base)) return base;
+    const stem = base.slice(0, 30);
+    for (let n = 2; n <= 9; n++) if (!byCode(`${stem}${n}`)) return `${stem}${n}`;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const code = `${stem}${10 + random(90)}`;
+      if (!byCode(code)) return code;
+    }
+    return null;
   }
 
   /** A code on or off, at the provider too when it can (its discount archived or active again). */
@@ -1099,7 +1186,10 @@ export function createAffiliates({
   }
 
   return {
-    enabled, settings, rules, me, setPayoutNote, list, createCampaign, setActive, commissionsOf, recordPayout, exportCsv,
+    enabled, settings, rules, me, setPayoutNote, list, createCampaign, campaignFor, freeCode,
+    // What a campaign's body says, checked as createCampaign checks it (a creator's invitation, before its code exists).
+    campaignTerms: (body) => campaignOf(body || {}),
+    setActive, commissionsOf, recordPayout, exportCsv,
     referralOf, attributeLink, claim, broughtBy, refFromQuery, redirect, discountFor, paid, refunded, sweep, forget, figuresOf,
     codeOf: (text) => byCode(normalizeCode(text)),
   };
