@@ -1948,39 +1948,17 @@ test('without liveAll, /api/events?all is the host’s own channel, as before', 
   assert.equal(host.modules[0].suite.live.connected(), 0, 'no module’s');
 });
 
-test('a host with first questions asks them once, keeps the answers and shows them to the admin', async (t) => {
-  const { call } = await startHost(t, { firstQuestions: true });
-  assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'reddit' })).status, 401, 'signed in only');
+test('a host asks nothing at the first start: its two questions are gone, and what was answered with them', async (t) => {
+  // An option a host may still pass (Work did): it says and does nothing now.
+  const { call, host } = await startHost(t, { firstQuestions: true });
   await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
-  assert.equal((await call('GET', '/api/modules')).data.first_questions, true, 'not asked yet');
-
-  assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'tv' })).data.field, 'heard_from', 'only the options there are');
-  assert.equal((await call('PUT', '/api/me/first-answers', { has_channel: 'yes' })).data.field, 'has_channel');
-  assert.equal((await call('PUT', '/api/me/first-answers', { has_channel: true, channel: 'x'.repeat(301) })).data.error, 'field_too_long');
-  assert.equal((await call('GET', '/api/modules')).data.first_questions, true, 'nothing kept from a refused answer');
-
-  const answered = await call('PUT', '/api/me/first-answers', { heard_from: 'reddit', has_channel: true, channel: '  https://youtube.com/@me ' });
-  assert.deepEqual(answered.data, { first_questions: false });
-  assert.equal((await call('GET', '/api/modules')).data.first_questions, false, 'asked once');
-  const seen = (await call('GET', '/api/admin/users/1/first-answers')).data.answers;
-  assert.deepEqual({ ...seen, answered_at: typeof seen.answered_at },
-    { heard_from: 'reddit', has_channel: true, channel: 'https://youtube.com/@me', answered_at: 'string' });
-
-  // Skipped: a row with nothing in it, and no channel's address without a channel.
-  await call('PUT', '/api/me/first-answers', {});
-  assert.deepEqual({ ...(await call('GET', '/api/admin/users/1/first-answers')).data.answers, answered_at: null },
-    { heard_from: null, has_channel: null, channel: null, answered_at: null });
-  await call('PUT', '/api/me/first-answers', { has_channel: false, channel: 'https://ignored.example' });
-  assert.equal((await call('GET', '/api/admin/users/1/first-answers')).data.answers.channel, null);
-  assert.equal((await call('GET', '/api/admin/users/99/first-answers')).status, 404);
-});
-
-test('a host without first questions neither asks nor answers them', async (t) => {
-  const { call } = await startHost(t);
-  await call('POST', '/api/auth/login', { username: 'admin', password: 'root-password' });
-  assert.equal('first_questions' in (await call('GET', '/api/modules')).data, false);
-  assert.equal((await call('PUT', '/api/me/first-answers', {})).status, 404);
+  const modules = (await call('GET', '/api/modules')).data;
+  assert.equal('first_questions' in modules, false);
+  assert.equal('first_code' in modules, false);
+  assert.equal((await call('PUT', '/api/me/first-answers', { heard_from: 'reddit' })).status, 404);
   assert.equal((await call('GET', '/api/admin/users/1/first-answers')).status, 404);
+  // The table an earlier migration made is taken away by a later one (HOST_MIGRATIONS 6 and 14).
+  assert.ok(!host.suite.database.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'host_first_answers'"), 'no table left');
 });
 
 test('a module’s share email: signed by the host, the module over the heading, the button to the module', async (t) => {

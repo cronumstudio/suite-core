@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.341.0 — 2026-11-24
+
+- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
+  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
+  first start is in the way, and where an account came from can be known without it (the version after this one).
+  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
+  says `first_questions`; `PUT /api/me/first-answers` and
+  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
+  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
+  are removed. A host's page that asked stops calling them.
+- **Host migration 14** drops `host_first_answers`: what was answered goes with the questions. A
+  host that wants those answers copies the table out before it updates.
+
 ## 0.340.0 — 2026-11-24
 
 - **Tests only.** Three tests checked something once, at a fixed moment, and failed now and then
@@ -36,7 +49,6 @@ change an interface and a patch never does. Apps pin a version through the submo
   `via`: `creatorInvitations.create` and `revoke` take `{ via }` for that.
 - **A refusal about an account says which**: `admin.mcp.refused` keeps the account a call named
   (`account`), when it exists, as its target.
-
 ## 0.328.0 — 2026-11-25
 
 - **Invitations with the plan, before anyone has an account** (`creator-invitations.js`, with the
@@ -97,7 +109,6 @@ change an interface and a patch never does. Apps pin a version through the submo
   says `host.sampleData`), with a dialog to choose where there are several and a question before
   taking it away. One example at a time: a second is 409 `sample_data_present`. A module whose seed
   fails is named in `failed`, never the whole answer. Without the option, nothing of it is there.
-
 ## 0.321.0 — 2026-11-24
 
 - **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
