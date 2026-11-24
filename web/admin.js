@@ -1029,8 +1029,9 @@ async function paintFirstAnswers(box, user, now) {
     code?.code,
   ].filter(Boolean).join(' · ');
   if (!answers) {
-    clear(box).append(el('p', { class: 'kit-hint', text: t('admin.firstAnswers.notAskedLead') }),
-      brought ? el('div', { class: 'kit-facts' }, fact(t('admin.firstAnswers.code'), brought)) : null);
+    // Only what there is: a null given to append() is written as the word.
+    clear(box).append(...[el('p', { class: 'kit-hint', text: t('admin.firstAnswers.notAskedLead') }),
+      brought ? el('div', { class: 'kit-facts' }, fact(t('admin.firstAnswers.code'), brought)) : null].filter(Boolean));
     return;
   }
   const link = answers.has_channel && /^https?:\/\//i.test(answers.channel || '') ? answers.channel : null;
