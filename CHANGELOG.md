@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.336.0 — 2026-11-25
+## 0.342.0 — 2026-11-25
 
 - **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 38,
   `account_origins` and `origin_payments`): kept when the account is made and never written over,
@@ -32,11 +32,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
   host it is the root's, as the affiliates are.
 
-## 0.335.0 — 2026-11-25
+## 0.341.0 — 2026-11-24
 
 - **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
   heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
-  first start is in the way, and where an account came from can be known without it (0.336.0).
+  first start is in the way, and where an account came from can be known without it (the version after this one).
   The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
   says `first_questions`; `PUT /api/me/first-answers` and
   `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
@@ -44,6 +44,26 @@ change an interface and a patch never does. Apps pin a version through the submo
   are removed. A host's page that asked stops calling them.
 - **Host migration 14** drops `host_first_answers`: what was answered goes with the questions. A
   host that wants those answers copies the table out before it updates.
+
+## 0.340.0 — 2026-11-24
+
+- **Tests only.** Three tests checked something once, at a fixed moment, and failed now and then
+  on a busy machine. They now wait for it:
+  - the deletion of a group's last member (`test/admin-deletion.test.js`): the stop of the group's
+    subscription goes into the audit log only once the provider has answered;
+  - the first alert email (`test/alerts.test.js`): its "alert sent" line comes only once the mail
+    server has answered;
+  - the keyboard going down after a wait (`test/web-kit.test.js`): two timers run in a row, the
+    focus's and then the wait's.
+
+  Nothing else changes.
+
+## 0.339.0 — 2026-11-24
+
+- **The steps to connect Claude say nothing of a Team or Enterprise plan** (`kit.agents.claude.connect`, in
+  the five languages). The line was about Claude's own plans, and coming right after "sign in with your
+  {app} account" it read as the app's, which may have no such plan, or one of that name of its own. The
+  step now ends at signing in.
 
 ## 0.334.0 — 2026-11-24
 

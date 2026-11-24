@@ -916,7 +916,7 @@
   "kit.agents.claude.open": "In Claude, open Customize › Connectors, choose + Add and then Add custom connector.",
   "kit.agents.claude.link": "Open Claude’s connectors",
   "kit.agents.nameAndPaste": "Name it {app} and paste this address:",
-  "kit.agents.claude.connect": "Choose Continue twice, then Add, and sign in with your {app} account. On a Team or Enterprise plan, an owner adds it in Organization settings › Connectors, and you choose Connect.",
+  "kit.agents.claude.connect": "Choose Continue twice, then Add, and sign in with your {app} account.",
   "kit.agents.chatgpt.open": "In ChatGPT, open Plugins, choose + and then Add custom MCP server. (In older versions: Settings › Apps › Advanced settings, turn on Developer mode and choose Create.)",
   "kit.agents.chatgpt.link": "Open ChatGPT’s plugins",
   "kit.agents.chatgpt.create": "Name it {app} and paste this address as the server URL:",
