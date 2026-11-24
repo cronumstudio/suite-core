@@ -1037,7 +1037,13 @@ function moneyText(amount, currency) {
  * summary: the tag, else the site.
  */
 async function paintOrigin(box, user, now) {
-  const { origin, payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
+  const { origin, marks = [], payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
+  // What they did for the first time, each with its day: something made, a call from an assistant, a limit met.
+  const firsts = marks.map((mark) => {
+    const what = mark.mark.startsWith('limit:') ? t('admin.origin.mark.limit', { feature: mark.mark.slice(6) })
+      : ['made', 'mcp'].includes(mark.mark) ? t(`admin.origin.mark.${mark.mark}`) : null;
+    return what ? `${what} (${new Date(mark.at).toLocaleDateString()})` : null;
+  }).filter(Boolean);
   const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
   const totals = new Map();
   for (const payment of payments) {
@@ -1049,10 +1055,11 @@ async function paintOrigin(box, user, now) {
   // Only what there is: a null given to append() is written as the word.
   clear(box).append(...[
     origin ? null : el('p', { class: 'kit-hint', text: t('admin.origin.noneLead') }),
-    origin || payments.length ? el('div', { class: 'kit-facts' },
+    origin || payments.length || firsts.length ? el('div', { class: 'kit-facts' },
       origin ? fact(t('admin.origin.src'), origin.src) : null,
       origin ? fact(t('admin.origin.referrer'), origin.referrer) : null,
       origin ? fact(t('admin.origin.entry'), t(`admin.origin.entry.${origin.entry}`)) : null,
+      firsts.length ? fact(t('admin.origin.marks'), firsts.join(' · ')) : null,
       payments.length ? fact(t('admin.origin.payments'), [String(payments.length), paid].filter(Boolean).join(' · ')) : null) : null,
   ].filter(Boolean));
 }
