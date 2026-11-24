@@ -34,6 +34,7 @@ import { deviceTokensSchema, deviceWebSessionsSchema } from './devices.js';
 import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js';
 import { strangerInvitesSchema, strangerInvitesKeepSchema } from './stranger-invites.js';
 import { adminNoticesSchema } from './admin-notices.js';
+import { adminMcpSchema } from './admin-mcp.js';
 
 /** Migration 33: `email = ? COLLATE NOCASE` on users read the whole table (audit sc-data-25). */
 function usersEmailSchema(d) {
@@ -116,4 +117,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 34, name: 'admin-notice-events', up: adminNoticesSchema },
   // The affiliates' codes, who brought whom, their commissions, payouts and months to give (affiliates.js).
   { version: 35, name: 'affiliates', up: affiliatesSchema },
+  // The administrator's connector: its authorization server's tables and the test accounts it made (admin-mcp.js).
+  { version: 36, name: 'admin-mcp', up: adminMcpSchema },
 ]);

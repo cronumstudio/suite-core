@@ -32,7 +32,7 @@ test('the configuration: defaults, the environment, and every mistake named', ()
   assert.equal(plain.install.trustProxy, 'false', 'no proxy is trusted unless someone says so');
   assert.equal(plain.install.secureCookies, false);
   assert.equal(plain.install.mcpOAuth, true);
-  assert.deepEqual(plain.modules, { oauth: true, mcp: true, admin: true, organizations: false, billing: false, live: false, push: false, uploads: false, devices: false, notices: false });
+  assert.deepEqual(plain.modules, { oauth: true, mcp: true, admin: true, organizations: false, billing: false, live: false, push: false, uploads: false, devices: false, notices: false, adminMcp: false });
   assert.deepEqual(plain.devices, { prefix: null, redirectUris: [], idleDays: 90 }, 'no phone connects unless the app says how');
 
   const hosted = resolveConfig({ ...PRODUCT, trustProxy: true }, {
