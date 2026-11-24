@@ -3,6 +3,27 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.342.0 — 2026-11-24
+
+- **An invitation's email that they wrote is confirmed on the invitation's page**
+  (`creator-invitations.js`, `web/creator-invitation.js`). On a link that names nobody, WorkOS
+  wants the email confirmed before it opens a session, and the page used to send them to
+  AuthKit for that. If AuthKit still had someone else signed in in that browser, it let that
+  person in instead: the new account was made, with its Pro, but nobody was signed in to it, and
+  its email stayed empty here. Now `accept` answers `confirm: { id, email }` when that happens,
+  the page asks for the 6-digit code WorkOS has just mailed, and the new
+  `POST /api/creator-invitations/:token/confirm` (`{ id, code }`) confirms it and opens the
+  session of the account that was just made. A wrong code is 400 `confirm_code_wrong`, and five
+  of them end it. After 15 minutes, or for an id that isn't that invitation's, the answer is
+  410 `confirm_expired`; the page then sends them to sign in with that email, which mails a new
+  code.
+- **workos.js** adds `authenticateWithEmailCode({ code, pendingToken })`, the grant
+  `email-verification:code`. When WorkOS asks for one more step, `authenticateWithPassword`
+  now also returns the `pendingToken` it gave. **workos-accounts.js** adds
+  `signInWithEmailCode(req, res, { code, pendingToken })`.
+- New texts in five languages: `creatorInvite.confirmTitle`, `creatorInvite.confirmText`,
+  `creatorInvite.confirmCode`, `errors.confirm_code_wrong` and `errors.confirm_expired`.
+
 ## 0.341.0 — 2026-11-24
 
 - **A host's first questions are gone** (`host.js`): the first start no longer asks how someone

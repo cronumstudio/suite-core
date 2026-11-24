@@ -260,30 +260,48 @@ export function createWorkosClient({
    * invitation, which has just made the login): the password grant, answered as exchangeCode
    * answers a return from AuthKit. `{ step }` instead when WorkOS wants one more step first
    * (`mfa_enrollment`, `mfa_challenge`…), which only AuthKit's page can take; `{ refused }` when the
-   * password isn't theirs. The password goes nowhere else.
-   * @returns {{ account, sessionId, method, authTime } | { step: string } | { refused: string }}
+   * password isn't theirs. The password goes nowhere else. With `email_verification_required`
+   * WorkOS has just mailed them a code, and `pendingToken` takes it to authenticateWithEmailCode.
+   * @returns {{ account, sessionId, method, authTime } | { step: string, pendingToken: string|null } | { refused: string }}
    * @throws {WorkosUnavailable}
    */
   async function authenticateWithPassword({ email, password, ip = null, userAgent = null }) {
+    return authenticate({ grant_type: 'password', email, password }, { ip, userAgent, method: 'Password' });
+  }
+
+  /**
+   * The code WorkOS mailed when it wanted the email confirmed first (`email_verification_required`
+   * on the password grant), with that answer's pending token: the email confirmed and the session
+   * opened, answered as authenticateWithPassword answers. `{ refused }` for a wrong or old code.
+   * @throws {WorkosUnavailable}
+   */
+  async function authenticateWithEmailCode({ code, pendingToken, ip = null, userAgent = null }) {
+    return authenticate({
+      grant_type: 'urn:workos:oauth:grant-type:email-verification:code', code: String(code || ''),
+      pending_authentication_token: pendingToken,
+    }, { ip, userAgent, method: 'Password' });
+  }
+
+  async function authenticate(grant, { ip = null, userAgent = null, method }) {
     const { ok, status, body } = await request(`${API_URL}/user_management/authenticate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        grant_type: 'password', client_id: clientId, client_secret: apiKey, email, password,
+        ...grant, client_id: clientId, client_secret: apiKey,
         ...(ip ? { ip_address: ip } : {}), ...(userAgent ? { user_agent: userAgent } : {}),
       }),
     });
     if (ok && body?.user?.id) {
       const token = claims(body.access_token);
       return {
-        account: body.user, sessionId: token?.sid || null, method: body.authentication_method || 'Password',
+        account: body.user, sessionId: token?.sid || null, method: body.authentication_method || method,
         authTime: Number.isFinite(token?.auth_time) ? token.auth_time * 1000 : null,
       };
     }
     if (unavailable(status) || ok) throw new WorkosUnavailable(`WorkOS answered ${status}`);
     const code = String(body?.code || body?.error || '');
     if (['mfa_challenge', 'mfa_enrollment', 'email_verification_required', 'organization_selection_required'].includes(code)) {
-      return { step: code };
+      return { step: code, pendingToken: typeof body?.pending_authentication_token === 'string' ? body.pending_authentication_token : null };
     }
     return { refused: code || `WorkOS answered ${status}` };
   }
@@ -541,7 +559,7 @@ export function createWorkosClient({
 
   return {
     authkitDomain: AUTHKIT,
-    missingConfig, pkcePair, signInUrl, exchangeCode, authenticateWithPassword, signOutUrl, revokeSession, deleteUser, setMetadata, account, knows,
+    missingConfig, pkcePair, signInUrl, exchangeCode, authenticateWithPassword, authenticateWithEmailCode, signOutUrl, revokeSession, deleteUser, setMetadata, account, knows,
     authorizedApplications, revokeApplication, listEvents, verifyToken, resourceMetadata, authorizationServerMetadata,
     checkPassword, setPassword, identities, factors, enrollTotp, checkCode, deleteFactor, userByEmail, createUser,
   };
