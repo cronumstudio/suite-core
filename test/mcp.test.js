@@ -417,7 +417,7 @@ test('a ResolveError the app leaves alone reaches the AI with its options', asyn
   assert.equal((await mcp.callTool({ id: 1 }, 'told', {})).content[0].text, 'In the app\'s words.');
 });
 
-test('an answer to a path ending in /mcp or /sse goes chunked, never with a length: Avast breaks those', async (t) => {
+test('an answer to a path ending in /mcp or /sse, or to an MCP client, goes chunked, never with a length: Avast breaks those', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-length-'));
   fs.writeFileSync(path.join(dir, 'index.html'), '<!DOCTYPE html><title>Demo</title>');
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -438,6 +438,12 @@ test('an answer to a path ending in /mcp or /sse goes chunked, never with a leng
   }
   for (const pathname of ['/api/me', '/mcp-info', '/mcp/x', '/.well-known/oauth-protected-resource', '/page/view']) {
     assert.equal((await head(pathname)).chunked, false, `${pathname}: with its length, as always`);
+  }
+  // A client that says it speaks MCP, wherever it asks (an authorization server's metadata): chunked too.
+  for (const pathname of ['/.well-known/oauth-authorization-server/oauth/admin', '/oauth/admin/token', '/api/me']) {
+    const res = await fetch(base + pathname, { headers: { 'MCP-Protocol-Version': '2025-06-18' } });
+    await res.text();
+    assert.deepEqual([res.headers.get('content-length'), res.headers.get('transfer-encoding')], [null, 'chunked'], pathname);
   }
 });
 

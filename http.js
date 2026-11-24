@@ -56,9 +56,12 @@ export function requireAdmin(ctx) {
  * fails ("Invalid character in chunk size"), the suite's own tests too. Without the length Node
  * sends it chunked, which Avast lets through. Nothing here serves /sse any more, but an old
  * client still asks for it, and Avast breaks the 404 it gets just the same (checked again on
- * 13/11/2026, audit sc-host-10): it stays.
+ * 13/11/2026, audit sc-host-10): it stays. So does any answer to a request that says it is an MCP
+ * client's (`MCP-Protocol-Version`, which clients also send while they find the authorization
+ * server, at paths that don't end in /mcp): Avast breaks those the same way, whatever their path.
  */
-const toMcp = (res) => /\/(mcp|sse)\/?$/i.test(String(res.req?.url ?? '').split('?')[0]);
+const toMcp = (res) => /\/(mcp|sse)\/?$/i.test(String(res.req?.url ?? '').split('?')[0])
+  || Boolean(res.req?.headers?.['mcp-protocol-version']);
 
 export function sendJson(res, status, data, headers = {}) {
   const body = status === 204 ? '' : JSON.stringify(data);
