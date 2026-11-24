@@ -19,10 +19,8 @@
  *             website) leaves it in the `cw_ref` cookie until the browser closes (a session cookie: it
  *             holds what the visitor brought, as a cart would, so it needs no consent), and an account made with it
  *             in the browser is the code's (`whenCreated`, read from the sign-in's request)
- *   given     the code the person wrote themselves when the app asked for one (a host's first
- *             questions, `claim`): it wins over a link, as what they said themselves
  *   checkout  the provider's `payment` event says which discount the buyer used (typed at the
- *             checkout, or passed by billing.js): that code, which wins over both, since it is
+ *             checkout, or passed by billing.js): that code, which wins over a link, since it is
  *             the last thing the buyer did
  *
  * What a code earns, a commission, one per buyer ever (unique per code, buyer and entry):
@@ -68,7 +66,7 @@ import crypto from 'node:crypto';
 import {
   HttpError, badRequest, conflict, notFound, sendJson, readJson, parseCookies, serializeCookie, appendHeader, requireUser, requireAdmin
 } from './http.js';
-import { currentRequest } from './request-scope.js';
+import { currentRequest, byTheAdmin } from './request-scope.js';
 import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
@@ -540,37 +538,9 @@ export function createAffiliates({
       // The paid one wins: what the buyer did last.
       database.run(`INSERT INTO affiliate_attributions (user_id, code_id, source, at) VALUES (?, ?, 'checkout', ?)
         ON CONFLICT (user_id) DO UPDATE SET code_id = excluded.code_id, source = 'checkout', at = excluded.at`, userId, codeId, iso(clock()));
-    } else if (how === 'given') {
-      // What they wrote themselves wins over the link they came by, never over what they paid with.
-      database.run(`INSERT INTO affiliate_attributions (user_id, code_id, source, at) VALUES (?, ?, 'given', ?)
-        ON CONFLICT (user_id) DO UPDATE SET code_id = excluded.code_id, source = 'given', at = excluded.at
-        WHERE affiliate_attributions.source <> 'checkout'`, userId, codeId, iso(clock()));
     } else {
       database.run(`INSERT OR IGNORE INTO affiliate_attributions (user_id, code_id, source, at) VALUES (?, ?, 'link', ?)`, userId, codeId, iso(clock()));
     }
-  }
-
-  /**
-   * A code the person writes when the app asks whether they have one (a host's first questions):
-   * they are the code's from then on, as by its link, and a checkout of theirs gets its discount.
-   * → the code as it is kept. Throws 404 `affiliate_code_not_found` for one that isn't live (a
-   * referral's while the program is off, one turned off, none at all) and 400
-   * `affiliate_code_own` for their own.
-   */
-  function claim(user, value) {
-    const code = liveCode(value);
-    if (!code) throw notFound('affiliate_code_not_found');
-    if (code.user_id === user.id) throw badRequest('affiliate_code_own');
-    attribute(user.id, code.id, 'given');
-    record('affiliates.code_given', { actor: user, targetId: code.id, meta: { code: code.code } });
-    return code.code;
-  }
-
-  /** Whose code brought an account, for the admin: `{ code, kind, source, at }`, or null. */
-  function broughtBy(userId) {
-    const brought = attributionOf(userId);
-    const code = brought ? byId(brought.code_id) : null;
-    return code ? { code: code.code, kind: code.kind, source: brought.source, at: brought.at } : null;
   }
 
   const cookieHeader = (value, maxAge) => serializeCookie(REF_COOKIE, value, {
@@ -594,7 +564,7 @@ export function createAffiliates({
   function attributeLink(user) {
     if (!user?.id) return;
     const scope = currentRequest();
-    if (!scope?.req || scope.path.startsWith('/api/admin/')) return;
+    if (!scope?.req || byTheAdmin(scope)) return;
     try {
       const value = parseCookies(scope.req)[REF_COOKIE];
       if (!value) return;
@@ -1190,7 +1160,7 @@ export function createAffiliates({
     // What a campaign's body says, checked as createCampaign checks it (a creator's invitation, before its code exists).
     campaignTerms: (body) => campaignOf(body || {}),
     setActive, commissionsOf, recordPayout, exportCsv,
-    referralOf, attributeLink, claim, broughtBy, refFromQuery, redirect, discountFor, paid, refunded, sweep, forget, figuresOf,
+    referralOf, attributeLink, refFromQuery, redirect, discountFor, paid, refunded, sweep, forget, figuresOf,
     codeOf: (text) => byCode(normalizeCode(text)),
   };
 }

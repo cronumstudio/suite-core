@@ -42,10 +42,8 @@
  * visits of that week, the accounts made, how many of them did something (`made` or `mcp`), how
  * many ran into a limit in their first 30 days, how many pay, by plan, and what they have paid.
  * An account's origin there is one (`originOf`): its link's tag, else the site it came from, else
- * what it answered to «How did you hear about us?» (a host's first questions), else how it was
- * made. The install's own website (a domain the install's host is under) is kept as the site like
- * any other, but counts after the answer: someone who reached it from nowhere a browser names and
- * went on to the app came «from the website», and what they answered says more.
+ * how it was made. Nobody is asked: an account with no tag, no site and nothing told by how it was
+ * made is one whose origin is not known, and the figures say so.
  *
  *   const origins = createOrigins({ database, accounts, baseUrl, products, log });
  *   accounts.whenCreated(origins.noteCreated); accounts.whenRemoved(origins.forget);
@@ -82,35 +80,15 @@ export function weekOf(moment) {
 
 /**
  * The one origin of an account in the figures, by what is known of it: its link's tag, else the
- * site it came from, else its answer to how it heard of the app, else how it was made when that
- * says something (an assistant, the phone app). → [kind, origin], kind one of ORIGIN_KINDS.
- *
- * A site that is the install's own website (`ownSite(host)`) says the least: whoever reaches it
- * with no tag and from nowhere a browser names (an app on a phone, a link in a chat, an address
- * typed, a friend's word) and goes on to the app arrives «from the website», and their answer is
- * then the only thing that says how they found it. So that site counts after the answer.
+ * site it came from, else how it was made when that says something (an assistant, the phone app).
+ * → [kind, origin], kind one of ORIGIN_KINDS.
  */
-export const ORIGIN_KINDS = Object.freeze(['link', 'site', 'answer', 'entry', 'none']);
-export function originOf({ src = null, referrer = null, heard = null, entry = null } = {}, { ownSite = () => false } = {}) {
+export const ORIGIN_KINDS = Object.freeze(['link', 'site', 'entry', 'none']);
+export function originOf({ src = null, referrer = null, entry = null } = {}) {
   if (src) return ['link', src];
-  const own = Boolean(referrer && ownSite(referrer));
-  if (referrer && !own) return ['site', referrer];
-  if (heard) return ['answer', heard];
-  if (own) return ['site', referrer];
+  if (referrer) return ['site', referrer];
   if (entry === 'mcp' || entry === 'app') return ['entry', entry];
   return ['none', ''];
-}
-
-/**
- * The domains an install's own website is at, from the install's address: those its host is under
- * (`work.example.com` → `example.com`), where the website of an app at a subdomain lives. An app at
- * a domain of its own (`example.com`) has none.
- */
-export function siteDomainsOf(baseUrl) {
-  const host = cleanHost(baseUrl);
-  if (!host) return [];
-  const labels = host.split('.');
-  return labels.slice(1).map((_, i) => labels.slice(i + 1).join('.')).filter((domain) => domain.split('.').length >= 2);
 }
 
 /** A cell of a CSV: quoted when it must be, and never read as a formula by a spreadsheet. */
@@ -175,7 +153,6 @@ export function originsSchema(d) {
     src          TEXT,
     referrer     TEXT,
     entry        TEXT,
-    heard        TEXT,
     at           TEXT NOT NULL,
     refunded_at  TEXT,
     UNIQUE (provider, ref)
@@ -228,12 +205,8 @@ export function createOrigins({
   clock = () => Date.now(), log = console.log,
 }) {
   const own = [...new Set([cleanHost(baseUrl), ...ownHosts.map((host) => cleanHost(host))].filter(Boolean))];
-  // The install's own website, and anything else under its domain: kept as the site someone came
-  // from, and counted after their own answer in the figures (originOf).
-  const siteDomains = siteDomainsOf(baseUrl);
-  const ownSite = (host) => siteDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   /** The one origin of an account, as the figures, the summary and the admin's card all say it. */
-  const oneOf = (row) => originOf(row ?? {}, { ownSite });
+  const oneOf = (row) => originOf(row ?? {});
   /** What a sign-in brought, by its request, until the account is made in it (noteCreated). */
   const arrivals = new WeakMap();
 
@@ -296,21 +269,17 @@ export function createOrigins({
 
   const of = (userId) => database.get('SELECT src, referrer, entry, at FROM account_origins WHERE user_id = ?', userId) ?? null;
 
-  /** How they said they heard of the app, where a host asks at the first start (host.js firstQuestions). */
-  const asksHeard = () => database.columnsOf('host_first_answers').length > 0;
-  const heardOf = (userId) => (asksHeard()
-    ? database.get('SELECT heard_from FROM host_first_answers WHERE user_id = ?', userId)?.heard_from ?? null : null);
 
   /* ---------------------------------- payments --------------------------------- */
 
   function note({ userId, provider, ref, subscription = null, product = null, plan = null, amount = null, currency = null, first = false, estimated = false, at }) {
     const origin = of(userId);
     return database.run(`INSERT OR IGNORE INTO origin_payments (user_id, provider, ref, subscription, product, plan, amount, currency,
-        first, estimated, src, referrer, entry, heard, at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        first, estimated, src, referrer, entry, at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     userId, String(provider), String(ref), subscription ? String(subscription) : null, product, plan,
     Number.isFinite(amount) ? Math.round(amount) : null, currency ? String(currency).toUpperCase() : null,
-    first ? 1 : 0, estimated ? 1 : 0, origin?.src ?? null, origin?.referrer ?? null, origin?.entry ?? null, heardOf(userId), at).changes > 0;
+    first ? 1 : 0, estimated ? 1 : 0, origin?.src ?? null, origin?.referrer ?? null, origin?.entry ?? null, at).changes > 0;
   }
 
   /**
@@ -421,10 +390,6 @@ export function createOrigins({
 
   /* ---------------------------------- figures --------------------------------- */
 
-  const heardJoin = () => (asksHeard()
-    ? { column: 'a.heard_from AS heard', join: 'LEFT JOIN host_first_answers a ON a.user_id = u.id' }
-    : { column: 'NULL AS heard', join: '' });
-
   /**
    * The figures by week and origin, for the last `weeks` weeks (this one included), newest first
    * and, in a week, the origin with most accounts first. A week is Monday to Sunday (UTC). Of the
@@ -432,7 +397,7 @@ export function createOrigins({
    * (`activated`: created something, or called from an assistant), how many ran into a limit of
    * their plan within LIMIT_DAYS of being made (`limited`), how many have paid (`paying`, and by
    * plan in `plans`) and what, refunds left out (`income`, by currency, in its smallest unit).
-   * `visits` are that week's, by the same origin. → { weeks: [monday…], rows, answers }
+   * `visits` are that week's, by the same origin. → { weeks: [monday…], rows }
    */
   function report({ weeks = 8 } = {}) {
     const span = Math.min(Math.max(Math.trunc(Number(weeks)) || 8, 1), 52);
@@ -447,16 +412,13 @@ export function createOrigins({
     for (const visit of database.all('SELECT day, src, referrer, n FROM origin_visits WHERE day >= ?', first.slice(0, 10))) {
       rowOf(weekOf(visit.day), originOf({ src: visit.src, referrer: visit.referrer })).visits += visit.n;
     }
-    const heard = heardJoin();
     const people = new Map();
-    const answers = new Map();
-    for (const user of database.all(`SELECT u.id, u.created_at, o.src, o.referrer, o.entry, ${heard.column}
-      FROM users u LEFT JOIN account_origins o ON o.user_id = u.id ${heard.join} WHERE u.created_at >= ?`, first)) {
+    for (const user of database.all(`SELECT u.id, u.created_at, o.src, o.referrer, o.entry
+      FROM users u LEFT JOIN account_origins o ON o.user_id = u.id WHERE u.created_at >= ?`, first)) {
       const week = weekOf(user.created_at);
       const row = rowOf(week, oneOf(user));
       row.signups += 1;
       people.set(user.id, { row, madeAt: Date.parse(user.created_at), did: false, limited: false, plan: null, paid: false });
-      if (user.heard) answers.set(`${week}|${user.heard}`, (answers.get(`${week}|${user.heard}`) || 0) + 1);
     }
     for (const m of database.all(`SELECT m.user_id, m.mark, m.at FROM account_marks m JOIN users u ON u.id = m.user_id
       WHERE u.created_at >= ?`, first)) {
@@ -488,8 +450,6 @@ export function createOrigins({
       weeks: Array.from({ length: span }, (_, n) => monday(n)),
       rows: [...rows.values()].sort((a, b) => b.week.localeCompare(a.week) || b.signups - a.signups || b.visits - a.visits
         || a.origin.localeCompare(b.origin)),
-      answers: [...answers].map(([key, n]) => ({ week: key.split('|')[0], heard: key.split('|')[1], n }))
-        .sort((a, b) => b.week.localeCompare(a.week) || b.n - a.n || a.heard.localeCompare(b.heard)),
     };
   }
 
@@ -513,10 +473,9 @@ export function createOrigins({
    * admin's daily summary: `reddit-mcp 4, google.com 2`, or null with none known.
    */
   function topSince(from, to) {
-    const heard = heardJoin();
     const counts = new Map();
-    for (const user of database.all(`SELECT o.src, o.referrer, o.entry, ${heard.column} FROM users u
-      LEFT JOIN account_origins o ON o.user_id = u.id ${heard.join} WHERE u.created_at >= ? AND u.created_at < ?`, from, to)) {
+    for (const user of database.all(`SELECT o.src, o.referrer, o.entry FROM users u
+      LEFT JOIN account_origins o ON o.user_id = u.id WHERE u.created_at >= ? AND u.created_at < ?`, from, to)) {
       const [kind, origin] = oneOf(user);
       if (kind !== 'none') counts.set(origin, (counts.get(origin) || 0) + 1);
     }
@@ -533,11 +492,11 @@ export function createOrigins({
   }
 
   return {
-    fromLogin, pack, arriving, noteCreated, of, heardOf, paid, refunded, applied, paymentsOf, forget, ownHosts: own,
+    fromLogin, pack, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own,
     made, usedMcp, limitReached, marksOf, visited, report, exportCsv, topSince,
     /** An account's one origin in the figures: { kind, origin }. */
     oneOf: (userId) => {
-      const [kind, origin] = oneOf({ ...(of(userId) ?? {}), heard: heardOf(userId) });
+      const [kind, origin] = oneOf(of(userId));
       return { kind, origin };
     },
   };

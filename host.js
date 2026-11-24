@@ -181,9 +181,8 @@ export const HOST_MIGRATIONS = Object.freeze([
   {
     version: 6,
     name: 'first-answers',
-    // What each person answered the first time (options.firstQuestions): how they heard of the app
-    // (HEARD_FROM, or NULL), whether they have a channel, blog or newsletter (1, 0 or NULL) and its
-    // address. A row with every answer NULL: they skipped the questions. No row: never asked.
+    // What each person answered to two questions a host's first start once asked. Nothing asks them
+    // any more and migration 13 takes the table away: this stays as it ran, as every migration does.
     up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_first_answers (
       user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       heard_from  TEXT,
@@ -227,18 +226,16 @@ export const HOST_MIGRATIONS = Object.freeze([
     // the person (audit of 6/11, sc-feat-1).
     up: (d) => d.exec('CREATE INDEX IF NOT EXISTS ix_host_day_notices_day ON host_day_notices (day)'),
   },
+  {
+    version: 13,
+    name: 'first-answers-gone',
+    // The first start's two questions are gone (how someone heard of the app, and whether they had
+    // a channel, blog or newsletter), and what was answered goes with them.
+    up: (d) => d.exec('DROP TABLE IF EXISTS host_first_answers'),
+  },
 ]);
 /** The looks of a host's pages (kit.css `data-look`): the suite's own, and Clean. */
 export const LOOKS = Object.freeze(['cronum', 'clean']);
-/**
- * How someone heard of the app, as the first questions offer it (options.firstQuestions), in the
- * order they are shown. An answer kept is never renamed: the first five were the whole list once.
- */
-export const HEARD_FROM = Object.freeze([
-  'producthunt', 'reddit', 'hackernews', 'social', 'video', 'search', 'ai', 'directory', 'friend', 'store', 'other',
-]);
-/** The longest address of a channel kept from the first questions. */
-const CHANNEL_MAX = 300;
 /** Suite modules that are one object for the whole host: a module that uses one needs the host to have it. */
 const SHARED_MODULES = ['organizations', 'billing', 'push'];
 /** What a kind of group says (organizations.js): a module's and the host's must agree on each. */
@@ -721,14 +718,6 @@ function moduleListErrors(modules) {
  *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
  *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
  *   module's instruction, folded
- * @param {boolean} [options.firstQuestions]  two questions the host's first start asks once, which
- *   can be skipped: how someone heard of the app (HEARD_FROM) and whether they have a channel, blog
- *   or newsletter. GET /api/modules says `first_questions: true` until they answer or skip
- *   (`PUT /api/me/first-answers`), and the admin sees the answers in the account's dialog
- *   (`GET /api/admin/users/:id/first-answers`). Where the host has affiliates (affiliates.js) and
- *   a payment provider, GET /api/modules also says `first_code: true`: the questions may ask for a creator's or a
- *   referral's code (`code` in the same PUT), which makes the account that code's, as its link
- *   would have. Without it, none of this
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
  *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
  *   host's icon without them). The host's /version and /js/app-version.js are then the whole
@@ -764,7 +753,7 @@ function moduleListErrors(modules) {
  */
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
-  aiInstruction = null, firstQuestions = false, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
+  aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
   pages = [], scopedSheets = false, liveAll = false, mcpOptions = null, doors = [], moduleHints = null,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
@@ -1264,12 +1253,6 @@ export async function createHost({
       ...(calendar ? { calendar_shown: calendarShown } : {}),
       // And the daily summary's button, where the host has one: shown until they hide it.
       ...(day ? { day_shown: dayShown } : {}),
-      // Whether the first start still asks them its two questions: once, answered or skipped.
-      ...(firstQuestions && user ? {
-        first_questions: !suite.database.get('SELECT 1 AS asked FROM host_first_answers WHERE user_id = ?', user.id),
-        // And whether they may give a code there: only where codes exist and something is sold.
-        ...(suite.affiliates && suite.billing?.enabled ? { first_code: true } : {}),
-      } : {}),
       chosen,
       // How the host's pages look for them, on every device (shell.js paints it).
       look: LOOKS.includes(look) ? look : LOOKS[0],
@@ -1375,6 +1358,8 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // An account's usage in every module, for the administrator's connector (admin-mcp.js), as /admin's dialog shows it.
+    adminUsage: (user, { activity = true } = {}) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log, activity }),
     // `/` and its own folders (`/calendar/`); any other address of the root is a 404 page, not the
     // host's home with its files asked for at the wrong place (audit prod-9).
     clientRoutes: ['/'],
@@ -1493,44 +1478,6 @@ export async function createHost({
         suite.accounts.changed(ctx.user.id);
         sendJson(ctx.res, 200, modulesOf(ctx.user));
       });
-      // The first start's two questions (options.firstQuestions): answered, or skipped with nothing.
-      if (firstQuestions) {
-        api.put('/api/me/first-answers', async (ctx) => {
-          if (!ctx.user) throw unauthorized();
-          const body = await readJson(ctx.req);
-          const heard = body.heard_from ?? null;
-          if (heard !== null && !HEARD_FROM.includes(heard)) throw badRequest('field_invalid', { field: 'heard_from', options: [...HEARD_FROM] });
-          const has = body.has_channel ?? null;
-          if (has !== null && typeof has !== 'boolean') throw badRequest('field_invalid', { field: 'has_channel' });
-          const channel = typeof body.channel === 'string' ? body.channel.trim() : null;
-          if (channel && channel.length > CHANNEL_MAX) throw badRequest('field_too_long', { field: 'channel', max: CHANNEL_MAX });
-          // A creator's or a referral's code, where the host has them: the account is that code's
-          // (affiliates.js claim). One it doesn't know is refused before anything is kept, so they
-          // can write it again or leave it out.
-          const given = typeof body.code === 'string' ? body.code.trim() : '';
-          if (given && !suite.affiliates) throw notFound('affiliate_code_not_found');
-          const code = given ? suite.affiliates.claim(ctx.user, given) : null;
-          suite.database.run(`INSERT INTO host_first_answers (user_id, heard_from, has_channel, channel, answered_at) VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (user_id) DO UPDATE SET heard_from = excluded.heard_from, has_channel = excluded.has_channel,
-              channel = excluded.channel, answered_at = excluded.answered_at`,
-          ctx.user.id, heard, has === null ? null : Number(has), has === false ? null : channel || null, new Date().toISOString());
-          sendJson(ctx.res, 200, { first_questions: false, ...(code ? { code } : {}) });
-        });
-        if (config.modules.admin) {
-          api.get('/api/admin/users/:id/first-answers', (ctx) => {
-            if (!ctx.user) throw unauthorized();
-            if (ctx.user.role !== 'admin') throw forbidden('admin_only');
-            const user = suite.accounts.byId(int(ctx.params.id, { field: 'id', min: 1 }));
-            if (!user) throw notFound('user_not_found');
-            const row = suite.database.get('SELECT heard_from, has_channel, channel, answered_at FROM host_first_answers WHERE user_id = ?', user.id);
-            sendJson(ctx.res, 200, {
-              answers: row ? { ...row, has_channel: row.has_channel === null ? null : Boolean(row.has_channel) } : null,
-              // Whose code brought them, and how: its link, written at the questions, or used to pay.
-              ...(suite.affiliates ? { code: suite.affiliates.broughtBy(user.id) } : {}),
-            });
-          });
-        }
-      }
       // The order of the modules on this person's rail, a phone's tabs and Settings: every module, once.
       api.put('/api/me/modules/order', async (ctx) => {
         if (!ctx.user) throw unauthorized();

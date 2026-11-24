@@ -65,7 +65,7 @@ export const USES_MAX = 1000;
 export const STATUSES = Object.freeze(['pending', 'claimed', 'revoked', 'expired']);
 
 /**
- * Migration 38: the invitations, and the accounts each one went to. Everything but an invitation's
+ * Migration 39: the invitations, and the accounts each one went to. Everything but an invitation's
  * state, dates, uses and its email's hash goes once it is over (see the top of this file).
  */
 export function creatorInvitationsSchema(d) {

@@ -15,7 +15,7 @@ import { dayKey } from './days.js';
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
 const state = {
-  config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, affiliates: false,
+  config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, affiliates: false, connector: false,
   creatorInvitations: false,
   affiliateMinimum: null, usersQuery: '',
 };
@@ -29,6 +29,7 @@ const TABS = [
   ['notices', 'admin.tabs.notices'],
   ['affiliates', 'admin.tabs.affiliates'],
   ['origins', 'admin.tabs.origins'],
+  ['connector', 'admin.tabs.connector'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -162,6 +163,8 @@ async function start() {
   state.creatorInvitations = Boolean(state.config.app?.modules?.creator_invitations);
   // Where accounts come from, and what each origin brought, with modules.origins (origins.js).
   state.origins = Boolean(state.config.app?.modules?.origins);
+  // The administrator's connector, with modules.adminMcp (admin-mcp.js).
+  state.connector = Boolean(state.config.app?.modules?.adminMcp);
 
   const app = state.config.app || {};
   // The app's icon, as the server wrote it into the page (app.icon).
@@ -187,12 +190,13 @@ async function start() {
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
     && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
-    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates) && (id !== 'origins' || state.origins));
+    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates) && (id !== 'origins' || state.origins)
+    && (id !== 'connector' || state.connector));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, notices: renderNotices, affiliates: renderAffiliates, origins: renderOrigins, audit: renderAudit,
+  data: renderData, notices: renderNotices, affiliates: renderAffiliates, origins: renderOrigins, connector: renderConnector, audit: renderAudit,
 };
 
 let showing = 0;
@@ -610,11 +614,6 @@ function userDialog(user) {
   const usageBox = el('div', { class: 'kit-contents' });
   const usage = fold({ title: t('admin.usage.title'), now: usageNow }, usageBox);
 
-  // What they answered the first time: a host's that asks only (host.js firstQuestions).
-  const firstNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
-  const firstBox = el('div', { class: 'kit-contents' });
-  const first = fold({ title: t('admin.firstAnswers.title'), now: firstNow }, firstBox);
-
   // Where they came from and what they paid: an app's that keeps origins only (origins.js).
   const originNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
   const originBox = el('div', { class: 'kit-contents' });
@@ -682,7 +681,7 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, first, origin, grants, passwordSection, signInBox), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, origin, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
@@ -691,7 +690,6 @@ function userDialog(user) {
   if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
-  paintFirstAnswers(firstBox, user, firstNow).catch(() => first.remove());
   paintOrigin(originBox, user, originNow).catch(() => origin.remove());
   if (signInBox) paintSignIn().catch(fail);
 }
@@ -1043,8 +1041,7 @@ async function paintOrigin(box, user, now) {
   const { origin, one = null, marks = [], payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
   // The one origin the figures count this account under (origins.js originOf), in words.
   const oneText = !one || one.kind === 'none' ? t('admin.origin.none')
-    : one.kind === 'answer' ? t(`kit.firstQuestions.heard.${one.origin}`)
-      : one.kind === 'entry' ? t(`admin.origin.entry.${one.origin}`) : one.origin;
+    : one.kind === 'entry' ? t(`admin.origin.entry.${one.origin}`) : one.origin;
   // What they did for the first time, each with its day: something made, a call from an assistant, a limit met.
   const firsts = marks.map((mark) => {
     const what = mark.mark.startsWith('limit:') ? t('admin.origin.mark.limit', { feature: mark.mark.slice(6) })
@@ -1069,40 +1066,6 @@ async function paintOrigin(box, user, now) {
       firsts.length ? fact(t('admin.origin.marks'), firsts.join(' · ')) : null,
       payments.length ? fact(t('admin.origin.payments'), [String(payments.length), paid].filter(Boolean).join(' · ')) : null) : null,
   ].filter(Boolean));
-}
-
-/* ------------------------------ first answers ------------------------------ */
-
-/**
- * What they answered the first time (a host's with `firstQuestions`): how they heard of the app and
- * their channel, blog or newsletter. `now` is the fold's summary: where they came from.
- */
-async function paintFirstAnswers(box, user, now) {
-  const { answers, code = null } = await api.get(`/api/admin/users/${user.id}/first-answers`);
-  // Whose code brought them (affiliates.js): by its link, written at the questions or used to pay.
-  const brought = code ? t(`admin.firstAnswers.code.${code.source}`, { code: code.code }) : null;
-  const heard = answers?.heard_from ? t(`kit.firstQuestions.heard.${answers.heard_from}`) : null;
-  const channel = answers?.has_channel === true ? answers.channel || t('admin.firstAnswers.channelNoLink')
-    : answers?.has_channel === false ? t('admin.firstAnswers.noChannel') : null;
-  const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
-  now.textContent = [
-    !answers ? t('admin.firstAnswers.notAsked')
-      : heard || channel ? [heard, answers.has_channel ? channel : null].filter(Boolean).join(' · ') : t('admin.firstAnswers.skipped'),
-    code?.code,
-  ].filter(Boolean).join(' · ');
-  if (!answers) {
-    // Only what there is: a null given to append() is written as the word.
-    clear(box).append(...[el('p', { class: 'kit-hint', text: t('admin.firstAnswers.notAskedLead') }),
-      brought ? el('div', { class: 'kit-facts' }, fact(t('admin.firstAnswers.code'), brought)) : null].filter(Boolean));
-    return;
-  }
-  const link = answers.has_channel && /^https?:\/\//i.test(answers.channel || '') ? answers.channel : null;
-  clear(box).append(el('div', { class: 'kit-facts' },
-    fact(t('kit.firstQuestions.heard', { app: state.config.app?.name || '' }), heard),
-    link ? el('div', { class: 'kit-fact' }, el('span', { text: t('kit.firstQuestions.channel') }),
-      el('a', { href: link, target: '_blank', rel: 'noopener noreferrer', text: link })) : fact(t('kit.firstQuestions.channel'), channel),
-    brought ? fact(t('admin.firstAnswers.code'), brought) : null,
-    fact(t('admin.firstAnswers.when'), new Date(answers.answered_at).toLocaleDateString())));
 }
 
 /* ------------------------------- invitations ------------------------------- */
@@ -1719,6 +1682,48 @@ async function renderNotices(main) {
   );
 }
 
+/* -------------------------------- connector -------------------------------- */
+
+/**
+ * The administrator's connector (admin-mcp.js): its address to paste in an assistant, the emails it
+ * may make test accounts with, and each assistant connected to it, taken back with one press.
+ */
+async function renderConnector(main) {
+  const view = await api.get('/api/admin/mcp');
+  const address = el('code', { class: 'kit-mono', text: view.endpoint });
+  const rows = view.connections.map((c) => el('tr', {},
+    el('td', { text: c.client_name }),
+    el('td', { text: c.user ? (c.user.email || `@${c.user.username}`) : '—' }),
+    el('td', { text: formatDateTime(c.created_at.includes('T') ? c.created_at : `${c.created_at.replace(' ', 'T')}Z`) }),
+    el('td', { text: c.last_used_at ? formatDateTime(c.last_used_at.includes('T') ? c.last_used_at : `${c.last_used_at.replace(' ', 'T')}Z`) : t('admin.connector.never') }),
+    el('td', {}, el('button', {
+      type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.connector.revoke'),
+      onClick: async () => {
+        if (!(await confirmDialog(t('admin.connector.revokeConfirm', { app: c.client_name }), { confirm: t('admin.connector.revoke'), danger: true }))) return;
+        try {
+          await api.delete(`/api/admin/mcp/connections/${c.id}`);
+          toast(t('admin.connector.revoked'));
+          show();
+        } catch (err) { fail(err); }
+      },
+    }))));
+  append(main,
+    el('h2', { text: t('admin.connector.title') }),
+    el('p', { class: 'kit-lead', text: t('admin.connector.lead') }),
+    el('h3', { text: t('admin.connector.address') }),
+    el('div', { class: 'kit-copy' }, address,
+        el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.connector.copy'), onClick: () => copyText(view.endpoint, address) })),
+    el('p', { class: 'kit-hint', text: t('admin.connector.howTo') }),
+    el('p', { class: 'kit-hint', text: view.test_emails.length
+      ? t('admin.connector.testEmails', { list: listFormat({ type: 'conjunction' }).format(view.test_emails) }) : t('admin.connector.noTestEmails') }),
+    el('h3', { text: t('admin.connector.connections') }),
+    view.connections.length ? table([
+      t('admin.connector.app'), t('admin.connector.by'), t('admin.connector.since'), t('admin.connector.used'), '',
+    ], rows) : el('p', { class: 'kit-empty', text: t('admin.connector.none') }),
+    el('p', {}, el('a', { class: 'kit-link', href: '#/audit?action=admin.', text: t('admin.connector.activity') })),
+  );
+}
+
 /* ---------------------------------- audit ---------------------------------- */
 
 /** A family of actions in words (`device`: "Devices"), or its name when there are none for it. */
@@ -2203,8 +2208,7 @@ async function renderOrigins(main) {
   span.setAttribute('aria-label', t('admin.origins.span'));
   const planName = (id) => t(String(state.catalog?.plans?.find((plan) => plan.id === id)?.name ?? id ?? ''));
   const originText = (row) => (row.kind === 'none' ? t('admin.origins.unknown')
-    : row.kind === 'answer' ? t(`kit.firstQuestions.heard.${row.origin}`)
-      : row.kind === 'entry' ? t(`admin.origin.entry.${row.origin}`) : row.origin);
+    : row.kind === 'entry' ? t(`admin.origin.entry.${row.origin}`) : row.origin);
   const payingText = (row) => (row.paying
     ? [String(row.paying), Object.entries(row.plans).map(([plan, n]) => `${planName(plan)} ${n}`).join(', ')].filter(Boolean).join(' · ') : '0');
   const incomeText = (income) => Object.entries(income).map(([currency, amount]) => moneyText(amount, currency)).join(' + ') || '—';
@@ -2236,12 +2240,6 @@ async function renderOrigins(main) {
         line(total, t('admin.origins.total'), '', true),
       ]));
   }).filter(Boolean);
-  const answered = view.weeks.map((monday) => {
-    const said = view.answers.filter((answer) => answer.week === monday);
-    return said.length ? el('tr', {},
-      el('td', { text: weekTitle(monday) }),
-      el('td', { text: said.map((answer) => `${t(`kit.firstQuestions.heard.${answer.heard}`)} ${number(answer.n)}`).join(' · ') })) : null;
-  }).filter(Boolean);
   append(main,
     el('h2', { text: t('admin.origins.title') }),
     el('p', { class: 'kit-lead', text: t('admin.origins.lead') }),
@@ -2249,10 +2247,6 @@ async function renderOrigins(main) {
       span,
       el('a', { class: 'kit-btn', href: `/api/admin/origins/export?weeks=${weeks}`, download: '', text: t('admin.origins.export') })),
     tables.length ? tables : el('p', { class: 'kit-empty', text: t('admin.origins.none') }),
-    answered.length ? el('section', { class: 'kit-stack' },
-      el('h3', { text: t('admin.origins.answers') }),
-      el('p', { class: 'kit-hint', text: t('admin.origins.answersLead') }),
-      table([t('admin.origins.weekColumn'), t('admin.origins.answers')], answered)) : null,
   );
 }
 

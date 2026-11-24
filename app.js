@@ -72,6 +72,7 @@ import { createAccountDeletion, deletionTicket } from './account-deletion.js';
 import { createTexts } from './i18n.js';
 import { createOAuthServer } from './oauth.js';
 import { brandedPage } from './oauth-page.js';
+import { createAdminMcp, registerAdminMcpApi, localConfirmation } from './admin-mcp.js';
 import { brandedAdmin } from './brand.js';
 import { brandedNotFound } from './brand.js';
 import { createTwoFactor } from './two-factor.js';
@@ -929,7 +930,7 @@ export function createApp({
   clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
-  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null, firsts = true,
+  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null, adminUsage = null, firsts = true,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -978,6 +979,8 @@ export function createApp({
         ...(suite.origins && config.modules.admin ? { origins: true } : {}),
         // The program on: Settings links to the person's panel (/afiliados), on the web only.
         ...(suite.affiliates?.enabled ? { recommend: true } : {}),
+        // The administrator's connector (admin-mcp.js): /admin › Connector.
+        ...(config.modules.adminMcp && config.modules.admin && audit ? { adminMcp: true } : {}),
         // Read each time the config is sent: a host's module learns late whether the host has one.
         get mcp() { return offersConnector(); },
       },
@@ -1043,6 +1046,51 @@ export function createApp({
     registerCreatorInvitationsApi(api, {
       invitations: suite.creatorInvitations, limiter, baseUrl: install.baseUrl, admin: config.modules.admin,
     });
+  }
+  // The administrator's connector (admin-mcp.js, modules.adminMcp): an MCP of its own at /admin/mcp,
+  // with an authorization server that only an administrator may say yes to, after confirming who
+  // they are again: with WorkOS, their password (and code) at WorkOS or a sign-in again, as /admin
+  // asks before changing someone's identity; with passwords here, theirs.
+  const adminMcp = config.modules.adminMcp && config.modules.admin && audit ? createAdminMcp({
+    database: suite.database, baseUrl: install.baseUrl, appName: config.app.name, version,
+    accounts, entitlements, audit, sessions, limiter,
+    confirm: workosSecurity?.confirmAdmin && workosSecurity.reauthKind ? {
+      ask: (user) => workosSecurity.reauthKind(user),
+      confirm: (req, user, form) => workosSecurity.confirmAdmin({ req, user, sessionToken: sessions.tokenFrom(req) },
+        { admin_password: form.get('admin_password'), admin_code: form.get('admin_code') }),
+      again: (back) => `/auth/login?prompt=login&return=${encodeURIComponent(back)}`,
+    } : localConfirmation({ limiter, twoFactor: localPasswords ? twoFactor : null }),
+    affiliates: suite.affiliates ?? null, usageFor: adminUsage, devices: suite.devices ?? null,
+    overview: billing?.enabled || suite.stores?.enabled
+      ? (user) => billingOverview(user, { instances: [billing, suite.stores], entitlements, organizations }) : null,
+    sharedLogin: config.accounts.sharedIdentity ? suite.idp : null,
+    testEmails: install.adminMcpTestEmails,
+    screens: {
+      texts, page: brandedPage(config.app), allowPrivateCimd: install.cimdAllowPrivateHosts,
+      // Signing in on its screen is the app's: a password here, else the provider's page and back.
+      login: localPasswords ? (username, password) => accounts.verify(username, password, { signIn: false }) : null,
+      openSession: (res, userId, { req = null } = {}) => { sessions.open(userId, { req, res }); accounts.signedIn(userId); },
+      externalSignIn: idp ? { name: config.app.name, url: (back) => `/auth/login?return=${encodeURIComponent(back)}` } : null,
+      secondStep: localPasswords && twoFactor ? {
+        required: (user) => twoFactor.isEnabled(user.id),
+        challengeFor: twoFactor.challengeFor,
+        userOf: (challenge) => {
+          const user = accounts.byId(twoFactor.readChallenge(challenge));
+          return user && !user.disabled_at ? user : null;
+        },
+        pass: twoFactor.pass,
+      } : null,
+    },
+    errorSentence: (code, extra = {}) => {
+      const { t } = texts({ headers: { 'accept-language': 'en' } });
+      const sentence = t(`errors.${code}`, { ...extra, ...(extra.field ? { field: t(`fields.${extra.field}`) } : {}) });
+      return sentence === `errors.${code}` ? null : sentence;
+    },
+    log,
+  }) : null;
+  if (adminMcp) {
+    accounts.whenRemoved((userId) => adminMcp.forget(userId));
+    registerAdminMcpApi(api, { adminMcp, audit });
   }
   // An account's origin and its payments, for the admin's panel (origins.js).
   if (suite.origins && config.modules.admin) {
@@ -1338,6 +1386,9 @@ export function createApp({
         sendJson(res, 200, mcpServer.info(install.baseUrl));
         return;
       }
+      // The administrator's connector and its authorization server (admin-mcp.js): before the
+      // identity provider's and the app's own OAuth, which would take its addresses for theirs.
+      if (adminMcp && await adminMcp.handle(req, res, url)) return;
 
       if (pathname.startsWith('/api/')) {
         const match = route(req.method, pathname);
@@ -1509,7 +1560,7 @@ export function createApp({
   function listen() {
     alerts.setVersion(version);
     suite.ensureAdmin();
-    startSuiteJobs(suite, { purge: () => { suite.purge(); portability?.purge(); }, timers, failed, safely });
+    startSuiteJobs(suite, { purge: () => { suite.purge(); portability?.purge(); adminMcp?.purge(); }, timers, failed, safely });
     if (sweep) {
       // What a plan keeps for a while only (entitlements.cutoff): the app's own sweep, a minute
       // after the start so a start is never slowed by it, and then with the clean-ups.

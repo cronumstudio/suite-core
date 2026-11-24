@@ -17,7 +17,7 @@ import { openDatabase } from '../db.js';
 import { migrate } from '../migrate.js';
 import { SUITE_MIGRATIONS } from '../schema.js';
 import { createAccounts } from '../accounts.js';
-import { createOrigins, cleanTag, cleanHost, ENTRIES, weekOf, originOf, siteDomainsOf, LIMIT_DAYS } from '../origins.js';
+import { createOrigins, cleanTag, cleanHost, ENTRIES, weekOf, originOf, LIMIT_DAYS } from '../origins.js';
 import { createSuite, createApp } from '../app.js';
 import { inRequest } from '../request-scope.js';
 import { resolveConfig } from '../config.js';
@@ -147,8 +147,8 @@ test('a payment on the web is noted with what was charged and its account’s or
     ['pro-yearly', 'pro', 3500, 'EUR', false, false, null],
     ['pro-yearly', 'pro', 1900, 'EUR', true, false, null],
   ]);
-  assert.deepEqual({ ...database.get("SELECT src, referrer, entry, heard FROM origin_payments WHERE ref = 'txn_1'") },
-    { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web', heard: null }, 'the origin as it was when they paid');
+  assert.deepEqual({ ...database.get("SELECT src, referrer, entry FROM origin_payments WHERE ref = 'txn_1'") },
+    { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web' }, 'the origin as it was when they paid');
 
   // A group's payment, something that is no payment, or one of nobody: not noted.
   assert.equal(origins.paid({ user: null, organization: { id: 3 }, event: { type: 'payment', ref: 'txn_g', amount: 100 } }, { provider: 'paddle' }), false);
@@ -160,16 +160,6 @@ test('a payment on the web is noted with what was charged and its account’s or
   assert.equal(origins.refunded({ event: { type: 'refund', ref: 'sub_1', subscription: true } }, { provider: 'paddle' }), 1);
   assert.equal(origins.refunded({ event: { type: 'refund', ref: 'txn_1' } }, { provider: 'another' }), 0);
   assert.deepEqual(origins.paymentsOf(ana.id).map((p) => Boolean(p.refunded_at)), [true, true]);
-});
-
-test('a first questions’ answer is noted with a payment where the host asks them', (t) => {
-  const { origins, arrive, database } = setup(t);
-  database.exec('CREATE TABLE host_first_answers (user_id INTEGER PRIMARY KEY, heard_from TEXT, has_channel INTEGER, channel TEXT, answered_at TEXT NOT NULL)');
-  const ana = arrive('ana');
-  database.run("INSERT INTO host_first_answers (user_id, heard_from, answered_at) VALUES (?, 'producthunt', 'now')", ana.id);
-  assert.equal(origins.heardOf(ana.id), 'producthunt');
-  origins.paid({ user: ana, event: { type: 'payment', ref: 'txn_9', amount: 390, currency: 'EUR', product: 'pro-monthly', first: true } }, { provider: 'paddle' });
-  assert.equal(database.get("SELECT heard FROM origin_payments WHERE ref = 'txn_9'").heard, 'producthunt');
 });
 
 test('a store’s purchase and each renewal: one per paid period, with the product’s listed amount, marked as an estimate', (t) => {
@@ -227,63 +217,33 @@ test('the configuration: off unless the app says modules.origins; a store produc
 const DAY = 24 * 3600 * 1000;
 const settle = () => new Promise((resolve) => { setImmediate(resolve); });
 
-test('a week is Monday to Sunday, and an account has one origin: its link’s tag, else the site, else its answer, else how it was made', () => {
+test('a week is Monday to Sunday, and an account has one origin: its link’s tag, else the site, else how it was made', () => {
   assert.equal(weekOf('2026-11-23T00:00:00.000Z'), '2026-11-23');
   assert.equal(weekOf('2026-11-29T23:59:59.999Z'), '2026-11-23');
   assert.equal(weekOf('2026-11-30'), '2026-11-30');
   assert.equal(weekOf(Date.parse('2027-01-01T10:00:00Z')), '2026-12-28', 'across a year');
   assert.equal(weekOf('nonsense'), null);
-  assert.deepEqual(originOf({ src: 'reddit-mcp', referrer: 'reddit.com', heard: 'reddit', entry: 'web' }), ['link', 'reddit-mcp']);
-  assert.deepEqual(originOf({ referrer: 'reddit.com', heard: 'friend', entry: 'web' }), ['site', 'reddit.com']);
-  assert.deepEqual(originOf({ heard: 'store', entry: 'app' }), ['answer', 'store']);
+  assert.deepEqual(originOf({ src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web' }), ['link', 'reddit-mcp']);
+  assert.deepEqual(originOf({ referrer: 'reddit.com', entry: 'app' }), ['site', 'reddit.com']);
+  assert.deepEqual(originOf({ entry: 'app' }), ['entry', 'app']);
   assert.deepEqual(originOf({ entry: 'mcp' }), ['entry', 'mcp']);
   assert.deepEqual(originOf({ entry: 'web' }), ['none', '']);
   assert.deepEqual(originOf(), ['none', '']);
 });
 
-test('the install’s own website says less than the person’s answer: it is kept as the site, and counted after what they answered', async (t) => {
-  // Where an app at a subdomain has its website: the domains its host is under.
-  assert.deepEqual(siteDomainsOf('https://work.example.com'), ['example.com']);
-  assert.deepEqual(siteDomainsOf('https://app.eu.example.com/'), ['eu.example.com', 'example.com']);
-  assert.deepEqual(siteDomainsOf('https://example.com'), [], 'an app at a domain of its own has none');
-  assert.deepEqual(siteDomainsOf('http://localhost:3000'), []);
-  const ownSite = (host) => host === 'example.com';
-  assert.deepEqual(originOf({ referrer: 'example.com', heard: 'friend', entry: 'web' }, { ownSite }), ['answer', 'friend']);
-  assert.deepEqual(originOf({ referrer: 'example.com', entry: 'web' }, { ownSite }), ['site', 'example.com'], 'nothing else known: through the website');
-  assert.deepEqual(originOf({ src: 'hn', referrer: 'example.com', heard: 'friend' }, { ownSite }), ['link', 'hn']);
-  assert.deepEqual(originOf({ referrer: 'reddit.com', heard: 'friend' }, { ownSite }), ['site', 'reddit.com'], 'another site still says more than an answer');
-
-  // The whole way: someone reaches the website from nowhere a browser names (an app on a phone, a
-  // link in a chat, a friend's word), follows its button, and the sign-in sees the website before it.
-  const { origins, arrive, database } = setup(t);
-  database.exec('CREATE TABLE host_first_answers (user_id INTEGER PRIMARY KEY, heard_from TEXT, has_channel INTEGER, channel TEXT, answered_at TEXT NOT NULL)');
-  const answer = (user, heard) => database.run('INSERT INTO host_first_answers (user_id, heard_from, answered_at) VALUES (?, ?, ?)', user.id, heard, 'now');
-  const fromSite = { login: '/auth/login?signup=1', referer: 'https://example.com/work/' };
-  const ana = arrive('ana', fromSite);
-  const bob = arrive('bob', fromSite);
-  const cat = arrive('cat', { login: '/auth/login?signup=1&via=blog.example.com' });
-  const dan = arrive('dan', { login: '/auth/login?signup=1', referer: 'https://www.reddit.com/r/mcp/' });
-  answer(ana, 'friend');
-  answer(cat, 'store');
-  answer(dan, 'friend');
-  // Kept as it came: the site is the website, whatever the figures make of it.
+test('an account’s one origin, as the figures count it: the install’s own website is a site like any other', (t) => {
+  const { origins, arrive } = setup(t);
+  // Someone reaches the website from nowhere a browser names, follows its button, and the sign-in
+  // sees the website before it: that is what is known, and nobody is asked for more.
+  const ana = arrive('ana', { login: '/auth/login?signup=1', referer: 'https://example.com/work/' });
+  const dan = arrive('dan', { login: '/auth/login?signup=1&src=hn', referer: 'https://www.reddit.com/r/mcp/' });
+  const eve = arrive('eve');
   assert.equal(origins.of(ana.id).referrer, 'example.com');
-  assert.deepEqual(origins.oneOf(ana.id), { kind: 'answer', origin: 'friend' });
-  assert.deepEqual(origins.oneOf(bob.id), { kind: 'site', origin: 'example.com' });
-  assert.deepEqual(origins.oneOf(cat.id), { kind: 'answer', origin: 'store' }, 'anything under the website’s domain is the website');
-  assert.deepEqual(origins.oneOf(dan.id), { kind: 'site', origin: 'reddit.com' });
+  assert.deepEqual(origins.oneOf(ana.id), { kind: 'site', origin: 'example.com' });
+  assert.deepEqual(origins.oneOf(dan.id), { kind: 'link', origin: 'hn' });
+  assert.deepEqual(origins.oneOf(eve.id), { kind: 'none', origin: '' });
   assert.deepEqual(origins.oneOf(999), { kind: 'none', origin: '' });
-  // So the table has their answer's row, with what they did and paid, not one row «the website» for all.
-  origins.made(ana);
-  origins.paid({ user: ana, event: { type: 'payment', ref: 'txn_1', amount: 1900, currency: 'EUR', product: 'pro-yearly', first: true } }, { provider: 'paddle' });
-  const rows = origins.report({ weeks: 1 }).rows.map((row) => [row.kind, row.origin, row.signups, row.activated, row.paying]);
-  assert.deepEqual(rows.sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`)), [
-    ['answer', 'friend', 1, 1, 1],
-    ['answer', 'store', 1, 0, 0],
-    ['site', 'example.com', 1, 0, 0],
-    ['site', 'reddit.com', 1, 0, 0],
-  ]);
-  assert.equal(origins.topSince('2026-11-25T00:00:00.000Z', '2026-11-26T00:00:00.000Z'), 'example.com 1, friend 1, reddit.com 1');
+  assert.equal(origins.topSince('2026-11-25T00:00:00.000Z', '2026-11-26T00:00:00.000Z'), 'example.com 1, hn 1', 'one not known is left out');
 });
 
 test('what an account did first is noted once: the first thing made, the first call from an assistant, each limit met', async (t) => {
@@ -338,8 +298,6 @@ test('a visit is a number for its day and origin: the tag, else the site, else f
 
 test('the figures by week and origin: visits, accounts, who did something, who met a limit in 30 days, who pays and what', async (t) => {
   const { origins, arrive, database, clock } = setup(t);
-  database.exec('CREATE TABLE host_first_answers (user_id INTEGER PRIMARY KEY, heard_from TEXT, has_channel INTEGER, channel TEXT, answered_at TEXT NOT NULL)');
-  const answer = (user, heard) => database.run('INSERT INTO host_first_answers (user_id, heard_from, answered_at) VALUES (?, ?, ?)', user.id, heard, 'now');
   const pay = (user, ref, amount, extra = {}) => origins.paid({ user, event: { type: 'payment', ref, amount, currency: 'EUR', product: 'pro-yearly', first: true, ...extra } }, { provider: 'paddle' });
 
   // The week of 16 Nov: one account from Hacker News, which pays later.
@@ -356,10 +314,7 @@ test('the figures by week and origin: visits, accounts, who did something, who m
   const cat = arrive('cat', { login: '/auth/login?via=google.com' });
   const dan = arrive('dan');
   const eve = arrive('eve', { at: '/mcp' });
-  const fay = arrive('fay');
-  answer(ana, 'reddit');
-  answer(dan, 'producthunt');
-  answer(fay, 'producthunt');
+  arrive('fay');
   origins.made(ana);
   origins.usedMcp(bob);
   origins.made(bob);
@@ -381,18 +336,18 @@ test('the figures by week and origin: visits, accounts, who did something, who m
   clock.now = Date.parse('2026-11-27T10:00:00Z');
   pay(old, 'txn_o1', 3500);
 
-  const { weeks, rows, answers } = origins.report({ weeks: 2 });
+  const { weeks, rows } = origins.report({ weeks: 2 });
   assert.deepEqual(weeks, ['2026-11-23', '2026-11-16']);
   const brief = (row) => [row.week, row.kind, row.origin, row.visits, row.signups, row.activated, row.limited, row.paying, row.plans, row.payments, row.income];
   assert.deepEqual(rows.map(brief), [
     ['2026-11-23', 'link', 'reddit-mcp', 40, 2, 2, 1, 1, { pro: 1 }, 2, { EUR: 1900 }],
-    ['2026-11-23', 'answer', 'producthunt', 0, 2, 0, 0, 1, { pro: 1 }, 1, {}],
+    // Two accounts with no tag and no site, one of them paying in a store: not known, and said so.
+    ['2026-11-23', 'none', '', 1, 2, 0, 0, 1, { pro: 1 }, 1, {}],
     ['2026-11-23', 'site', 'google.com', 7, 1, 0, 0, 1, { pro: 1 }, 1, { EUR: 3500 }],
     ['2026-11-23', 'entry', 'mcp', 0, 1, 1, 0, 0, {}, 0, {}],
-    ['2026-11-23', 'none', '', 1, 0, 0, 0, 0, {}, 0, {}],
     ['2026-11-16', 'site', 'news.ycombinator.com', 1, 1, 0, 0, 1, { pro: 1 }, 1, { EUR: 3500 }],
   ]);
-  assert.deepEqual(answers, [{ week: '2026-11-23', heard: 'producthunt', n: 2 }, { week: '2026-11-23', heard: 'reddit', n: 1 }]);
+  assert.equal('answers' in origins.report({ weeks: 2 }), false);
   assert.deepEqual(origins.report({ weeks: 1 }).weeks, ['2026-11-23']);
   assert.equal(origins.report({ weeks: 1 }).rows.some((row) => row.week === '2026-11-16'), false);
   assert.equal(origins.report({ weeks: 999 }).weeks.length, 52);
@@ -400,16 +355,15 @@ test('the figures by week and origin: visits, accounts, who did something, who m
   assert.deepEqual(origins.exportCsv({ weeks: 2 }).split('\r\n'), [
     'week,kind,origin,visits,signups,activated,limited,paying,paying_pro,payments,income_EUR',
     '2026-11-23,link,reddit-mcp,40,2,2,1,1,1,2,19.00',
-    '2026-11-23,answer,producthunt,0,2,0,0,1,1,1,0.00',
+    '2026-11-23,none,,1,2,0,0,1,1,1,0.00',
     '2026-11-23,site,google.com,7,1,0,0,1,1,1,35.00',
     '2026-11-23,entry,mcp,0,1,1,0,0,0,0,0.00',
-    '2026-11-23,none,,1,0,0,0,0,0,0,0.00',
     '2026-11-16,site,news.ycombinator.com,1,1,0,0,1,1,1,35.00',
     '',
   ]);
 
   // For the daily summary: where the accounts made between two moments came from, the three with most.
-  assert.equal(origins.topSince('2026-11-25T00:00:00.000Z', '2026-11-26T00:00:00.000Z'), 'producthunt 2, reddit-mcp 2, google.com 1');
+  assert.equal(origins.topSince('2026-11-25T00:00:00.000Z', '2026-11-26T00:00:00.000Z'), 'reddit-mcp 2, google.com 1, mcp 1');
   assert.equal(origins.topSince('2026-11-18T00:00:00.000Z', '2026-11-19T00:00:00.000Z'), 'news.ycombinator.com 1');
   assert.equal(origins.topSince('2026-12-25T00:00:00.000Z', '2026-12-26T00:00:00.000Z'), null);
 });
