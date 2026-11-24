@@ -41,7 +41,7 @@
  *   registerAdminNoticesApi(api, { notices, audit });
  */
 import crypto from 'node:crypto';
-import { currentRequest } from './request-scope.js';
+import { currentRequest, byTheAdmin } from './request-scope.js';
 import { encryptText, decryptText } from './crypto.js';
 import { parseAddress } from './mail.js';
 import { badRequest, readJson, sendJson, requireAdmin } from './http.js';
@@ -518,12 +518,12 @@ export function createAdminNotices({
 
   /**
    * accounts.whenCreated: an account someone made for themselves, in a request. Not one the
-   * admin makes or imports (/api/admin/…), nor an administrator's, nor one a script or the start
+   * admin makes or imports (/api/admin/…, the admin's connector), nor an administrator's, nor one a script or the start
    * made (no request).
    */
   function signedUp(user) {
     const scope = currentRequest();
-    if (!scope || user?.role === 'admin' || scope.path.startsWith('/api/admin/')) return;
+    if (!scope || user?.role === 'admin' || byTheAdmin(scope)) return;
     // Inside the account's transaction: a notice must never be why an account isn't made.
     try {
       note('signup', 'signup', { country: countryOf ? countryOf(scope.req) : null });

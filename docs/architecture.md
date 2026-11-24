@@ -84,6 +84,7 @@ suite-core/
   stripe.js             done   Stripe as that provider: Checkout, Customer Portal, signed webhooks
   stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
   affiliates.js         done   referral codes and creators' campaigns: who brought whom, commissions, months given, payouts
+  admin-mcp.js          done   the administrator's connector: /admin/mcp, its own OAuth, rules kept by the server
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -1995,6 +1996,7 @@ first, then Tasks, then the rest.
 | `billing.js`, `stripe.js`, `providers.js` | done (v0.10.0: interface, signed provider, grants; v0.18.0: Stripe; v0.38.0: Paddle, by WorkOS id across apps; v0.66.0: another product's sales kept out, behind `billing` options; v0.208.0: providers by registration; v0.209.0: Paddle outside the repository) | Tasks and Next sell Cronum Work Pro through Paddle; Team in a second phase |
 | `stores.js` | done (v0.78.0: the stores next to the web, RevenueCat as the adapter, the overview, `forgetOnRemove`; v0.209.0: RevenueCat outside the repository) | for an app that sells Pro in the App Store and Google Play |
 | `affiliates.js` | done (v0.299.0: referral codes and creators' campaigns, the `payment` event, /afiliados, /admin › Affiliates) | Cronum Work's program, from 1/12/2026 |
+| `admin-mcp.js` | done (v0.321.0: the administrator's connector at /admin/mcp, its OAuth at /oauth/admin, test accounts by pattern, /admin › Connector) | Cronum Work |
 
 ## 21. Several apps as one: the host
 

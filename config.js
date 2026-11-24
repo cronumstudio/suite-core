@@ -52,6 +52,9 @@ export const MODULES = Object.freeze({
   // Notices to whoever runs the install of new accounts and payments (admin-notices.js), set in
   // /admin › Notifications; silent until a destination is given there.
   notices: false,
+  // The administrator's connector (admin-mcp.js): an MCP of its own at /admin/mcp, which only an
+  // administrator may connect, with the admin panel and the audit log on.
+  adminMcp: false,
 });
 
 const PRODUCT_KEYS = new Set([
@@ -511,6 +514,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // accounts or OIDC, the app's own is, and OIDC signs people in on its screen.
     mcpOAuth: modules.oauth && authProvider !== 'workos' && env.MCP_OAUTH !== 'off',
     cimdAllowPrivateHosts: env.CIMD_ALLOW_PRIVATE_HOSTS === 'true',
+    // The emails the administrator's connector may make test accounts with (admin-mcp.js
+    // testEmailPatterns): `someone+*@example.com`, comma-separated. Empty, it makes none.
+    adminMcpTestEmails: env.ADMIN_MCP_TEST_EMAILS || '',
     plansJson: env.PLANS,
     defaultPlan: env.DEFAULT_PLAN,
     earlyAccess,
