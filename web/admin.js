@@ -1043,13 +1043,15 @@ async function paintOrigin(box, user, now) {
   }
   const paid = [...totals].map(([currency, amount]) => moneyText(amount, currency)).join(' + ');
   now.textContent = [origin?.src || origin?.referrer || (origin ? t(`admin.origin.entry.${origin.entry}`) : t('admin.origin.none')), paid].filter(Boolean).join(' · ');
-  clear(box).append(
+  // Only what there is: a null given to append() is written as the word.
+  clear(box).append(...[
     origin ? null : el('p', { class: 'kit-hint', text: t('admin.origin.noneLead') }),
-    el('div', { class: 'kit-facts' },
+    origin || payments.length ? el('div', { class: 'kit-facts' },
       origin ? fact(t('admin.origin.src'), origin.src) : null,
       origin ? fact(t('admin.origin.referrer'), origin.referrer) : null,
       origin ? fact(t('admin.origin.entry'), t(`admin.origin.entry.${origin.entry}`)) : null,
-      payments.length ? fact(t('admin.origin.payments'), [String(payments.length), paid].filter(Boolean).join(' · ')) : null));
+      payments.length ? fact(t('admin.origin.payments'), [String(payments.length), paid].filter(Boolean).join(' · ')) : null) : null,
+  ].filter(Boolean));
 }
 
 /* ------------------------------ first answers ------------------------------ */
