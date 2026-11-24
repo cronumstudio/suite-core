@@ -89,6 +89,7 @@ import { createLinks, linksSchema, registerLinksApi, linkTools } from './links.j
 import { createCalendar, registerCalendarApi, calendarTools, calendarModulesSchema, createCalendarChoices } from './calendar.js';
 import { createCalendarFeeds, registerCalendarFeedApi, calendarFeedsSchema } from './calendar-feed.js';
 import { createDay, registerDayApi, createDayNotices, dayNoticesSchema, DAY_PREFS } from './day.js';
+import { createSampleData, registerSampleDataApi, sampleDataSchema, sampleDataOption } from './sample-data.js';
 import { parseLegacyDomains, createLegacyDomains } from './legacy-domains.js';
 import { createPageHints } from './page-hints.js';
 import { combinePrefs } from './prefs.js';
@@ -182,7 +183,7 @@ export const HOST_MIGRATIONS = Object.freeze([
     version: 6,
     name: 'first-answers',
     // What each person answered to two questions a host's first start once asked. Nothing asks them
-    // any more and migration 13 takes the table away: this stays as it ran, as every migration does.
+    // any more and migration 14 takes the table away: this stays as it ran, as every migration does.
     up: (d) => d.exec(`CREATE TABLE IF NOT EXISTS host_first_answers (
       user_id     INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       heard_from  TEXT,
@@ -226,8 +227,10 @@ export const HOST_MIGRATIONS = Object.freeze([
     // the person (audit of 6/11, sc-feat-1).
     up: (d) => d.exec('CREATE INDEX IF NOT EXISTS ix_host_day_notices_day ON host_day_notices (day)'),
   },
+  // Which example each person has and what it made in every module (sample-data.js), to take it away again.
+  { version: 13, name: 'sample-data', up: sampleDataSchema },
   {
-    version: 13,
+    version: 14,
     name: 'first-answers-gone',
     // The first start's two questions are gone (how someone heard of the app, and whether they had
     // a channel, blog or newsletter), and what was answered goes with them.
@@ -718,6 +721,12 @@ function moduleListErrors(modules) {
  *   modules someone ticks (`/api/ai-instruction`, among its routes: `?lang=xx&modules=a,b` → { text }):
  *   Settings › Your AI then offers each agent's steps and that prompt (web/agents.js) instead of each
  *   module's instruction, folded
+ * @param {boolean|object} [options.sampleData]  an example to try the app with, from every module that
+ *   has one (`createModule().sampleData`, sample-data.js): Settings › Sample data adds it and takes it
+ *   away (`/api/me/sample-data`), and the host's own code has `suite.sampleData.seed(user, { example, locale })`.
+ *   `true` is one example; `{ examples: ['cafe', 'app'], words: 'samples.' }` several, the person
+ *   choosing one, named in the host's catalog (`samples.cafe.title`, `samples.cafe.hint`). Without
+ *   it, none of this
  * @param {boolean|object} [options.worker]  one service worker for the host and every module, at
  *   /sw.js with the scope `/` (host-worker.js): `true`, or `{ icon, badge }` for its notices (the
  *   host's icon without them). The host's /version and /js/app-version.js are then the whole
@@ -754,10 +763,12 @@ function moduleListErrors(modules) {
 export async function createHost({
   config: product, modules = [], migrations = [], hooks = {}, publicDir = null, routes = null, framedModules = false, calendar = null, calendarFeed = false, day = null,
   aiInstruction = null, worker = null, version = '0.0.0', env = process.env, log = console.log, exitOnError = true, handleSignals = true, watchRoot = null,
-  pages = [], scopedSheets = false, liveAll = false, mcpOptions = null, doors = [], moduleHints = null,
+  pages = [], scopedSheets = false, liveAll = false, mcpOptions = null, doors = [], moduleHints = null, sampleData = false,
 }) {
   /** The modules that joined, in order: their hooks count from then on. */
   const joined = [];
+  /** The examples to try the app with (sample-data.js), read once: null without them. */
+  const samplesOption = sampleDataOption(sampleData);
   /** Links between the modules (links.js), made once every module is in; a module's view reaches it late. */
   let links = null;
   let suite = null;
@@ -950,6 +961,8 @@ export async function createHost({
         ...(hostWorker ? { worker: '/sw.js' } : {}),
         // The host's daily summary: its page, and Settings' section of it in every module.
         ...(day ? { day } : {}),
+        // The host's example to try it with (sample-data.js): Settings › Sample data, in every module.
+        ...(samplesOption ? { sampleData: samplesOption } : {}),
         // The host's calendar: Settings › Calendar, with which modules show on it, in every module.
         ...(calendar ? { calendarModules: true } : {}),
         // The calendar's link for calendar apps: in that same section, under them.
@@ -1062,6 +1075,8 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
+      // And the creators' invitations: their page at /i/ and the admin's at the root.
+      creatorInvitations: null,
       // And the origins: an account is made at the root, and the admin reads them there.
       origins: null,
       // Whose something is, in the module's words, with the host's one brake on deletion notices:
@@ -1310,6 +1325,14 @@ export async function createHost({
     modules: () => joined, uses, log, icon: (m) => mountedPath(m.mount, m.config.app.icon),
   }) : null;
 
+  // An example to try the app with, from every module that has one (sample-data.js): the host's
+  // Settings add it and take it away, and the host's own code reaches it as `suite.sampleData`.
+  const samples = samplesOption ? createSampleData({
+    database: suite.database, modules: () => joined, uses, links, examples: samplesOption.examples,
+    languages: config.app.languages, log,
+  }) : null;
+  if (samples) suite.sampleData = samples;
+
   // Tools reached on demand, when the host keeps some out of the list: each person may have them
   // all listed instead (Settings › Your AI). No row: on demand.
   const onDemand = mcpOptions?.onDemand && Object.values(mcpOptions.onDemand).some((names) => names?.length)
@@ -1396,6 +1419,7 @@ export async function createHost({
         });
       }
       if (daily) registerDayApi(api, { day: daily });
+      if (samples) registerSampleDataApi(api, { sampleData: samples });
       // Whether the calendar's button is on this person's rail: one choice for the whole host.
       if (calendar) {
         api.put('/api/me/calendar', async (ctx) => {
