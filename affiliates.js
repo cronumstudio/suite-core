@@ -68,7 +68,7 @@ import crypto from 'node:crypto';
 import {
   HttpError, badRequest, conflict, notFound, sendJson, readJson, parseCookies, serializeCookie, appendHeader, requireUser, requireAdmin
 } from './http.js';
-import { currentRequest } from './request-scope.js';
+import { currentRequest, byTheAdmin } from './request-scope.js';
 import { iso } from './time.js';
 
 const DAY = 24 * 3600 * 1000;
@@ -548,7 +548,7 @@ export function createAffiliates({
   function attributeLink(user) {
     if (!user?.id) return;
     const scope = currentRequest();
-    if (!scope?.req || scope.path.startsWith('/api/admin/')) return;
+    if (!scope?.req || byTheAdmin(scope)) return;
     try {
       const value = parseCookies(scope.req)[REF_COOKIE];
       if (!value) return;

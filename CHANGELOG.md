@@ -3,6 +3,49 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.321.0 — 2026-11-24
+
+- **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
+  endpoint of its own at `/admin/mcp`, so an assistant can do what /admin does when the
+  administrator asks it to. It isn't the app's /mcp, whose `tools/list` doesn't change, and no
+  token of one opens the other.
+  - **Its own authorization server**: oauth.js at `/oauth/admin/…`, issuer `<BASE_URL>/oauth/admin`,
+    metadata at `/.well-known/oauth-protected-resource/admin/mcp` and
+    `/.well-known/oauth-authorization-server/oauth/admin`, its own tables, refresh tokens of 30 days.
+    It runs with any sign-in: with WorkOS, AuthKit stays the /mcp's and this one is the app's.
+  - **Only an administrator may give it permission**, and only after confirming who they are
+    again: with WorkOS their password (and code) there, or a sign-in again for whoever signs in with
+    Google & co., as `confirmAdmin` asks before changing someone's identity; with passwords here,
+    theirs (and their code). An open session alone gets no code. Someone signed in who isn't one
+    sees why, with no button to press. A token opens nothing once its account is no administrator
+    or is disabled; /admin › Connector lists what is connected and takes it back.
+  - **Its tools**: `find_accounts`, `get_account` (who, when, plan and grants, what it pays for,
+    usage counts: never content), `list_plans`, `set_account_plan` and `clear_account_plan` (with
+    its end), `disable_account` and `enable_account` (never an administrator's, nor one its owner
+    asked to delete), `list_affiliates`, `get_affiliate`, `record_affiliate_payout` (a note of a
+    payout made elsewhere), `create_test_account`, `delete_test_account` and `read_activity`.
+    `readOnlyHint` on the reads, `destructiveHint` on every change.
+  - **Rules the server keeps**: a test account's email must fit a pattern of
+    `ADMIN_MCP_TEST_EMAILS` (`someone+*@example.com`; one that would allow every address is left
+    out, and said at the start); only the accounts it made, noted in `admin_mcp_test_accounts` with
+    the email they were made with, are deleted, and not one that pays for something. Never roles,
+    passwords, second steps, the modules' content or payments.
+  - **Every call is in the audit log**: `admin.mcp.read` for the reads, the changes under their
+    usual actions, `admin.mcp.refused` for what was refused, each with `via: "admin MCP · <client>"`,
+    and `admin.mcp.connect` and `admin.mcp.disconnect`. What people wrote (their names, a creator's
+    note) comes as `{ "untrusted_text": "…" }`, which the server's instructions say never to follow.
+- **Migration 36 (`admin-mcp`)**: the connector's tables. Created whether it is on or not.
+- **oauth.js serves a second endpoint too** (`resourcePath`, `routes`, `issuerPath`, `tables`,
+  `refreshDays`, `adminsOnly`, `whenGranted`; `allGrants()` and `revokeAnyGrant()`): with its
+  defaults it is the app's /mcp's as before, every path and table the same.
+- **Accounts made by the connector are the administrator's** (`request-scope.js` `byTheAdmin`): no
+  new-account notice (admin-notices.js) and no code's cookie (affiliates.js), as with /api/admin/….
+- `registerWorkosSecurityApi` also returns `reauthKind(admin)`: what `confirmAdmin` will ask. A
+  host hands each account's usage to its root app (`createApp({ adminUsage })`).
+- **An MCP client's answers go chunked wherever it asks** (`http.js`): a request with
+  `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
+  its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
+  breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
 ## 0.318.0 — 2026-11-24
 
 - **A host's first questions name more places** (`host.js` `HEARD_FROM`, with `firstQuestions`):

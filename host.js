@@ -1367,6 +1367,8 @@ export async function createHost({
 
   const root = createApp({
     suite, publicDir, version, handleSignals: false, log, mcp, resolveDeviceAction,
+    // An account's usage in every module, for the administrator's connector (admin-mcp.js), as /admin's dialog shows it.
+    adminUsage: (user, { activity = true } = {}) => usageOf(user, { modules: joined, uses, entitlements: suite.entitlements, log, activity }),
     // `/` and its own folders (`/calendar/`); any other address of the root is a 404 page, not the
     // host's home with its files asked for at the wrong place (audit prod-9).
     clientRoutes: ['/'],

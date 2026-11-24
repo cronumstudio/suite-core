@@ -7,7 +7,7 @@
 import { $, el, clear, append } from './dom.js';
 import { api, errorMessage, SessionExpired } from './api.js';
 import { t, loadLanguage, pickLanguage, formatDateTime, formatDate, listFormat, numberFormat } from './i18n.js';
-import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu } from './ui.js';
+import { toast, field, openDialog, formDialog, confirmDialog, slidingDetails, saveState, QUESTION_WIDTH, revealable, segmented, menu, copyText } from './ui.js';
 import { icon } from './icons.js';
 import { usageGroups, meter, percent, peakWhat, levelOf } from './usage-view.js';
 import { dayKey } from './days.js';
@@ -15,7 +15,7 @@ import { dayKey } from './days.js';
 const root = $('#admin');
 // `usersQuery`: what Accounts was searched for, kept while the list is drawn again (an account saved).
 const state = {
-  config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, affiliates: false,
+  config: null, me: null, catalog: null, organizations: false, invitations: false, data: false, notices: false, affiliates: false, connector: false,
   affiliateMinimum: null, usersQuery: '',
 };
 
@@ -27,6 +27,7 @@ const TABS = [
   ['data', 'admin.tabs.data'],
   ['notices', 'admin.tabs.notices'],
   ['affiliates', 'admin.tabs.affiliates'],
+  ['connector', 'admin.tabs.connector'],
   ['audit', 'admin.tabs.audit'],
 ];
 
@@ -156,6 +157,8 @@ async function start() {
   state.notices = Boolean(state.config.app?.modules?.notices);
   // Referrals and creators' campaigns, with payments (affiliates.js): whether the program is on or not.
   state.affiliates = Boolean(state.config.app?.modules?.affiliates);
+  // The administrator's connector, with modules.adminMcp (admin-mcp.js).
+  state.connector = Boolean(state.config.app?.modules?.adminMcp);
 
   const app = state.config.app || {};
   // The app's icon, as the server wrote it into the page (app.icon).
@@ -181,12 +184,12 @@ async function start() {
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
     && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
-    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates));
+    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates) && (id !== 'connector' || state.connector));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, notices: renderNotices, affiliates: renderAffiliates, audit: renderAudit,
+  data: renderData, notices: renderNotices, affiliates: renderAffiliates, connector: renderConnector, audit: renderAudit,
 };
 
 let showing = 0;
@@ -1654,6 +1657,48 @@ async function renderNotices(main) {
         previews.digest,
         digestEditor),
       el('div', { class: 'kit-row kit-notices__save' }, saved, save)),
+  );
+}
+
+/* -------------------------------- connector -------------------------------- */
+
+/**
+ * The administrator's connector (admin-mcp.js): its address to paste in an assistant, the emails it
+ * may make test accounts with, and each assistant connected to it, taken back with one press.
+ */
+async function renderConnector(main) {
+  const view = await api.get('/api/admin/mcp');
+  const address = el('code', { class: 'kit-mono', text: view.endpoint });
+  const rows = view.connections.map((c) => el('tr', {},
+    el('td', { text: c.client_name }),
+    el('td', { text: c.user ? (c.user.email || `@${c.user.username}`) : '—' }),
+    el('td', { text: formatDateTime(c.created_at.includes('T') ? c.created_at : `${c.created_at.replace(' ', 'T')}Z`) }),
+    el('td', { text: c.last_used_at ? formatDateTime(c.last_used_at.includes('T') ? c.last_used_at : `${c.last_used_at.replace(' ', 'T')}Z`) : t('admin.connector.never') }),
+    el('td', {}, el('button', {
+      type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.connector.revoke'),
+      onClick: async () => {
+        if (!(await confirmDialog(t('admin.connector.revokeConfirm', { app: c.client_name }), { confirm: t('admin.connector.revoke'), danger: true }))) return;
+        try {
+          await api.delete(`/api/admin/mcp/connections/${c.id}`);
+          toast(t('admin.connector.revoked'));
+          show();
+        } catch (err) { fail(err); }
+      },
+    }))));
+  append(main,
+    el('h2', { text: t('admin.connector.title') }),
+    el('p', { class: 'kit-lead', text: t('admin.connector.lead') }),
+    el('h3', { text: t('admin.connector.address') }),
+    el('div', { class: 'kit-copy' }, address,
+        el('button', { type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.connector.copy'), onClick: () => copyText(view.endpoint, address) })),
+    el('p', { class: 'kit-hint', text: t('admin.connector.howTo') }),
+    el('p', { class: 'kit-hint', text: view.test_emails.length
+      ? t('admin.connector.testEmails', { list: listFormat({ type: 'conjunction' }).format(view.test_emails) }) : t('admin.connector.noTestEmails') }),
+    el('h3', { text: t('admin.connector.connections') }),
+    view.connections.length ? table([
+      t('admin.connector.app'), t('admin.connector.by'), t('admin.connector.since'), t('admin.connector.used'), '',
+    ], rows) : el('p', { class: 'kit-empty', text: t('admin.connector.none') }),
+    el('p', {}, el('a', { class: 'kit-link', href: '#/audit?action=admin.', text: t('admin.connector.activity') })),
   );
 }
 
