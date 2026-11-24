@@ -2080,5 +2080,6 @@
   "admin.creatorInvites.emailHint": "Facultatif : sans lui, qui entre saisit le sien.",
   "fields.pro_until": "Pro jusqu’au",
   "fields.uses": "Comptes qu’il crée",
-  "fields.creator": "Créateur"
+  "fields.creator": "Créateur",
+  "fields.invitation_id": "Invitation"
 }
