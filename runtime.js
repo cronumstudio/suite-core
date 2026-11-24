@@ -107,6 +107,12 @@ export function startSuiteJobs(suite, { purge, timers, failed, safely }) {
     timers.push(setTimeout(affiliates, MINUTE_BEFORE_SWEEP).unref());
     timers.push(setInterval(affiliates, HOUR).unref());
   }
+  if (suite.creatorInvitations) {
+    // Creators' invitations past their days: what they held of someone forgotten, every hour.
+    const invitations = safely('creator invitations', () => suite.creatorInvitations.sweep());
+    timers.push(setTimeout(invitations, MINUTE_BEFORE_SWEEP).unref());
+    timers.push(setInterval(invitations, HOUR).unref());
+  }
   if (suite.billing?.enabled) {
     // Groups' renewals asked to stop that the provider didn't take yet: every hour (nothing without any).
     const sendStops = () => suite.billing.sendStops().catch(failed("stopping groups' renewals"));

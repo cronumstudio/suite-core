@@ -1065,6 +1065,8 @@ export async function createHost({
       // So are the affiliates: their panel, /r/ and the admin's tab at the root (a page of a module
       // opened with ?codigo= still gets the cookie, from the host's own handle).
       affiliates: null,
+      // And the creators' invitations: their page at /i/ and the admin's at the root.
+      creatorInvitations: null,
       // Whose something is, in the module's words, with the host's one brake on deletion notices:
       // its email, its push and that brake as the module's suite has them when a notice goes.
       ownership: createOwnership({
