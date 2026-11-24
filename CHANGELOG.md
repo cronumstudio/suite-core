@@ -3,6 +3,19 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.340.0 — 2026-11-24
+
+- **Tests only.** Three tests checked something once, at a fixed moment, and failed now and then
+  on a busy machine. They now wait for it:
+  - the deletion of a group's last member (`test/admin-deletion.test.js`): the stop of the group's
+    subscription goes into the audit log only once the provider has answered;
+  - the first alert email (`test/alerts.test.js`): its "alert sent" line comes only once the mail
+    server has answered;
+  - the keyboard going down after a wait (`test/web-kit.test.js`): two timers run in a row, the
+    focus's and then the wait's.
+
+  Nothing else changes.
+
 ## 0.339.0 — 2026-11-24
 
 - **The steps to connect Claude say nothing of a Team or Enterprise plan** (`kit.agents.claude.connect`, in
