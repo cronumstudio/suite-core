@@ -130,3 +130,23 @@ export function doneRoute(api, { suite, table }) {
     sendJson(ctx.res, 200, { ok: true });
   });
 }
+
+/**
+ * A test module's example (sample-data.js): two items, in the example and language asked and dated
+ * by the person's today, the second one the anchor `shared`. Taking it away deletes them, changed
+ * or not.
+ */
+export function itemSampleData({ suite, table }) {
+  return {
+    seed: ({ userId, locale, today, example }) => {
+      if (example === 'missing') throw new Error('no such example here');
+      const texts = [`${table} ${example} ${locale} ${today}`, `${table} shared`];
+      const ids = texts.map((text) => suite.database.run(`INSERT INTO ${table} (user_id, text) VALUES (?, ?)`, userId, text).lastInsertRowid);
+      return { items: ids.map((id) => ({ type: 'item', id })), anchors: { shared: { type: 'item', id: ids[1] } } };
+    },
+    remove: ({ userId, items }) => {
+      for (const item of items) suite.database.run(`DELETE FROM ${table} WHERE id = ? AND user_id = ?`, Number(item.id), userId);
+      return { removed: items };
+    },
+  };
+}
