@@ -496,5 +496,9 @@ export function registerWorkosSecurityApi(router, {
     undo: (id) => workos.deleteUser(id),
   };
 
-  return { confirmAdmin: (ctx, body, options) => route(() => confirmAdmin(ctx, body, options))(ctx), logins, confirmIdentity: identity };
+  return {
+    confirmAdmin: (ctx, body, options) => route(() => confirmAdmin(ctx, body, options))(ctx), logins, confirmIdentity: identity,
+    // What confirmAdmin will ask of an administrator (reauthOf): for a screen that asks it first (admin-mcp.js).
+    reauthKind: (admin) => answered(async () => (await reauthOf(admin)).kind),
+  };
 }

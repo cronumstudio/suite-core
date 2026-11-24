@@ -3,6 +3,50 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.321.0 — 2026-11-24
+
+- **The administrator's connector** (`admin-mcp.js`, `modules.adminMcp`, off by default): an MCP
+  endpoint of its own at `/admin/mcp`, so an assistant can do what /admin does when the
+  administrator asks it to. It isn't the app's /mcp, whose `tools/list` doesn't change, and no
+  token of one opens the other.
+  - **Its own authorization server**: oauth.js at `/oauth/admin/…`, issuer `<BASE_URL>/oauth/admin`,
+    metadata at `/.well-known/oauth-protected-resource/admin/mcp` and
+    `/.well-known/oauth-authorization-server/oauth/admin`, its own tables, refresh tokens of 30 days.
+    It runs with any sign-in: with WorkOS, AuthKit stays the /mcp's and this one is the app's.
+  - **Only an administrator may give it permission**, and only after confirming who they are
+    again: with WorkOS their password (and code) there, or a sign-in again for whoever signs in with
+    Google & co., as `confirmAdmin` asks before changing someone's identity; with passwords here,
+    theirs (and their code). An open session alone gets no code. Someone signed in who isn't one
+    sees why, with no button to press. A token opens nothing once its account is no administrator
+    or is disabled; /admin › Connector lists what is connected and takes it back.
+  - **Its tools**: `find_accounts`, `get_account` (who, when, plan and grants, what it pays for,
+    usage counts: never content), `list_plans`, `set_account_plan` and `clear_account_plan` (with
+    its end), `disable_account` and `enable_account` (never an administrator's, nor one its owner
+    asked to delete), `list_affiliates`, `get_affiliate`, `record_affiliate_payout` (a note of a
+    payout made elsewhere), `create_test_account`, `delete_test_account` and `read_activity`.
+    `readOnlyHint` on the reads, `destructiveHint` on every change.
+  - **Rules the server keeps**: a test account's email must fit a pattern of
+    `ADMIN_MCP_TEST_EMAILS` (`someone+*@example.com`; one that would allow every address is left
+    out, and said at the start); only the accounts it made, noted in `admin_mcp_test_accounts` with
+    the email they were made with, are deleted, and not one that pays for something. Never roles,
+    passwords, second steps, the modules' content or payments.
+  - **Every call is in the audit log**: `admin.mcp.read` for the reads, the changes under their
+    usual actions, `admin.mcp.refused` for what was refused, each with `via: "admin MCP · <client>"`,
+    and `admin.mcp.connect` and `admin.mcp.disconnect`. What people wrote (their names, a creator's
+    note) comes as `{ "untrusted_text": "…" }`, which the server's instructions say never to follow.
+- **Migration 36 (`admin-mcp`)**: the connector's tables. Created whether it is on or not.
+- **oauth.js serves a second endpoint too** (`resourcePath`, `routes`, `issuerPath`, `tables`,
+  `refreshDays`, `adminsOnly`, `whenGranted`; `allGrants()` and `revokeAnyGrant()`): with its
+  defaults it is the app's /mcp's as before, every path and table the same.
+- **Accounts made by the connector are the administrator's** (`request-scope.js` `byTheAdmin`): no
+  new-account notice (admin-notices.js) and no code's cookie (affiliates.js), as with /api/admin/….
+- `registerWorkosSecurityApi` also returns `reauthKind(admin)`: what `confirmAdmin` will ask. A
+  host hands each account's usage to its root app (`createApp({ adminUsage })`).
+- **An MCP client's answers go chunked wherever it asks** (`http.js`): a request with
+  `MCP-Protocol-Version`, which clients also send while they find the authorization server, gets
+  its answer without a `Content-Length`, as a path ending in /mcp already did. Avast's Web Shield
+  breaks those answers otherwise, and the official MCP SDK couldn't read the metadata through it.
+
 ## 0.320.0 — 2026-11-24
 
 - **/admin › Origins: what each origin brought** (`origins.js` `report`, `GET /api/admin/origins?weeks=`,
@@ -10,13 +54,11 @@ change an interface and a patch never does. Apps pin a version through the submo
   row per origin: that week's visits, the accounts made, how many did something, how many ran into a
   limit of their plan in their first 30 days, how many pay, by plan, and what they have paid,
   refunds left out. An account's origin there is one: its link's tag, else the site it came from,
-  else what it answered to a host's first questions, else how it was made. The install's own
-  website (a domain its host is under: `example.com` for an app at `work.example.com`) is kept as
-  the site like any other and counts after the answer: whoever reached it from nowhere a browser
-  names and went on to the app would otherwise all be «from the website», their answers left out
-  of the table. The admin's card of an account says the same one origin. Under the tables, what
-  people answered, by week. With `modules.origins`; /api/auth/config says `modules.origins`.
-- **What an account did for the first time**, once each (new suite migration 37, `account_marks`):
+  else how it was made when that says something (an assistant, the phone app); with none of them
+  it is «not known», a row of its own. Nobody is asked where they came from. The admin's card of
+  an account says the same one origin. With `modules.origins`; /api/auth/config says
+  `modules.origins`.
+- **What an account did for the first time**, once each (new suite migration 38, `account_marks`):
   `made`, the first thing it created (a route of the app's own answered it 201: in a host, a
   module's, with `createApp({ firsts: false })` at the root; never the suite's routes, where a
   token or a device is made); `mcp`, its first call from an assistant; and `limit:<feature>`, each limit of its plan it
@@ -36,7 +78,7 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.319.0 — 2026-11-24
 
-- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 36,
+- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 37,
   `account_origins` and `origin_payments`): kept when the account is made and never written over,
   the tag of the link it followed (`?src=reddit-mcp`; `?utm_source=` or `?ref=`, which some sites
   add to the links they list, when there is no `src`), the domain of the site before, never its
@@ -64,21 +106,16 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.318.0 — 2026-11-24
 
-- **A host's first questions name more places** (`host.js` `HEARD_FROM`, with `firstQuestions`):
-  how someone heard of the app may now be Product Hunt, Hacker News, a video or a creator, an AI
-  that recommended it, an assistant's directory or the app store, besides Reddit, X or LinkedIn, a
-  friend, a search engine and Other, in the order the list gives. The answers kept before keep
-  their names. The texts are the kit's (`kit.firstQuestions.heard.*`), in the five languages.
-- **The first questions take a code** where the host has affiliates (`affiliates.js`) and a
-  payment provider: GET /api/modules says `first_code: true`, and `PUT /api/me/first-answers` takes `code`, a creator's
-  or a referral's. The account is then that code's (`claim`, an attribution `given`), as its link
-  would have made it, so a checkout of theirs gets its discount: it wins over the link they came
-  by and never over a code they paid with. One the host doesn't know (404
-  `affiliate_code_not_found`) or their own (400 `affiliate_code_own`) is refused before any answer
-  is kept, so they can write it again or leave it out. The admin sees whose code brought an
-  account, and how, in the account's «First time» (`GET /api/admin/users/:id/first-answers` adds
-  `code: { code, kind, source, at }`). A host's page that asks should leave the field out inside
-  the phone app (`inApp()`), where nothing is said of discounts.
+- **A host's first questions are gone** (`host.js`): the first start no longer asks how someone
+  heard of the app nor whether they have a channel, blog or newsletter. Asking in the middle of a
+  first start is in the way, and where an account came from can be known without it (0.319.0).
+  The option `firstQuestions` does nothing if a host still passes it; GET /api/modules no longer
+  says `first_questions`; `PUT /api/me/first-answers` and
+  `GET /api/admin/users/:id/first-answers` are not there (404); the admin's «First time» fold,
+  the export `HEARD_FROM` and the kit's texts (`kit.firstQuestions.*`, `admin.firstAnswers.*`)
+  are removed. A host's page that asked stops calling them.
+- **Host migration 13** drops `host_first_answers`: what was answered goes with the questions. A
+  host that wants those answers copies the table out before it updates.
 
 ## 0.317.0 — 2026-11-20
 

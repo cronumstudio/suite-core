@@ -27,3 +27,11 @@ export function inRequest(req, fn, res = null) {
 export function currentRequest() {
   return scope.getStore() ?? null;
 }
+
+/**
+ * Whether the request is the administrator's, making accounts for others: /api/admin/… and the
+ * administrator's connector (admin-mcp.js). What a hook does for someone who signs up (a notice, a
+ * code's cookie) is not for those.
+ */
+export const byTheAdmin = (current) => Boolean(current)
+  && (current.path.startsWith('/api/admin/') || current.path === '/admin/mcp');
