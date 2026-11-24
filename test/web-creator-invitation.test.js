@@ -32,7 +32,7 @@ test('the page: whom it is for, the code checked as it changes, and «Enter» wi
   const server = {
     'GET /api/auth/config': { provider: 'workos', app: { name: 'Work', languages: ['en'], modules: {} } },
     [`GET ${base}`]: {
-      status: 'pending', name: 'María López', email: 'maria@example.com', code: 'MARIA20', pro_months: 12,
+      status: 'pending', name: 'María López', email: 'maria@example.com', creator: true, code: 'MARIA20', pro_months: 12, pro_until: null,
       expires_at: '2026-12-24T10:00:00.000Z', offer: { type: 'percent', percent: 20 }, reward: { cash: 600, currency: 'EUR' },
       products: ['pro-yearly'], existing: null, signed_in: null, password: true, password_min: 10, google: true, sample_data: true,
       terms: 'https://example.com/terms/', privacy: { en: 'https://example.com/privacy/', es: 'https://example.com/es/privacy/' },

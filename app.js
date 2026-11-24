@@ -713,10 +713,11 @@ export function createSuite({
     database, affiliates, accounts, entitlements, billing, audit, origins, sign: sessions.sign, config: config.affiliates.invitations,
     baseUrl: install.baseUrl, passwordMin: config.accounts.minPasswordLength, log,
     sampleData: () => made?.sampleData ?? null,
-    signUp: workosLogins ? async ({ email, password, name, locale, req, res }) => {
-      // The login with its email confirmed (the invitation's link reached it), and this app's mark.
+    signUp: workosLogins ? async ({ email, password, name, verified = false, locale, req, res }) => {
+      // The login with this app's mark, its email confirmed when the invitation named it (its link
+      // reached that inbox); one they wrote themselves WorkOS confirms with a code, on AuthKit's page.
       const done = await workosClient.createUser({
-        email, password, firstName: name, emailVerified: true, metadata: invitationMark ? { [invitationMark.key]: invitationMark.name } : null,
+        email, password, firstName: name, emailVerified: Boolean(verified), metadata: invitationMark ? { [invitationMark.key]: invitationMark.name } : null,
       });
       if (done.refused) {
         if (await workosClient.userByEmail(email)) throw conflict('account_exists');
@@ -735,9 +736,10 @@ export function createSuite({
       const user = signed.user ?? await workos.localUser(done.user);
       if (locale && !user.locale) accounts.update(user.id, { locale });
       return { user: accounts.byId(user.id), signedIn: Boolean(signed.user) };
-    } : install.authProvider === 'local' ? async ({ email, password, name, locale, req, res }) => {
+    } : install.authProvider === 'local' ? async ({ email, password, name, verified = false, locale, req, res }) => {
       const user = accounts.create({
-        username: accounts.freeUsername(email), displayName: name, password, email, role: 'user', locale, emailVerified: true,
+        username: accounts.freeUsername(email), displayName: name ?? undefined, password, email, role: 'user', locale,
+        emailVerified: Boolean(verified),
       });
       sessions.open(user.id, { req, res });
       accounts.signedIn(user.id);

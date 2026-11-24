@@ -85,7 +85,7 @@ suite-core/
   stores.js             done   purchases in the App Store and Google Play: a second billing instance, the store adapter interface
   affiliates.js         done   referral codes and creators' campaigns: who brought whom, commissions, months given, payouts
   origins.js            done   where each account came from (a link's tag, the site before, how it was made) and each payment with its origin
-  creator-invitations.js done  creators invited before they have an account: a link, and the account, plan and code made when they enter
+  creator-invitations.js done  invitations with the plan (a creator's code, or the plan alone): a link, and the account, plan and code made when someone enters
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server

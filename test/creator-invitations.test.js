@@ -125,6 +125,7 @@ async function fakeWorkos(t) {
       if (url.pathname === '/user_management/authenticate' && body?.grant_type === 'password') {
         const user = byEmail(body.email);
         if (!user || user.password !== body.password) return answer(400, { code: 'invalid_credentials' });
+        if (!user.email_verified) return answer(400, { code: 'email_verification_required', message: 'Email ownership must be verified.' });
         if (state.mfa) return answer(400, { code: 'mfa_enrollment', message: 'The user must enroll in MFA.' });
         if (state.refuse) return answer(400, { code: 'invalid_credentials' });
         const { password: _, ...shown } = user;
@@ -240,7 +241,7 @@ test('the admin’s invitation: its link, its page’s answer, and nothing made 
   assert.equal(list.data.invitations[0].link, inv.link);
   assert.deepEqual(list.data.defaults, {
     days: 30, pro_months: 12, offer: { type: 'percent', percent: 20 }, products: ['pro-yearly'], reward: { cash: 600, currency: 'EUR' },
-    google: false, sample_data: false, password: true,
+    google: false, sample_data: false, password: true, uses_max: 1000,
   });
   assert.equal((await admin('GET', `/api/admin/creator-invitations/${inv.id}`)).data.invitation.link, inv.link);
 
@@ -254,7 +255,8 @@ test('the admin’s invitation: its link, its page’s answer, and nothing made 
   const page = await visitor('GET', `/api/creator-invitations/${tokenOf(inv.link)}`);
   assert.equal(page.status, 200);
   assert.deepEqual(page.data, {
-    status: 'pending', name: 'María López', email: 'maria@example.com', code: 'MARIA20', pro_months: 6, expires_at: inv.expires_at,
+    status: 'pending', name: 'María López', email: 'maria@example.com', creator: true, pro_months: 6, pro_until: null,
+    expires_at: inv.expires_at, code: 'MARIA20',
     offer: { type: 'percent', percent: 20 }, reward: { cash: 600, currency: 'EUR' }, products: ['pro-yearly'], existing: null,
     signed_in: null, password: true, password_min: 10, google: false, sample_data: false,
     terms: 'https://example.com/terms/', privacy: { en: 'https://example.com/privacy/' },
@@ -262,6 +264,13 @@ test('the admin’s invitation: its link, its page’s answer, and nothing made 
   assert.equal((await visitor('GET', '/api/creator-invitations/ci_nottherealtokenatallxx')).status, 404);
   assert.equal((await visitor('GET', '/api/creator-invitations/whatever')).data.error, 'invitation_not_found');
   assert.equal((await browser()('GET', '/i/a/b')).status, 404, 'only /i/<token>');
+
+  // Someone else signed in in that browser, an account with no email: told by its name.
+  assert.deepEqual((await admin('GET', `/api/creator-invitations/${tokenOf(inv.link)}`)).data.signed_in,
+    { email: null, name: 'admin', same: false });
+  const nameless = suite.accounts.create({ username: 'nameless' });
+  assert.deepEqual((await browser(`demo_sid=${suite.sessions.open(nameless.id)}`)('GET', `/api/creator-invitations/${tokenOf(inv.link)}`)).data.signed_in,
+    { email: null, name: 'nameless', same: false });
 
   // The admin's alone.
   const ana = suite.accounts.create({ username: 'ana', email: 'ana@example.com' });
@@ -274,9 +283,17 @@ test('the admin’s invitation: its link, its page’s answer, and nothing made 
 test('the admin’s checks: every field, «already invited» unless forced, a code that is taken, and revoking', async (t) => {
   const { suite, admin, browser } = await serve(t);
   const refused = async (body) => (await admin('POST', '/api/admin/creator-invitations', body)).data;
-  assert.deepEqual(await refused({ email: 'x@example.com' }), { error: 'field_required', field: 'name' });
-  assert.deepEqual(await refused({ name: 'X' }), { error: 'field_required', field: 'email' });
   assert.deepEqual(await refused({ name: 'X', email: 'nope' }), { error: 'field_invalid', field: 'email' });
+  assert.deepEqual(await refused({ name: 'x'.repeat(81) }), { error: 'field_too_long', field: 'name', max: 80 });
+  assert.deepEqual(await refused({ creator: 'yes' }), { error: 'field_invalid', field: 'creator' });
+  // Several accounts from one link: only for the plan alone, and for nobody named by their email.
+  assert.deepEqual(await refused({ uses: 5 }), { error: 'field_invalid', field: 'uses' });
+  assert.deepEqual(await refused({ creator: false, email: 'x@example.com', uses: 5 }), { error: 'field_invalid', field: 'uses' });
+  assert.deepEqual(await refused({ creator: false, uses: 1001 }), { error: 'field_invalid', field: 'uses' });
+  // Until a day: one to come, and not with months besides.
+  assert.deepEqual(await refused({ pro_until: '2001-01-01T00:00:00Z' }), { error: 'field_invalid', field: 'pro_until' });
+  assert.deepEqual(await refused({ pro_until: '2099-01-01T00:00:00Z', pro_months: 3 }), { error: 'field_invalid', field: 'pro_until' });
+  assert.deepEqual(await refused({ pro_until: 'soon' }), { error: 'field_invalid', field: 'pro_until' });
   assert.deepEqual(await refused({ name: 'X', email: 'x@example.com', pro_months: 0 }), { error: 'field_invalid', field: 'pro_months' });
   assert.deepEqual(await refused({ name: 'X', email: 'x@example.com', days: 91 }), { error: 'field_invalid', field: 'days' });
   assert.deepEqual(await refused({ name: 'X', email: 'x@example.com', code: 'NO' }), { error: 'field_invalid', field: 'code' });
@@ -406,7 +423,7 @@ test('Pro for good, and an email that has an account: no second one, the invitat
   assert.equal((await visitor('POST', `/api/creator-invitations/${token}/claim`, {})).status, 401);
 
   const signed = as(ana);
-  assert.deepEqual((await signed('GET', `/api/creator-invitations/${token}`)).data.signed_in, { email: 'ana@example.com', same: true });
+  assert.deepEqual((await signed('GET', `/api/creator-invitations/${token}`)).data.signed_in, { email: 'ana@example.com', name: 'ana', same: true });
   const claimed = await signed('POST', `/api/creator-invitations/${token}/claim`, { code: 'ANA20' });
   assert.equal(claimed.status, 200, JSON.stringify(claimed.data));
   assert.deepEqual([claimed.data.code, claimed.data.plan_ends, claimed.data.signed_in], ['ANA20', null, true]);
@@ -428,7 +445,7 @@ test('a code the provider already has: nothing kept, a free one offered, and the
   assert.equal(suite.affiliates.codeOf('TAKEN1'), null, 'no code');
   assert.equal(suite.database.get('SELECT status FROM creator_invitations WHERE id = ?', made.id).status, 'pending');
   // The page, as they are now: signed in, it claims with the code offered.
-  assert.deepEqual((await page('GET', `/api/creator-invitations/${token}`)).data.signed_in, { email: 'taken@example.com', same: true });
+  assert.deepEqual((await page('GET', `/api/creator-invitations/${token}`)).data.signed_in, { email: 'taken@example.com', name: 'Taken', same: true });
   const second = await page('POST', `/api/creator-invitations/${token}/claim`, { code: 'TAKEN12' });
   assert.equal(second.status, 200, JSON.stringify(second.data));
   assert.equal(grantsOf(suite, user.id).length, 1);
@@ -446,7 +463,7 @@ test('over time: an invitation nobody used keeps only its email’s hash, and «
   assert.equal(suite.creatorInvitations.sweep(), 1);
   const row = suite.database.get('SELECT * FROM creator_invitations WHERE id = ?', made.id);
   const left = Object.fromEntries(Object.entries(row).filter(([, value]) => value !== null));
-  assert.deepEqual(Object.keys(left).sort(), ['created_at', 'created_by', 'email_hash', 'ended_at', 'expires_at', 'id', 'status']);
+  assert.deepEqual(Object.keys(left).sort(), ['created_at', 'created_by', 'creator', 'email_hash', 'ended_at', 'expires_at', 'id', 'status', 'used', 'uses']);
   assert.equal(row.status, 'expired');
   assert.ok(!JSON.stringify(row).includes('late'), 'nothing of the person');
   assert.equal(suite.database.get('SELECT status FROM creator_invitations WHERE id = ?', kept.id).status, 'pending', 'the other stays');
@@ -465,6 +482,77 @@ test('off without affiliates.invitations: no routes, no page, no tab', async (t)
   assert.equal((await browser()('GET', '/api/creator-invitations/ci_abcdefghijklmnopqrstuvwxyz')).status, 404);
   assert.equal((await browser()('GET', '/i/ci_abcdefghijklmnopqrstuvwxyz')).status, 404);
   assert.equal((await browser()('GET', '/api/auth/config')).data.app.modules.creator_invitations, undefined);
+});
+
+test('a link for many with the plan alone: no name, no email, a month of Pro for each account, once each', async (t) => {
+  const { suite, admin, browser, as, provider } = await serve(t);
+  const made = await admin('POST', '/api/admin/creator-invitations', { name: 'Reddit r/mcp', creator: false, pro_months: 1, uses: 2 });
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  const inv = made.data.invitation;
+  assert.deepEqual([inv.creator, inv.code, inv.offer, inv.uses, inv.used, inv.email], [false, null, null, 2, 0, null]);
+  const token = tokenOf(inv.link);
+  const page = (await browser()('GET', `/api/creator-invitations/${token}`)).data;
+  assert.deepEqual([page.name, page.email, page.creator, page.pro_months, page.code, page.existing], [null, null, false, 1, undefined, null],
+    'its label is the admin’s, never a greeting; no code to choose');
+  assert.equal((await browser()('GET', `/api/creator-invitations/${token}/code?code=ABC`)).status, 404, 'no code for the plan alone');
+
+  // Whoever enters writes their email: an account made with it, not taken as confirmed.
+  const first = browser();
+  assert.deepEqual((await first('POST', `/api/creator-invitations/${token}/accept`, { password: PASSWORD })).data,
+    { error: 'field_required', field: 'email' });
+  const one = await first('POST', `/api/creator-invitations/${token}/accept`, { password: PASSWORD, email: 'Reader.One@example.com' });
+  assert.equal(one.status, 200, JSON.stringify(one.data));
+  assert.deepEqual([one.data.code, one.data.discount, one.data.signed_in], [null, false, true]);
+  const reader = suite.accounts.byEmail('reader.one@example.com');
+  assert.equal(reader.email_verified_at, null, 'an email the link didn’t name is not taken as confirmed');
+  const [grant] = grantsOf(suite, reader.id);
+  assert.equal(grant.ends_at, new Date(addMonths(Date.parse(grant.starts_at), 1)).toISOString(), 'a month');
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM affiliate_codes').n, 0, 'no code');
+  assert.deepEqual(provider.calls, [], 'nothing at the provider');
+  // The same account can't take it twice; an email with an account is told to sign in.
+  assert.equal((await first('POST', `/api/creator-invitations/${token}/claim`, {})).data.error, 'invitation_claimed');
+  assert.equal((await browser()('POST', `/api/creator-invitations/${token}/accept`, { password: PASSWORD, email: 'reader.one@example.com' })).data.error,
+    'account_exists');
+  // Still pending, one use left; the sign-in elsewhere carries the email they wrote.
+  const listed = (await admin('GET', '/api/admin/creator-invitations')).data.invitations[0];
+  assert.deepEqual([listed.status, listed.used, listed.name], ['pending', 1, 'Reddit r/mcp'], 'the label stays on a link for many');
+  assert.equal((await browser()('GET', `/api/creator-invitations/${token}/sign-in?email=reader.one@example.com`)).status, 404,
+    'no provider to sign in at, with passwords here');
+
+  // An account someone already has takes the second use; then the link is used up.
+  const ben = suite.accounts.create({ username: 'ben', email: 'ben@example.com' });
+  assert.equal((await as(ben)('POST', `/api/creator-invitations/${token}/claim`, {})).status, 200);
+  const full = await browser()('POST', `/api/creator-invitations/${token}/accept`, { password: PASSWORD, email: 'third@example.com' });
+  assert.deepEqual([full.status, full.data.error], [409, 'invitation_claimed']);
+  assert.deepEqual((await browser()('GET', `/api/creator-invitations/${token}`)).data, { status: 'claimed' });
+  const detail = (await admin('GET', `/api/admin/creator-invitations/${inv.id}`)).data.invitation;
+  assert.deepEqual([detail.status, detail.used, detail.accounts.map((a) => a.user.email).sort()],
+    ['claimed', 2, ['ben@example.com', 'reader.one@example.com']]);
+  // An account that goes is no longer listed among them.
+  suite.accounts.remove(ben.id);
+  assert.deepEqual((await admin('GET', `/api/admin/creator-invitations/${inv.id}`)).data.invitation.accounts.map((a) => a.user.email),
+    ['reader.one@example.com']);
+});
+
+test('Pro until a day, for a friend by name and email: the grant ends that day, and the page says so', async (t) => {
+  const { suite, admin, browser } = await serve(t);
+  const until = new Date(Date.now() + 40 * DAY).toISOString();
+  const inv = (await admin('POST', '/api/admin/creator-invitations', { name: 'Ana', email: 'ana@example.com', creator: false, pro_until: until })).data.invitation;
+  assert.deepEqual([inv.pro_until, inv.pro_months], [until, null]);
+  const page = browser();
+  const answer = (await page('GET', `/api/creator-invitations/${tokenOf(inv.link)}`)).data;
+  assert.deepEqual([answer.name, answer.email, answer.pro_until, answer.pro_months], ['Ana', 'ana@example.com', until, null]);
+  const done = await page('POST', `/api/creator-invitations/${tokenOf(inv.link)}/accept`, { password: PASSWORD });
+  assert.equal(done.data.plan_ends, until);
+  const user = suite.accounts.byEmail('ana@example.com');
+  assert.ok(user.email_verified_at, 'the email the link named is confirmed');
+  assert.equal(grantsOf(suite, user.id)[0].ends_at, until);
+  // A day that has come: the invitation is over too, whatever its own days say.
+  const late = (await admin('POST', '/api/admin/creator-invitations', { creator: false, pro_until: new Date(Date.now() + DAY).toISOString() })).data.invitation;
+  suite.database.run('UPDATE creator_invitations SET pro_until = ? WHERE id = ?', new Date(Date.now() - 1000).toISOString(), late.id);
+  assert.deepEqual((await browser()('GET', `/api/creator-invitations/${tokenOf(late.link)}`)).data, { status: 'expired' });
+  assert.equal((await browser()('POST', `/api/creator-invitations/${tokenOf(late.link)}/accept`, { password: PASSWORD, email: 'x@example.com' })).data.error,
+    'invitation_expired');
 });
 
 /* ----------------------------------- WorkOS ----------------------------------- */
@@ -548,4 +636,17 @@ test('WorkOS: an email with a login elsewhere signs in there and claims on the w
   const refused = await third('POST', `/api/creator-invitations/${tokenOf(zoe.link)}/accept`, { password: PASSWORD });
   assert.deepEqual([refused.status, refused.data.signed_in, third.cookie], [200, false, '']);
   assert.equal(suite.entitlements.of(suite.accounts.byEmail('zoe@example.com')).plan.id, 'pro');
+
+
+  // A link for many: the email they write is WorkOS's to confirm, with a code on AuthKit's page.
+  workos.state.refuse = false;
+  const many = (await admin('POST', '/api/admin/creator-invitations', { creator: false, pro_months: 1, uses: 10 })).data.invitation;
+  const reader = browser();
+  const read = await reader('POST', `/api/creator-invitations/${tokenOf(many.link)}/accept`, { password: PASSWORD, email: 'reader@example.com' });
+  assert.deepEqual([read.status, read.data.signed_in], [200, false], JSON.stringify(read.data));
+  const login = [...workos.users.values()].find((u) => u.email === 'reader@example.com');
+  assert.equal(login.email_verified, false, 'not taken as confirmed');
+  const account = suite.accounts.identitiesOf(suite.database.get("SELECT user_id FROM user_identities WHERE subject = ?", login.id).user_id);
+  assert.equal(account.length, 1, 'the account here, linked, waiting for its email to be confirmed');
+  assert.equal(suite.database.get('SELECT used FROM creator_invitations WHERE id = ?', many.id).used, 1);
 });

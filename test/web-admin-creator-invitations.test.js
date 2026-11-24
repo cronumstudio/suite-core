@@ -25,7 +25,8 @@ test('Creators’ invitations: a row each, the ended ones counted, and a new one
   globalThis.window = { location: { hash: '#/affiliates' }, addEventListener: () => {}, matchMedia: () => ({ matches: false }) };
   const sent = [];
   const pending = {
-    id: 3, status: 'pending', name: 'María López', email: 'maria@example.com', pro_months: 12, code: 'MARIA20',
+    id: 3, status: 'pending', name: 'María López', email: 'maria@example.com', creator: true, pro_months: 12, pro_until: null,
+    uses: 1, used: 0, code: 'MARIA20',
     created_at: '2026-11-24T10:00:00.000Z', expires_at: '2026-12-24T10:00:00.000Z', ended: false, user: null,
     link: 'https://work.example/i/ci_abc',
   };
@@ -41,11 +42,17 @@ test('Creators’ invitations: a row each, the ended ones counted, and a new one
       invitations: [
         pending,
         {
-          id: 2, status: 'claimed', name: null, email: null, pro_months: null, code: 'LEO20', ended: false, code_id: 7,
+          id: 2, status: 'claimed', name: null, email: null, creator: true, pro_months: null, pro_until: null, uses: 1, used: 1,
+          code: 'LEO20', ended: false, code_id: 7,
           created_at: '2026-11-20T10:00:00.000Z', expires_at: '2026-12-20T10:00:00.000Z', claimed_at: '2026-11-21T10:00:00.000Z',
           user: { id: 9, email: 'leo@example.com', display_name: 'Leo' },
         },
-        { id: 1, status: 'expired', name: null, email: null, pro_months: null, code: null, ended: true, created_at: '2026-10-01T10:00:00.000Z', expires_at: '2026-10-31T10:00:00.000Z' },
+        { id: 1, status: 'expired', name: null, email: null, creator: true, pro_months: null, code: null, uses: 1, used: 0, ended: true, created_at: '2026-10-01T10:00:00.000Z', expires_at: '2026-10-31T10:00:00.000Z' },
+        {
+          id: 5, status: 'pending', name: 'Reddit r/mcp', email: null, creator: false, pro_months: null, pro_until: '2026-12-31T22:59:59.000Z',
+          uses: 50, used: 3, code: null, ended: false, created_at: '2026-11-24T10:00:00.000Z', expires_at: '2026-12-24T10:00:00.000Z',
+          link: 'https://work.example/i/ci_many',
+        },
       ],
       defaults: {
         days: 30, pro_months: 12, offer: { type: 'percent', percent: 20 }, products: ['pro-yearly'], reward: { cash: 600, currency: 'EUR' },
@@ -67,8 +74,12 @@ test('Creators’ invitations: a row each, the ended ones counted, and a new one
   assert.ok(main.find('h2').some((h) => h.textContent === english['admin.creatorInvites.title']));
   assert.ok(main.find('p').some((p) => p.textContent === english['admin.creatorInvites.lead'].replace('{days}', '30')));
   const rows = main.find('tr').slice(1).map((row) => row.childNodes.map((cell) => cell.textContent));
-  assert.equal(rows.length, 2, 'the ended one is only counted');
-  const [maria, leo] = rows;
+  assert.equal(rows.length, 3, 'the ended one is only counted');
+  const [maria, leo, reddit] = rows;
+  assert.match(reddit[0], /Reddit r\/mcp.*For 50 people/, 'a link for many, by its label');
+  assert.match(reddit[1], /^Until /, 'Pro until a day');
+  assert.equal(reddit[2], english['admin.creatorInvites.planOnly']);
+  assert.match(reddit[3], /3 of 50 used/);
   assert.match(maria[0], /María López.*maria@example\.com/);
   assert.equal(maria[1], '12 months');
   assert.equal(maria[2], 'MARIA20');
@@ -90,7 +101,7 @@ test('Creators’ invitations: a row each, the ended ones counted, and a new one
   inputs[0].value = 'Ada';
   inputs[1].value = 'ada@example.com';
   selects[0].value = 'forever';
-  inputs[2].value = 'ada10';
+  inputs.find((i) => i.getAttribute('placeholder') === 'MARIA20').value = 'ada10';
   const reward = inputs.find((i) => i.value === '6');
   reward.value = '10';
   dialog.dispatch('submit', { preventDefault() {} });
@@ -98,7 +109,7 @@ test('Creators’ invitations: a row each, the ended ones counted, and a new one
   const [[method, path, body]] = sent;
   assert.deepEqual([method, path], ['POST', '/api/admin/creator-invitations']);
   assert.deepEqual(body, {
-    name: 'Ada', email: 'ada@example.com', code: 'ada10', pro_months: null, campaign: null, note: null, days: 30,
+    name: 'Ada', email: 'ada@example.com', creator: true, code: 'ada10', pro_months: null, campaign: null, note: null, days: 30,
     offer: { type: 'percent', percent: 20 }, products: ['pro-yearly'], reward: { cash: 1000, currency: 'EUR' },
   });
 });

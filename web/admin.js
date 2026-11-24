@@ -1973,36 +1973,41 @@ async function renderAffiliates(main) {
 
 /* ------------------------------ creators' invitations ----------------------------- */
 
-/** How long an invitation's plan lasts: some months, or for good. */
-const proFor = (months) => (months == null ? t('admin.creatorInvites.forever') : t('affiliates.months', { n: months }));
+/** The plan an invitation gives: some months, until a day, or for good. */
+const proFor = (inv) => (inv.pro_until ? t('admin.creatorInvites.untilDate', { date: formatDate(inv.pro_until) })
+  : inv.pro_months == null ? t('admin.creatorInvites.forever') : t('affiliates.months', { n: inv.pro_months }));
 const inviteBadge = (status) => el('span', {
   class: `kit-badge kit-badge--${{ pending: 'accent', claimed: 'ok', revoked: 'warn', expired: 'warn' }[status] || 'accent'}`,
   text: t(`admin.creatorInvites.status.${status}`),
 });
-/** When it ends, or what came of it and when. */
-const inviteWhen = (inv) => ({
+/** When it ends, or what came of it and when; and, for a link for many, how many used it. */
+const inviteWhen = (inv) => [({
   pending: () => t('admin.creatorInvites.expires', { date: formatDate(inv.expires_at) }),
   claimed: () => t('admin.creatorInvites.claimedOn', { date: formatDate(inv.claimed_at) }),
   revoked: () => t('admin.creatorInvites.revokedOn', { date: formatDate(inv.revoked_at) }),
   expired: () => t('admin.creatorInvites.expiredOn', { date: formatDate(inv.expires_at) }),
-}[inv.status] || (() => ''))();
+}[inv.status] || (() => ''))(), inv.uses > 1 ? t('admin.creatorInvites.usedOf', { n: inv.used, uses: inv.uses }) : null]
+  .filter(Boolean).join(' · ');
 
 /**
- * Creators invited before they have an account (creator-invitations.js): each with its state, its
- * link to copy while it is pending and the way to take it back. Those whose days are over are only
- * counted: nothing of them is left to show but their email's hash.
+ * Invitations with the plan (creator-invitations.js): each with whom it is for (or nobody named),
+ * the plan it gives, a creator's code or the plan alone, its state, its link to copy while it is
+ * pending and the way to take it back. Those whose days are over are only counted: nothing of them is
+ * left to show but their email's hash.
  */
 async function invitationsBlock(view) {
   const { invitations, defaults } = await api.get('/api/admin/creator-invitations');
   const shown = invitations.filter((inv) => !inv.ended);
   const ended = invitations.length - shown.length;
   const rows = shown.map((inv) => el('tr', {},
-    el('td', {}, el('strong', { text: inv.name || inv.user?.display_name || t('admin.affiliates.gone') }),
-      el('small', { text: inv.email || inv.user?.email || '' })),
-    el('td', { text: proFor(inv.pro_months) }),
-    el('td', {}, inv.code ? el('code', { class: 'kit-mono', text: inv.code }) : null),
+    el('td', {}, el('strong', { text: inv.name || inv.user?.display_name || t('admin.creatorInvites.anyone') }),
+      el('small', { text: inv.email || inv.user?.email || (inv.uses > 1 ? t('admin.creatorInvites.many', { n: inv.uses }) : '') })),
+    el('td', { text: proFor(inv) }),
+    el('td', {}, inv.creator
+      ? (inv.code ? el('code', { class: 'kit-mono', text: inv.code }) : el('span', { text: t('admin.creatorInvites.codeLater') }))
+      : el('span', { text: t('admin.creatorInvites.planOnly') })),
     el('td', {}, inviteBadge(inv.status), el('small', { text: inviteWhen(inv) })),
-    el('td', {},
+    el('td', {}, el('div', { class: 'kit-row' },
       inv.link ? el('button', {
         type: 'button', class: 'kit-link', text: t('admin.creatorInvites.copy'),
         onClick: () => copyText(inv.link),
@@ -2010,7 +2015,7 @@ async function invitationsBlock(view) {
       inv.status === 'pending' ? el('button', {
         type: 'button', class: 'kit-link', text: t('admin.creatorInvites.revoke'),
         onClick: async () => {
-          const asked = t('admin.creatorInvites.revokeConfirm', { name: inv.name || inv.email || '' });
+          const asked = t('admin.creatorInvites.revokeConfirm', { name: inv.name || inv.email || t('admin.creatorInvites.anyone') });
           if (!(await confirmDialog(asked, { confirm: t('admin.creatorInvites.revoke') }))) return;
           try {
             await api.delete(`/api/admin/creator-invitations/${inv.id}`);
@@ -2018,10 +2023,10 @@ async function invitationsBlock(view) {
           } catch (err) { fail(err); }
         },
       }) : null,
-      inv.status === 'claimed' && inv.code_id ? el('button', {
+      inv.creator && inv.code_id && inv.uses === 1 ? el('button', {
         type: 'button', class: 'kit-link', text: t('admin.affiliates.open'),
         onClick: () => affiliateDialog(inv.code_id).catch(fail),
-      }) : null)));
+      }) : null))));
   return [
     el('h2', { text: t('admin.creatorInvites.title') }),
     el('p', { class: 'kit-lead', text: t('admin.creatorInvites.lead', { days: defaults.days }) }),
@@ -2039,10 +2044,12 @@ async function invitationsBlock(view) {
 /** The link of an invitation just made, to copy and send in person. */
 function invitationLink(inv) {
   const shown = el('code', { class: 'kit-mono', text: inv.link });
+  const whom = inv.name || inv.email;
   openDialog({
     title: t('admin.creatorInvites.made'),
     content: [
-      el('p', { text: t('admin.creatorInvites.madeLead', { name: inv.name, date: formatDate(inv.expires_at) }) }),
+      el('p', { text: whom ? t('admin.creatorInvites.madeLead', { name: whom, date: formatDate(inv.expires_at) })
+        : t('admin.creatorInvites.madeLeadMany', { n: inv.uses, date: formatDate(inv.expires_at) }) }),
       el('div', { class: 'kit-copy' }, shown, el('button', {
         type: 'button', class: 'kit-btn kit-btn--small', text: t('admin.creatorInvites.copy'), onClick: () => copyText(inv.link, shown),
       })),
@@ -2052,16 +2059,25 @@ function invitationLink(inv) {
 }
 
 /**
- * A new invitation: whom (a name and an email), how long their Pro lasts, the code it starts with
- * (one from the name when left empty), and the campaign's terms, the program's by default.
+ * A new invitation, with only what the admin knows: a name and an email or neither, the plan for
+ * some months, until a day or for good, a creator's code and terms (the program's by default) or the
+ * plan alone, and how many accounts the link makes when it names nobody.
  */
 function invitationDialog(view, defaults) {
-  const name = el('input', { maxlength: '80', autocomplete: 'off' });
-  const email = el('input', { type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254' });
+  const name = el('input', { maxlength: '80', autocomplete: 'off', placeholder: t('admin.users.optional') });
+  const email = el('input', {
+    type: 'email', autocomplete: 'off', autocapitalize: 'none', spellcheck: 'false', maxlength: '254', placeholder: t('admin.users.optional'),
+  });
   const months = el('select', {}, [1, 3, 6, 12, 24].map((n) => el('option', { value: String(n), text: t('affiliates.months', { n }) })),
+    el('option', { value: 'until', text: t('admin.creatorInvites.untilOption') }),
     el('option', { value: 'forever', text: t('admin.creatorInvites.forever') }));
   months.value = defaults.pro_months == null ? 'forever' : String(defaults.pro_months);
   if (!months.value) months.value = '12';
+  // «Until a day»: the last day of this year by default.
+  const until = el('input', { type: 'date', value: `${new Date().getFullYear()}-12-31` });
+  const untilField = field(t('admin.creatorInvites.untilDay'), until);
+  const creator = el('input', { type: 'checkbox' });
+  creator.checked = true;
   const code = el('input', { autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', maxlength: '32', placeholder: 'MARIA20' }); // i18n-exempt: a code, the same in every language
   code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
   const campaign = el('input', { maxlength: '80', autocomplete: 'off', placeholder: t('admin.users.optional') });
@@ -2079,18 +2095,45 @@ function invitationDialog(view, defaults) {
     box.checked = defaults.products.includes(key);
     return box;
   });
+  const uses = el('input', { inputmode: 'numeric', autocomplete: 'off', value: '1' });
+  const usesField = field(t('admin.creatorInvites.uses'), uses, t('admin.creatorInvites.usesHint'));
   const days = el('input', { inputmode: 'numeric', autocomplete: 'off', value: String(defaults.days) });
   const note = el('input', { maxlength: '500', autocomplete: 'off', placeholder: t('admin.users.optional') });
+  const creatorPart = el('div', { class: 'kit-stack' },
+    el('div', { class: 'kit-grid' },
+      field(t('fields.code'), code, t('admin.creatorInvites.codeHint')),
+      field(t('fields.campaign'), campaign)),
+    el('div', { class: 'kit-grid' },
+      field(t('fields.offer'), offerType),
+      field(t('admin.affiliates.offerValue'), offerValue),
+      field(t('fields.reward'), reward, t('admin.affiliates.rewardHint', { currency: defaults.reward.currency }))),
+    el('div', { class: 'kit-field', role: 'group', 'aria-label': t('fields.products') },
+      el('span', { text: t('fields.products') }),
+      products.map((box) => el('label', { class: 'kit-check' }, box, el('span', { text: box.value })))));
+  // What shows depends on what is chosen: the day for «until», the creator's terms, the uses for the plan alone.
+  const sync = () => {
+    untilField.hidden = months.value !== 'until';
+    creatorPart.hidden = !creator.checked;
+    usesField.hidden = creator.checked || Boolean(email.value.trim());
+  };
+  months.addEventListener('change', sync);
+  creator.addEventListener('change', sync);
+  email.addEventListener('input', sync);
+  sync();
   const bodyOf = (force = false) => {
     const flat = offerType.value === 'flat';
+    const isCreator = creator.checked;
     return {
-      name: name.value.trim(), email: email.value.trim(), code: code.value.trim() || null,
-      pro_months: months.value === 'forever' ? null : Number(months.value),
-      campaign: campaign.value.trim() || null, note: note.value.trim() || null, days: Math.round(Number(days.value)),
-      offer: flat ? { type: 'flat', amount: centsOf(offerValue.value), currency: defaults.reward.currency }
-        : { type: 'percent', percent: Math.round(Number(offerValue.value.replace(',', '.'))) },
-      products: products.filter((box) => box.checked).map((box) => box.value),
-      reward: { cash: centsOf(reward.value), currency: defaults.reward.currency },
+      name: name.value.trim() || null, email: email.value.trim() || null, creator: isCreator,
+      ...(months.value === 'until' ? { pro_until: endOfDay(until.value) } : { pro_months: months.value === 'forever' ? null : Number(months.value) }),
+      note: note.value.trim() || null, days: Math.round(Number(days.value)),
+      ...(isCreator ? {
+        code: code.value.trim() || null, campaign: campaign.value.trim() || null,
+        offer: flat ? { type: 'flat', amount: centsOf(offerValue.value), currency: defaults.reward.currency }
+          : { type: 'percent', percent: Math.round(Number(offerValue.value.replace(',', '.'))) },
+        products: products.filter((box) => box.checked).map((box) => box.value),
+        reward: { cash: centsOf(reward.value), currency: defaults.reward.currency },
+      } : { uses: email.value.trim() ? 1 : Math.round(Number(uses.value)) || 1 }),
       ...(force ? { force: true } : {}),
     };
   };
@@ -2100,18 +2143,14 @@ function invitationDialog(view, defaults) {
       el('p', { class: 'kit-hint', text: t('admin.creatorInvites.newLead') }),
       el('div', { class: 'kit-grid' },
         field(t('fields.name'), name),
-        field(t('fields.email'), email),
+        field(t('fields.email'), email, t('admin.creatorInvites.emailHint'))),
+      el('div', { class: 'kit-grid' },
         field(t('admin.creatorInvites.pro'), months),
-        field(t('fields.code'), code, t('admin.creatorInvites.codeHint'))),
+        untilField),
+      el('label', { class: 'kit-check' }, creator, el('span', { text: t('admin.creatorInvites.withCode') })),
+      creatorPart,
       el('div', { class: 'kit-grid' },
-        field(t('fields.offer'), offerType),
-        field(t('admin.affiliates.offerValue'), offerValue),
-        field(t('fields.reward'), reward, t('admin.affiliates.rewardHint', { currency: defaults.reward.currency }))),
-      el('div', { class: 'kit-field', role: 'group', 'aria-label': t('fields.products') },
-        el('span', { text: t('fields.products') }),
-        products.map((box) => el('label', { class: 'kit-check' }, box, el('span', { text: box.value })))),
-      el('div', { class: 'kit-grid' },
-        field(t('fields.campaign'), campaign),
+        usesField,
         field(t('admin.creatorInvites.days'), days),
         field(t('fields.note'), note)),
     ],
