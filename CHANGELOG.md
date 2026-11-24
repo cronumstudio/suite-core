@@ -5,11 +5,16 @@ change an interface and a patch never does. Apps pin a version through the submo
 
 ## 0.329.0 — 2026-11-24
 
-- **Tests only.** Two tests checked a line of the log once, right after what writes it had been
-  asked for, and failed now and then on a busy machine: the deletion of a group's last member
-  (`test/admin-deletion.test.js`, the stop of the group's subscription in the audit log) and the
-  first alert email (`test/alerts.test.js`, its "alert sent" line). Both lines come only once the
-  provider or the mail server has answered, so the tests now wait for them. Nothing else changes.
+- **Tests only.** Three tests checked something once, at a fixed moment, and failed now and then
+  on a busy machine. They now wait for it:
+  - the deletion of a group's last member (`test/admin-deletion.test.js`): the stop of the group's
+    subscription goes into the audit log only once the provider has answered;
+  - the first alert email (`test/alerts.test.js`): its "alert sent" line comes only once the mail
+    server has answered;
+  - the keyboard going down after a wait (`test/web-kit.test.js`): two timers run in a row, the
+    focus's and then the wait's.
+
+  Nothing else changes.
 
 ## 0.328.0 — 2026-11-25
 
