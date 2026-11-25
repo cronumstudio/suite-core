@@ -181,7 +181,7 @@ export function createOidcClient({
  */
 export function createOidcAccounts({
   baseUrl, oidc, accounts, adminEmail = '', sessions, secureCookies = false, stateCookie = 'suite_oidc',
-  pendingDeletion = null, afterSignIn = null, log = console.log,
+  pendingDeletion = null, afterSignIn = null, origins = null, log = console.log,
 }) {
   const BASE_URL = noSlash(baseUrl);
   const REDIRECT = `${BASE_URL}/auth/callback`;
@@ -203,7 +203,9 @@ export function createOidcAccounts({
         const state = crypto.randomBytes(16).toString('base64url');
         const nonce = crypto.randomBytes(16).toString('base64url');
         const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
-        flows.start(res, state, [state, verifier, nonce, back].join('.'));
+        // Where they come from, for an account made on the way back (origins.js), with the state.
+        const from = origins?.pack(origins.fromLogin(req, url)) || '';
+        flows.start(res, state, [state, verifier, nonce, back, ...(from ? [from] : [])].join('.'));
         // `prompt=login` from the device connect page (device-pages.js), to sign in as someone else,
         // and after someone signed out in this browser (http.js SIGNED_OUT_COOKIE).
         const fresh = url.searchParams.get('prompt') === 'login' || signedOutHere(req);
@@ -216,7 +218,7 @@ export function createOidcAccounts({
     }
 
     if (url.pathname === '/auth/callback') {
-      const [state, verifier, nonce, back] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
+      const [state, verifier, nonce, back, from] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
       const code = url.searchParams.get('code');
       // Without a state matching the cookie's, this return wasn't started by
       // this browser: it could be someone slipping their own account into it.
@@ -227,6 +229,7 @@ export function createOidcAccounts({
       }
       try {
         const claims = await oidc.exchangeCode({ code, verifier, redirectUri: REDIRECT, nonce });
+        origins?.arriving(req, from);
         const user = accounts.fromIdentity({
           provider: PROVIDER, subject: claims.sub, email: claims.email ?? null,
           emailVerified: claims.email_verified === true || claims.email_verified === 'true',

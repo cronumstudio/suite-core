@@ -24,6 +24,7 @@ import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
 import { affiliatesSchema } from './affiliates.js';
 import { creatorInvitationsSchema } from './creator-invitations.js';
+import { originsSchema } from './origins.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
@@ -122,4 +123,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 36, name: 'admin-mcp', up: adminMcpSchema },
   // Creators invited before they have an account, and the hash of each email once that is over (creator-invitations.js).
   { version: 37, name: 'creator-invitations', up: creatorInvitationsSchema },
+  // Where each account came from, and each payment with the origin its account had (origins.js).
+  { version: 38, name: 'account-origins', up: originsSchema },
 ]);

@@ -86,6 +86,7 @@ suite-core/
   affiliates.js         done   referral codes and creators' campaigns: who brought whom, commissions, months given, payouts
   admin-mcp.js          done   the administrator's connector: /admin/mcp, its own OAuth, rules kept by the server
   creator-invitations.js done  invitations with the plan (a creator's code, or the plan alone): a link, and the account, plan and code made when someone enters
+  origins.js            done   where each account came from (a link's tag, the site before, how it was made) and each payment with its origin
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server

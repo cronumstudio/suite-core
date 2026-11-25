@@ -1077,6 +1077,8 @@ export async function createHost({
       affiliates: null,
       // And the creators' invitations: their page at /i/ and the admin's at the root.
       creatorInvitations: null,
+      // And the origins: an account is made at the root, and the admin reads them there.
+      origins: null,
       // Whose something is, in the module's words, with the host's one brake on deletion notices:
       // its email, its push and that brake as the module's suite has them when a notice goes.
       ownership: createOwnership({

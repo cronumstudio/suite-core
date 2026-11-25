@@ -50,6 +50,7 @@ import {
 import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createAffiliates, registerAffiliatesApi } from './affiliates.js';
 import { createCreatorInvitations, registerCreatorInvitationsApi, INVITATION_PATH } from './creator-invitations.js';
+import { createOrigins, registerOriginsApi } from './origins.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
@@ -336,6 +337,21 @@ export function createSuite({
     accounts.whenCreated(affiliates.attributeLink);
     accounts.whenRemoved((userId) => affiliates.forget(userId));
   }
+  // Where each account came from, and each payment with its account's origin (origins.js): what the
+  // sign-in carried is written when the account is made, and payments are noted as they arrive, the
+  // web's with what was charged and the stores' with their product's listed amount.
+  const origins = config.modules.origins ? createOrigins({
+    database, baseUrl: install.baseUrl, ownHosts: [install.workos?.authkitDomain, install.oidc?.issuer].filter(Boolean),
+    products: config.products || {}, storeProducts: config.stores?.products || {},
+    appCookie: config.devices?.connectPage ? `${config.app.id.replace(/-/g, '_')}_connect` : null, log,
+  }) : null;
+  if (origins) {
+    accounts.whenCreated(origins.noteCreated);
+    accounts.whenRemoved((userId) => origins.forget(userId));
+    billing?.whenPaid((paid) => origins.paid(paid, { provider: billing.provider }));
+    billing?.whenRefunded((refund) => origins.refunded(refund, { provider: billing.provider }));
+    stores?.whenApplied(origins.applied);
+  }
   // An account that goes lets go of its links, subscriptions and grants here, never of its login.
   if (config.billing?.forgetOnRemove && (billing || stores)) {
     accounts.whenRemoved((userId) => {
@@ -385,6 +401,7 @@ export function createSuite({
     // Without an MCP, AI clients find no OAuth metadata to follow.
     mcp: config.modules.mcp,
     afterSignIn: connectAfterSignIn({ config, sessions }),
+    origins,
     sessions: {
       open: (res, userId, { workosSessionId, req = null, authTime = null }) => {
         freshSignIns.note(sessions.open(userId, { req, res, idpSessionId: workosSessionId }), authTime);
@@ -404,6 +421,7 @@ export function createSuite({
     stateCookie: `${config.app.id.replace(/-/g, '_')}_oidc`,
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     afterSignIn: connectAfterSignIn({ config, sessions }),
+    origins,
     sessions: {
       open: (res, userId, { idpSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId });
@@ -742,7 +760,7 @@ export function createSuite({
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    shareMail, shareBrake, goneBrake, affiliates, creatorInvitations,
+    shareMail, shareBrake, goneBrake, affiliates, creatorInvitations, origins,
     /**
      * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
      * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
@@ -1071,6 +1089,8 @@ export function createApp({
     accounts.whenRemoved((userId) => adminMcp.forget(userId));
     registerAdminMcpApi(api, { adminMcp, audit });
   }
+  // An account's origin and its payments, for the admin's panel (origins.js).
+  if (suite.origins && config.modules.admin) registerOriginsApi(api, { origins: suite.origins, accounts });
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) {
     registerPushApi(api, {

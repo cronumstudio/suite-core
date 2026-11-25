@@ -61,6 +61,27 @@ const STRAIGHT = 'suite.signInStraight';
  * (`cookies`, the server's mark): another tab of Work that lost its session with that sign-out
  * used to go to the provider at once and come back signed in, a second later.
  */
+/**
+ * Where this page was reached from, for `/auth/login` to carry to an account made now (the
+ * server's origins.js, which checks both again): the tag of the link in the page's address
+ * (`?src=`, else `?utm_source=` or `?ref=`) and, when the page before was another site's, that
+ * site's domain alone, never its page. Read from the address and `document.referrer` as they are
+ * now and kept nowhere. → `src=…&via=…`, either part or none ('').
+ */
+export function arrivalQuery({ search = '', referrer = '', host = '' } = {}) {
+  const query = new URLSearchParams(search);
+  const src = ['src', 'utm_source', 'ref'].map((name) => query.get(name)).find((value) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(value || ''));
+  let via = query.get('via');
+  if (!via && referrer) {
+    try { via = new URL(referrer).hostname; } catch { via = null; }
+  }
+  if (via && (via === host || !/^[A-Za-z0-9._-]{3,80}$/.test(via))) via = null;
+  const out = new URLSearchParams();
+  if (src) out.set('src', src.toLowerCase());
+  if (via) out.set('via', via.toLowerCase());
+  return out.toString();
+}
+
 export function straightToProvider({ storage = null, now = Date.now(), framed = FRAMED, app = inApp(), cookies = null } = {}) {
   if (framed || app) return false;
   if (signedOutInBrowser(cookies)) return false;
