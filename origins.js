@@ -31,14 +31,31 @@
  * account that goes takes its origin and its payments' rows with it: they name the provider's
  * transaction and subscription, which are that person's.
  *
+ * What is counted, for the figures by origin (`report`, the admin's Origins):
+ *   visits     to the pages of a site that tells this install of them (`visited`, behind
+ *              `POST /api/origins/visits` with the token of ORIGIN_VISITS_TOKEN): a number per day,
+ *              link's tag or site. Never who: no address, no browser, nothing of the visitor
+ *   marks      what an account did for the first time, once each (`account_marks`): `made`, the
+ *              first thing it created (a route of the app's own answered it 201: in a host, a
+ *              module's; never the suite's routes, where a token or a device is made); `mcp`,
+ *              its first call from an assistant; `limit:<feature>`, each limit of its plan it ran into
+ * `report({ weeks })` puts them together by the week the accounts were made and by origin: the
+ * visits of that week, the accounts made, how many of them did something (`made` or `mcp`), how
+ * many ran into a limit in their first 30 days, how many pay, by plan, and what they have paid.
+ * An account's origin there is one (`originOf`): its link's tag, else the site it came from, else
+ * how it was made. Nobody is asked: an account with no tag, no site and nothing told by how it was
+ * made is one whose origin is not known, and the figures say so.
+ *
  *   const origins = createOrigins({ database, accounts, baseUrl, products, log });
  *   accounts.whenCreated(origins.noteCreated); accounts.whenRemoved(origins.forget);
  *   billing.whenPaid((paid) => origins.paid(paid, { provider: billing.provider }));
  *   billing.whenRefunded((refund) => origins.refunded(refund, { provider: billing.provider }));
  *   stores.whenApplied(origins.applied);
- *   registerOriginsApi(api, { origins });   // GET /api/admin/users/:id/origin
+ *   entitlements.whenLimit(origins.limitReached);   // and each module's, in a host
+ *   registerOriginsApi(api, { origins, accounts, visitsToken });   // /api/admin/origins…, /api/origins/visits
  */
-import { sendJson, requireAdmin, notFound, int, parseCookies } from './http.js';
+import { sendJson, requireAdmin, notFound, unauthorized, int, parseCookies, readJson } from './http.js';
+import { safeEqual } from './crypto.js';
 import { currentRequest, byTheAdmin } from './request-scope.js';
 import { iso } from './time.js';
 
@@ -46,6 +63,42 @@ import { iso } from './time.js';
 const TAG = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 /** A site's domain, or an app's package: labels of letters, digits and dashes, 80 characters at most. */
 const HOST = /^(?=.{3,80}$)(?:[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?\.)+[a-z][a-z0-9_-]{0,23}$/;
+/** What an account's limit is called in its mark: a feature's key. */
+const FEATURE = /^[a-z0-9][a-z0-9._-]{0,59}$/;
+const DAY = 24 * 3600 * 1000;
+/** The most origins a day's visits are told apart by: past them, the rest of that day are `(other)`. */
+const ORIGINS_A_DAY = 500;
+/** The days after it is made in which an account's limit counts in the figures. */
+export const LIMIT_DAYS = 30;
+
+/** The Monday of a moment's week, as a day (UTC): the week the figures put it in. */
+export function weekOf(moment) {
+  const at = new Date(typeof moment === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(moment) ? `${moment}T12:00:00Z` : moment);
+  if (Number.isNaN(at.getTime())) return null;
+  const monday = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() - ((at.getUTCDay() + 6) % 7)));
+  return monday.toISOString().slice(0, 10);
+}
+
+/**
+ * The one origin of an account in the figures, by what is known of it: its link's tag, else the
+ * site it came from, else how it was made when that says something (an assistant, the phone app).
+ * → [kind, origin], kind one of ORIGIN_KINDS.
+ */
+export const ORIGIN_KINDS = Object.freeze(['link', 'site', 'entry', 'none']);
+export function originOf({ src = null, referrer = null, entry = null } = {}) {
+  if (src) return ['link', src];
+  if (referrer) return ['site', referrer];
+  if (entry === 'mcp' || entry === 'app') return ['entry', entry];
+  return ['none', ''];
+}
+
+/** A cell of a CSV: quoted when it must be, and never read as a formula by a spreadsheet. */
+const csvCell = (value) => {
+  let text = value == null ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
 /** How an account can have been made. */
 export const ENTRIES = Object.freeze(['web', 'app', 'mcp', 'other']);
 
@@ -109,6 +162,26 @@ export function originsSchema(d) {
   CREATE INDEX IF NOT EXISTS ix_origin_payments_at ON origin_payments (at);`);
 }
 
+/**
+ * Migration 39: what an account did for the first time (`made`, `mcp`, `limit:<feature>`), once
+ * each, and the visits a site tells of, a number per day and origin.
+ */
+export function originFiguresSchema(d) {
+  d.exec(`CREATE TABLE IF NOT EXISTS account_marks (
+    user_id INTEGER NOT NULL,
+    mark    TEXT NOT NULL,
+    at      TEXT NOT NULL,
+    PRIMARY KEY (user_id, mark)
+  );
+  CREATE TABLE IF NOT EXISTS origin_visits (
+    day      TEXT NOT NULL,
+    src      TEXT NOT NULL DEFAULT '',
+    referrer TEXT NOT NULL DEFAULT '',
+    n        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, src, referrer)
+  )`);
+}
+
 /** How many of a currency's smallest unit make one: 100 for EUR, 1 for JPY. */
 function minorUnits(currency) {
   try {
@@ -133,6 +206,8 @@ export function createOrigins({
   clock = () => Date.now(), log = console.log,
 }) {
   const own = [...new Set([cleanHost(baseUrl), ...ownHosts.map((host) => cleanHost(host))].filter(Boolean))];
+  /** The one origin of an account, as the figures, the summary and the admin's card all say it. */
+  const oneOf = (row) => originOf(row ?? {});
   /** What a sign-in brought, by its request, until the account is made in it (noteCreated). */
   const arrivals = new WeakMap();
 
@@ -267,25 +342,210 @@ export function createOrigins({
     FROM origin_payments WHERE user_id = ? ORDER BY at DESC, id DESC LIMIT 200`, userId)
     .map((row) => ({ ...row, first: Boolean(row.first), estimated: Boolean(row.estimated) }));
 
+  /* ------------------------- what an account did first ------------------------- */
+
+  /** The marks already written since the start: asked first, so a mark costs one write an account. */
+  const marked = new Set();
+  function mark(userId, name, { later = false } = {}) {
+    const id = Number(userId);
+    const key = `${id}:${name}`;
+    if (!Number.isInteger(id) || id < 1 || marked.has(key)) return;
+    marked.add(key);
+    const write = () => {
+      try {
+        database.run('INSERT OR IGNORE INTO account_marks (user_id, mark, at) VALUES (?, ?, ?)', id, name, iso(clock()));
+      } catch (err) {
+        marked.delete(key);
+        log(`[origins] a mark could not be noted: ${err?.message || err}`);
+      }
+    };
+    // A limit is met inside what refuses it, often a transaction about to be undone: written after it.
+    if (later) setImmediate(write);
+    else write();
+  }
+  /** The first thing an account creates (createApp: a route of the app's own answered it 201). Never throws. */
+  const made = (user) => mark(user?.id, 'made');
+  /** Its first call from an assistant (the MCP's quota, when the call goes ahead). */
+  const usedMcp = (user) => mark(user?.id, 'mcp');
+  /** entitlements.whenLimit: a limit of its plan it ran into (a list more than its plan has, its storage, its calls). */
+  const limitReached = (user, feature) => { if (FEATURE.test(String(feature ?? ''))) mark(user?.id, `limit:${feature}`, { later: true }); };
+  const marksOf = (userId) => database.all('SELECT mark, at FROM account_marks WHERE user_id = ? ORDER BY at, mark', userId);
+
+  /* ---------------------------------- visits ---------------------------------- */
+
   /**
-   * accounts.whenRemoved: the account's origin goes with it, and so do its payments' rows. Each
-   * keeps the provider's transaction and subscription, which say whose it was to whoever has the
-   * provider's records; and no figure reads a payment without its account.
+   * A visit a site tells of: one more for today and its origin, the link's tag or else the site
+   * (neither: a visit from nowhere known). Nothing of the visitor comes with it. A day's origins
+   * are told apart up to ORIGINS_A_DAY, so tags nobody published can't grow the table without end.
+   * → whether it was counted.
+   */
+  function visited({ src = null, via = null } = {}) {
+    const tag = cleanTag(src) || '';
+    const site = tag ? '' : cleanHost(via, own) || '';
+    const day = iso(clock()).slice(0, 10);
+    const known = database.get('SELECT 1 AS x FROM origin_visits WHERE day = ? AND src = ? AND referrer = ?', day, tag, site);
+    const full = !known && database.get('SELECT COUNT(*) AS n FROM origin_visits WHERE day = ?', day).n >= ORIGINS_A_DAY;
+    database.run(`INSERT INTO origin_visits (day, src, referrer, n) VALUES (?, ?, ?, 1)
+      ON CONFLICT (day, src, referrer) DO UPDATE SET n = n + 1`, day, full ? '(other)' : tag, full ? '' : site);
+    return true;
+  }
+
+  /* ---------------------------------- figures --------------------------------- */
+
+  /**
+   * The figures by week and origin, for the last `weeks` weeks (this one included), newest first
+   * and, in a week, the origin with most accounts first. A week is Monday to Sunday (UTC). Of the
+   * accounts made in a week from an origin: how many (`signups`), how many did something
+   * (`activated`: created something, or called from an assistant), how many ran into a limit of
+   * their plan within LIMIT_DAYS of being made (`limited`), how many have paid (`paying`, and by
+   * plan in `plans`) and what, refunds left out (`income`, by currency, in its smallest unit).
+   * `visits` are that week's, by the same origin. → { weeks: [monday…], rows }
+   */
+  function report({ weeks = 8 } = {}) {
+    const span = Math.min(Math.max(Math.trunc(Number(weeks)) || 8, 1), 52);
+    const last = weekOf(clock());
+    const first = iso(Date.parse(`${last}T00:00:00Z`) - (span - 1) * 7 * DAY);
+    const rows = new Map();
+    const rowOf = (week, [kind, origin]) => {
+      const key = `${week}|${kind}|${origin}`;
+      if (!rows.has(key)) rows.set(key, { week, kind, origin, visits: 0, signups: 0, activated: 0, limited: 0, paying: 0, plans: {}, payments: 0, income: {} });
+      return rows.get(key);
+    };
+    for (const visit of database.all('SELECT day, src, referrer, n FROM origin_visits WHERE day >= ?', first.slice(0, 10))) {
+      rowOf(weekOf(visit.day), originOf({ src: visit.src, referrer: visit.referrer })).visits += visit.n;
+    }
+    const people = new Map();
+    for (const user of database.all(`SELECT u.id, u.created_at, o.src, o.referrer, o.entry
+      FROM users u LEFT JOIN account_origins o ON o.user_id = u.id WHERE u.created_at >= ?`, first)) {
+      const week = weekOf(user.created_at);
+      const row = rowOf(week, oneOf(user));
+      row.signups += 1;
+      people.set(user.id, { row, madeAt: Date.parse(user.created_at), did: false, limited: false, plan: null, paid: false });
+    }
+    for (const m of database.all(`SELECT m.user_id, m.mark, m.at FROM account_marks m JOIN users u ON u.id = m.user_id
+      WHERE u.created_at >= ?`, first)) {
+      const person = people.get(m.user_id);
+      if (!person) continue;
+      if (m.mark === 'made' || m.mark === 'mcp') person.did = true;
+      else if (m.mark.startsWith('limit:') && Date.parse(m.at) - person.madeAt <= LIMIT_DAYS * DAY) person.limited = true;
+    }
+    for (const payment of database.all(`SELECT p.user_id, p.plan, p.amount, p.currency FROM origin_payments p
+      JOIN users u ON u.id = p.user_id WHERE u.created_at >= ? AND p.refunded_at IS NULL ORDER BY p.at, p.id`, first)) {
+      const person = people.get(payment.user_id);
+      if (!person) continue;
+      person.row.payments += 1;
+      if (payment.amount != null && payment.currency) person.row.income[payment.currency] = (person.row.income[payment.currency] || 0) + payment.amount;
+      // A first month a discount paid whole is no payment yet; a store's without a figure is one.
+      if (payment.amount == null || payment.amount > 0) { person.paid = true; person.plan = payment.plan || person.plan; }
+    }
+    for (const person of people.values()) {
+      if (person.did) person.row.activated += 1;
+      if (person.limited) person.row.limited += 1;
+      if (person.paid) {
+        person.row.paying += 1;
+        const plan = person.plan || '';
+        person.row.plans[plan] = (person.row.plans[plan] || 0) + 1;
+      }
+    }
+    const monday = (n) => iso(Date.parse(`${last}T00:00:00Z`) - n * 7 * DAY).slice(0, 10);
+    return {
+      weeks: Array.from({ length: span }, (_, n) => monday(n)),
+      rows: [...rows.values()].sort((a, b) => b.week.localeCompare(a.week) || b.signups - a.signups || b.visits - a.visits
+        || a.origin.localeCompare(b.origin)),
+    };
+  }
+
+  /** The same figures as a CSV: a line per week and origin, a column per plan and per currency there is. */
+  function exportCsv({ weeks = 8 } = {}) {
+    const { rows } = report({ weeks });
+    const plans = [...new Set(rows.flatMap((row) => Object.keys(row.plans)))].sort();
+    const currencies = [...new Set(rows.flatMap((row) => Object.keys(row.income)))].sort();
+    const lines = [['week', 'kind', 'origin', 'visits', 'signups', 'activated', 'limited', 'paying',
+      ...plans.map((plan) => `paying_${plan || 'unknown'}`), 'payments', ...currencies.map((currency) => `income_${currency}`)]];
+    for (const row of rows) {
+      lines.push([row.week, row.kind, row.origin, row.visits, row.signups, row.activated, row.limited, row.paying,
+        ...plans.map((plan) => row.plans[plan] || 0), row.payments,
+        ...currencies.map((currency) => ((row.income[currency] || 0) / minorUnits(currency)).toFixed(Math.round(Math.log10(minorUnits(currency)))))]);
+    }
+    return `${lines.map((line) => line.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  }
+
+  /**
+   * Where the accounts made between two moments came from, the three origins with most, for the
+   * admin's daily summary: `reddit-mcp 4, google.com 2`, or null with none known.
+   */
+  function topSince(from, to) {
+    const counts = new Map();
+    for (const user of database.all(`SELECT o.src, o.referrer, o.entry FROM users u
+      LEFT JOIN account_origins o ON o.user_id = u.id WHERE u.created_at >= ? AND u.created_at < ?`, from, to)) {
+      const [kind, origin] = oneOf(user);
+      if (kind !== 'none') counts.set(origin, (counts.get(origin) || 0) + 1);
+    }
+    const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3);
+    return top.length ? top.map(([origin, n]) => `${origin} ${n}`).join(', ') : null;
+  }
+
+  /**
+   * accounts.whenRemoved: the account's origin goes with it, and so do what it did first and its
+   * payments' rows. Each payment keeps the provider's transaction and subscription, which say
+   * whose it was to whoever has the provider's records; and no figure reads one without its account.
    */
   function forget(userId) {
+    database.run('DELETE FROM account_marks WHERE user_id = ?', userId);
+    for (const key of marked) if (key.startsWith(`${Number(userId)}:`)) marked.delete(key);
     database.run('DELETE FROM account_origins WHERE user_id = ?', userId);
     database.run('DELETE FROM origin_payments WHERE user_id = ?', userId);
   }
 
-  return { fromLogin, pack, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own };
+  return {
+    fromLogin, pack, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own,
+    made, usedMcp, limitReached, marksOf, visited, report, exportCsv, topSince,
+    /** An account's one origin in the figures: { kind, origin }. */
+    oneOf: (userId) => {
+      const [kind, origin] = oneOf(of(userId));
+      return { kind, origin };
+    },
+  };
 }
 
-/** The admin's route: an account's origin and the payments noted for it. Administrators only. */
-export function registerOriginsApi(router, { origins, accounts }) {
+/**
+ * The routes. The admin's, administrators only: an account's origin, what it did first and its
+ * payments; the figures by week and origin, and the same as a CSV. And, with `visitsToken` (the
+ * install's ORIGIN_VISITS_TOKEN), `POST /api/origins/visits { src, via }` for a site's own server
+ * to tell of a visit: whoever carries the token in `Authorization: Bearer`, no one else, and
+ * without a token set the route isn't there.
+ */
+export function registerOriginsApi(router, { origins, accounts, visitsToken = '' }) {
+  const weeksOf = (ctx) => int(ctx.query?.get('weeks') ?? 8, { field: 'weeks', min: 1, max: 52 });
+  router.get('/api/admin/origins', (ctx) => {
+    requireAdmin(ctx);
+    sendJson(ctx.res, 200, origins.report({ weeks: weeksOf(ctx) }));
+  });
+  router.get('/api/admin/origins/export', (ctx) => {
+    requireAdmin(ctx);
+    const body = origins.exportCsv({ weeks: weeksOf(ctx) });
+    ctx.res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store',
+      'Content-Disposition': 'attachment; filename="origins.csv"',
+    });
+    ctx.res.end(body);
+  });
+  if (visitsToken) {
+    router.post('/api/origins/visits', async (ctx) => {
+      const given = /^Bearer\s+(.+)$/i.exec(String(ctx.req.headers.authorization || ''))?.[1] || '';
+      if (!given || !safeEqual(given, visitsToken)) throw unauthorized();
+      const body = await readJson(ctx.req);
+      origins.visited({ src: body?.src, via: body?.via });
+      ctx.res.writeHead(204, { 'Cache-Control': 'no-store' });
+      ctx.res.end();
+    });
+  }
   router.get('/api/admin/users/:id/origin', (ctx) => {
     requireAdmin(ctx);
     const user = accounts.byId(int(ctx.params.id, { field: 'id', min: 1 }));
     if (!user) throw notFound('user_not_found');
-    sendJson(ctx.res, 200, { origin: origins.of(user.id), payments: origins.paymentsOf(user.id) });
+    sendJson(ctx.res, 200, {
+      origin: origins.of(user.id), one: origins.oneOf(user.id), marks: origins.marksOf(user.id), payments: origins.paymentsOf(user.id),
+    });
   });
 }

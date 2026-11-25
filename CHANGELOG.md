@@ -3,6 +3,35 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.346.0 — 2026-11-25
+
+- **/admin › Origins: what each origin brought** (`origins.js` `report`, `GET /api/admin/origins?weeks=`,
+  and the same as a CSV at `/export`): a table per week, the week the accounts were made in, with a
+  row per origin: that week's visits, the accounts made, how many did something, how many ran into a
+  limit of their plan in their first 30 days, how many pay, by plan, and what they have paid,
+  refunds left out. An account's origin there is one: its link's tag, else the site it came from,
+  else how it was made when that says something (an assistant, the phone app); with none of them
+  it is «not known», a row of its own. Nobody is asked where they came from. The admin's card of
+  an account says the same one origin. With `modules.origins`; /api/auth/config says
+  `modules.origins`.
+- **What an account did for the first time**, once each (new suite migration 39, `account_marks`):
+  `made`, the first thing it created (a route of the app's own answered it 201: in a host, a
+  module's, with `createApp({ firsts: false })` at the root; never the suite's routes, where a
+  token or a device is made); `mcp`, its first call from an assistant; and `limit:<feature>`, each limit of its plan it
+  ran into. For that, **`entitlements.whenLimit(hook)`**: `hook(user, feature)` as `require`
+  refuses a limit, as the storage does (`storage.js`) and as the MCP's quota does for the week's or
+  the day's calls (`entitlements.limitReached`). In a host, a module's limits and what is made in
+  it count for the root's figures. A mark is written after what refused it, so a transaction undone
+  doesn't take it along.
+- **Visits, as a number per day and origin** (`origin_visits`): a site's own server tells of a
+  visit with `POST /api/origins/visits { src, via }` and the install's `ORIGIN_VISITS_TOKEN` in
+  `Authorization: Bearer` (24 characters or more; without it the route isn't there, and a short
+  one is left out with a warning). Nothing of the visitor comes with it or is kept: no address, no
+  browser, no identifier. A day tells apart 500 origins at most; past them, the rest are `(other)`.
+- **The admin's daily summary can say where the day's accounts came from**: `{origins}`, the three
+  origins with most (`reddit-mcp 4, google.com 2`), in the default template as «Came from: …» and
+  left out when none is known. A summary whose template the admin wrote gets it when they add it.
+
 ## 0.345.0 — 2026-11-25
 
 - **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 38,

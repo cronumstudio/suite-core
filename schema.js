@@ -24,7 +24,7 @@ import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
 import { affiliatesSchema } from './affiliates.js';
 import { creatorInvitationsSchema } from './creator-invitations.js';
-import { originsSchema } from './origins.js';
+import { originsSchema, originFiguresSchema } from './origins.js';
 import { OAUTH_SCHEMA } from './oauth.js';
 import { accountTokensSchema } from './account-mail.js';
 import { twoFactorSchema } from './two-factor.js';
@@ -125,4 +125,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 37, name: 'creator-invitations', up: creatorInvitationsSchema },
   // Where each account came from, and each payment with the origin its account had (origins.js).
   { version: 38, name: 'account-origins', up: originsSchema },
+  // What an account did for the first time, and the visits a site tells of, a number per day (origins.js).
+  { version: 39, name: 'origin-figures', up: originFiguresSchema },
 ]);
