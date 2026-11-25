@@ -256,6 +256,35 @@ export function appendHeader(res, name, value) {
   else res.setHeader(name, Array.isArray(previous) ? [...previous, value] : [previous, value]);
 }
 
+/**
+ * The mark a sign-out leaves in this browser (`POST /api/auth/logout`), for every tab and for a
+ * month: while it is there, the next sign-in at the provider asks who it is (`max_age=0`), and
+ * no page goes to the provider's page by itself (web/signin.js straightToProvider). Signing in
+ * takes it away (sessions.js open). Without it, another tab of Work that lost its session went to
+ * AuthKit at once, and AuthKit, still signed in, let in whoever it remembered, sometimes another
+ * account than the one that had just left. It says nothing about who it was, so a page may read it.
+ */
+export const SIGNED_OUT_COOKIE = 'suite_signed_out';
+const SIGNED_OUT_SECONDS = 30 * 24 * 3600;
+
+/** Leaves the mark of a sign-out in this browser. */
+export function markSignedOut(res, { secure = false } = {}) {
+  appendHeader(res, 'Set-Cookie', serializeCookie(SIGNED_OUT_COOKIE, '1', {
+    maxAge: SIGNED_OUT_SECONDS, httpOnly: false, sameSite: 'Lax', secure,
+  }));
+}
+
+/** Takes the mark away, when this browser has it (signed in again). */
+export function clearSignedOut(req, res, { secure = false } = {}) {
+  if (!req || !res || !signedOutHere(req)) return;
+  appendHeader(res, 'Set-Cookie', serializeCookie(SIGNED_OUT_COOKIE, '', {
+    maxAge: 0, httpOnly: false, sameSite: 'Lax', secure,
+  }));
+}
+
+/** Whether someone signed out in this browser and nobody has signed in since. */
+export const signedOutHere = (req) => parseCookies(req)[SIGNED_OUT_COOKIE] === '1';
+
 /** Only a path of this app (`/…`): never another site (`//host`, `/\host`), whatever a link says; else `/`. */
 export const localPath = (value) => (typeof value === 'string' && /^\/(?!\/)[^\\\s]*$/.test(value) ? value : '/');
 

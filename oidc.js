@@ -17,7 +17,7 @@
  */
 import crypto from 'node:crypto';
 import { createKeySet, verifyJwt } from './jwt.js';
-import { localPath, signInFlowCookies } from './http.js';
+import { localPath, signInFlowCookies, signedOutHere } from './http.js';
 import { safeEqual } from './crypto.js';
 
 const TIMEOUT_MS = 8000;
@@ -204,8 +204,9 @@ export function createOidcAccounts({
         const nonce = crypto.randomBytes(16).toString('base64url');
         const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
         flows.start(res, state, [state, verifier, nonce, back].join('.'));
-        // `prompt=login` only from the device connect page (device-pages.js), to sign in as someone else.
-        const fresh = url.searchParams.get('prompt') === 'login';
+        // `prompt=login` from the device connect page (device-pages.js), to sign in as someone else,
+        // and after someone signed out in this browser (http.js SIGNED_OUT_COOKIE).
+        const fresh = url.searchParams.get('prompt') === 'login' || signedOutHere(req);
         redirect(res, await oidc.authorizationUrl({ redirectUri: REDIRECT, state, challenge, nonce, fresh }));
       } catch (err) {
         log(`[oidc] sign-in could not start: ${err.message}`);

@@ -3,6 +3,26 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.344.0 — 2026-11-25
+
+- **Signing out signs out of the shared login, and the next sign-in asks who it is**
+  (`api.js`, `http.js`, `sessions.js`, `workos-accounts.js`, `oidc.js`, `web/signin.js`). In
+  production an account signed out and was back one or two seconds later: the server tells every
+  tab of that session at once, another tab of Cronum Work reloaded, went to AuthKit by itself
+  (`straightToProvider`), and AuthKit, still signed in, let it in without asking. Sometimes as
+  another account than the one that had just left (whoever AuthKit remembered), and AuthKit stayed
+  signed in whenever the page that signed out didn't go to the provider's page after (a creator's
+  invitation, a phone's connect page). Now:
+  - `POST /api/auth/logout` revokes the AuthKit session from the server, whatever page asked, and
+    no longer answers `logout_url` with WorkOS (an OIDC provider still gives its own). Signing out
+    of one Cronum product signs out of the login they share.
+  - It leaves the browser the mark `suite_signed_out=1` (`SIGNED_OUT_COOKIE`, `markSignedOut`,
+    `clearSignedOut`, `signedOutHere` in http.js; `sessions.markSignedOut(res)`), for a month.
+    While it is there, `/auth/login` asks AuthKit to sign in again (`max_age=0`; OIDC
+    `prompt=login`), and `straightToProvider` keeps the card in every tab
+    (`signedOutInBrowser()` in web/signin.js). Signing in takes it away (`sessions.open` with
+    `res`). Deleting one's account leaves it too.
+
 ## 0.342.0 — 2026-11-24
 
 - **An invitation's email that they wrote is confirmed on the invitation's page**
