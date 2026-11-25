@@ -17,7 +17,7 @@
  */
 import { hmac, randomToken } from './crypto.js';
 import { ensureColumn } from './migrate.js';
-import { parseCookies, serializeCookie, appendHeader, clientIp } from './http.js';
+import { parseCookies, serializeCookie, appendHeader, clientIp, markSignedOut, clearSignedOut } from './http.js';
 import { iso } from './time.js';
 
 /** Example values and old defaults of the suite's apps: never used as a secret. */
@@ -152,7 +152,11 @@ export function createSessions({
       req ? clientIp(req, { trustProxy }) : null,
       idpSessionId, ...(linked ? [deviceId] : []));
     });
-    if (res) setCookie(res, token);
+    if (res) {
+      setCookie(res, token);
+      // Signed in again: this browser's sign-out mark goes (http.js SIGNED_OUT_COOKIE).
+      clearSignedOut(req, res, { secure: secureCookies });
+    }
     return token;
   }
 
@@ -290,6 +294,8 @@ export function createSessions({
     cookieName, open, alive, stillOpen, userFrom, tokenFrom, close, closeAllOf, idpSessionsOf, list, revoke, purge, sign, keyFor, deviceOf,
     deviceOfKey,
     setCookie, clearCookie,
+    /** The mark of a sign-out in this browser, for every tab (http.js SIGNED_OUT_COOKIE). */
+    markSignedOut: (res) => markSignedOut(res, { secure: secureCookies }),
     /**
      * Hears `(userId)` whenever sessions of that person are closed here: signing out, one closed
      * from the list, all of them (a new password, out everywhere, the account disabled).

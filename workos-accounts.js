@@ -10,7 +10,7 @@
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
-import { HttpError, sendJson, localPath, signInFlowCookies } from './http.js';
+import { HttpError, sendJson, localPath, signInFlowCookies, signedOutHere } from './http.js';
 import { safeEqual } from './crypto.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
@@ -523,8 +523,10 @@ export function createWorkosAccounts({
         challenge: pkceChallenge,
         signUp: url.searchParams.get('signup') === '1',
         // The device connect page asks for it (device-pages.js), to sign in as someone else, and the
-        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin).
-        fresh: url.searchParams.get('prompt') === 'login',
+        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin). And
+        // after someone signed out in this browser (http.js SIGNED_OUT_COOKIE): AuthKit asks who it
+        // is, rather than letting in whoever it still remembers.
+        fresh: url.searchParams.get('prompt') === 'login' || signedOutHere(req),
         // Straight to Google rather than AuthKit's page (a creator's invitation's «or with Google»).
         ...(STRAIGHT_TO[url.searchParams.get('provider')] ? { provider: STRAIGHT_TO[url.searchParams.get('provider')] } : {}),
         // AuthKit's page with their email already written (an invitation to an email that has a login).
