@@ -115,7 +115,11 @@ export function banner({ kind = 'info', iconName = null, text, action = null, on
  * looked at again when it says it is back (`online`). Offline it says what is shown is the last
  * thing loaded and how many changes wait on this device, with a discreet «Reintentar» when the
  * module gives `retry`; back online, while those changes go, how many are being sent; `sent(n)`
- * says they arrived (a notice) once the module has sent them.
+ * says they arrived (a notice) once the module has sent them. Online, only changes that waited
+ * without a signal, or were already waiting when it was made (left from before), are said being
+ * sent: one made online is the save state's to say, next to what is saved (web-kit.md). A banner
+ * for each, gone a moment later, pushed the whole screen down and up again at every save (Notes
+ * saves as one types).
  *
  * - `shell`: the shell (or a function that gives it) whose banner row it uses, id 'offline'. Or
  *   `show(options)` and `hide()` of the module's own: `show` gets a function that gives the
@@ -159,16 +163,24 @@ export function offlineBanner({
   let drawn = null;
   // How many changes waited at most while offline, still to be said arrived (`announce`).
   let held = 0;
+  // Whether what waits waited without a signal, or was waiting when the banner was made: online,
+  // only then is it said being sent. Over once none waits, as the module counts them.
+  let carried = waiting() > 0;
   const paint = (again = false) => {
-    if (away()) held = Math.max(held, waiting());
+    if (away()) {
+      held = Math.max(held, waiting());
+      if (waiting()) carried = true;
     // A function says whether they can go yet (Next: once the server said whose they are); until
     // then none waiting says nothing, and they are said arrived once they went.
-    else if (!waiting() && held && (typeof announce !== 'function' || announce())) {
-      const arrived = held;
-      held = 0;
-      if (announce) toast(t('kit.offline.sent', { n: arrived }));
+    } else if (!waiting() && (typeof announce !== 'function' || announce())) {
+      carried = false;
+      if (held) {
+        const arrived = held;
+        held = 0;
+        if (announce) toast(t('kit.offline.sent', { n: arrived }));
+      }
     }
-    if (!away() && !waiting()) {
+    if (!away() && (!waiting() || !carried)) {
       if (drawn !== null || again) hideIt();
       drawn = null;
       return;

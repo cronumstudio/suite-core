@@ -65,6 +65,44 @@ test('offlineBanner: shown as the browser says the signal went, gone when it is 
   }
 });
 
+test('offlineBanner: a change made online is no banner, one made offline is said being sent once back', () => {
+  signal.onLine = true;
+  let waiting = 0;
+  const shell = fakeShell();
+  const banner = offlineBanner({ shell, pending: () => waiting });
+  try {
+    // A save as one types: queued, then sent a moment later. The save state says it, not a banner
+    // that pushed the whole screen down and up again at every save.
+    waiting = 1;
+    banner.paint();
+    assert.equal(shell.shown.has('offline'), false, 'online, a change on its way: no banner');
+    assert.equal(shell.draws, 0);
+    waiting = 0;
+    banner.paint();
+    assert.equal(shell.draws, 0, 'and nothing drawn when it went');
+
+    go(false);
+    waiting = 2;
+    banner.paint();
+    assert.equal(shell.shown.get('offline').text, 'kit.offline.banner');
+    go(true);
+    assert.equal(shell.shown.get('offline').text, 'kit.offline.pending', 'back: those made offline, being sent');
+    waiting = 3;
+    banner.paint();
+    assert.equal(shell.shown.get('offline').text, 'kit.offline.pending', 'one more made meanwhile: still being sent, all of them');
+    waiting = 0;
+    banner.paint();
+    assert.equal(shell.shown.has('offline'), false, 'all sent: gone');
+
+    waiting = 1;
+    banner.paint();
+    assert.equal(shell.shown.has('offline'), false, 'and online again, a save is no banner');
+  } finally {
+    banner.stop();
+    signal.onLine = true;
+  }
+});
+
 test('offlineBanner: what the module knows counts too, «Reintentar» is discreet, nothing loaded says only the server', () => {
   signal.onLine = true;
   let lost = true;
