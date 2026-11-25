@@ -551,3 +551,53 @@ test('without invitations in the install, the connector has no tools for them', 
   const names = (await admin.rpc('tools/list', {})).json.result.tools.map((tool) => tool.name);
   assert.ok(!names.some((name) => name.includes('invitation')), names.join(', '));
 });
+
+test('the test accounts its own invitations made: deleted from here; those of /admin’s invitations or with a real email, never', async (t) => {
+  const product = {
+    ...PRODUCT, modules: { adminMcp: true, billing: true }, affiliates: { invitations: true },
+    products: { 'pro-yearly': { plan: 'pro', kind: 'subscription', price: 'pri_year' } },
+  };
+  const { suite, base } = await serve(t, { product });
+  const admin = await connector(base, await rootToken(suite, base));
+  const enter = async (link, email) => {
+    const token = link.split('/i/')[1];
+    const res = await fetch(`${base}/api/creator-invitations/${token}/accept`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base },
+      body: JSON.stringify({ email, password: 'Creator-Pass-2026' }),
+    });
+    assert.equal(res.status, 200, await res.clone().text());
+    return suite.accounts.byEmail(email);
+  };
+  // A link for several, made from here: the connector's own tries, and someone real.
+  const ours = (await admin.call('create_creator_invitation', { name: 'Tries', creator: false, pro_months: 1, uses: 5 })).invitation;
+  const tried = await enter(ours.link, 'tester+invited@example.com');
+  const real = await enter(ours.link, 'someone@example.org');
+  // One made in /admin, entered with a test email all the same: the administrator's, not the connector's.
+  const root = suite.accounts.byUsername(ROOT.username);
+  const theirs = suite.creatorInvitations.create({ creator: false, pro_months: 1, uses: 2 }, root);
+  const byAdmin = await enter(theirs.link, 'tester+admin@example.com');
+  // An email typed on the connector's link and never confirmed: no email here, never signed in.
+  const unconfirmed = suite.accounts.create({ username: 'unconfirmed', role: 'user' });
+  suite.database.run('INSERT INTO creator_invitation_uses (invitation_id, user_id, at) VALUES (?, ?, ?)', ours.id, unconfirmed.id, new Date().toISOString());
+
+  const seen = async (user) => (await admin.call('get_account', { account: String(user.id) })).test_account;
+  assert.deepEqual([await seen(tried), await seen(real), await seen(byAdmin), await seen(unconfirmed)], [true, false, false, true]);
+  const listed = (await admin.call('find_accounts', { test_accounts: true })).accounts.map((a) => a.id).sort((a, b) => a - b);
+  assert.deepEqual(listed, [tried.id, unconfirmed.id].sort((a, b) => a - b));
+
+  for (const user of [real, byAdmin]) {
+    assert.match((await admin.call('delete_test_account', { account: String(user.id) })).error, /test account/i, user.email);
+    assert.ok(suite.accounts.byId(user.id), 'still there');
+  }
+  // Signed in once, an account with no email is someone's: no longer the connector's to delete.
+  suite.database.run('UPDATE users SET last_login_at = ? WHERE id = ?', new Date().toISOString(), unconfirmed.id);
+  assert.match((await admin.call('delete_test_account', { account: String(unconfirmed.id) })).error, /test account/i);
+  suite.database.run('UPDATE users SET last_login_at = NULL WHERE id = ?', unconfirmed.id);
+
+  for (const user of [tried, unconfirmed]) {
+    const gone = await admin.call('delete_test_account', { account: String(user.id) });
+    assert.equal(gone.ok, true, JSON.stringify(gone));
+    assert.equal(suite.accounts.byId(user.id), null);
+  }
+  assert.equal(entries(suite, 'admin.user.remove').filter((e) => e.meta.via?.startsWith('admin MCP')).length, 2);
+});
