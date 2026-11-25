@@ -73,9 +73,9 @@ it may not relax these. The design they serve is in [docs/architecture.md](docs/
   Dockerfile and a License section in the README that reads, in every repository:
 
   > Licensed under the GNU Affero General Public License v3.0 only (see LICENSE).
-  > Copyright (C) 2026 Cronum Studio.
-  > The Cronum names and logos are not covered by this licence; see
-  > https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md
+  > Copyright (C) 2026 Martin Andersen (Cronum Studio).
+  > The licence gives no rights to the Cronum names, logos and app icons as trademarks: see
+  > [NOTICE.md](NOTICE.md) and https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md
 
 - **Third-party material** a repository includes (fonts, icons, code) keeps its own licence and is
   listed in the repository's `THIRD_PARTY_NOTICES.md`: name, version, licence, copyright and the

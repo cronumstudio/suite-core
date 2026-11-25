@@ -529,9 +529,15 @@ its own through `tools/test-kit.mjs`, `tools/conformance.js` and `tools/i18n.mjs
 ## License
 
 Licensed under the GNU Affero General Public License v3.0 only (see [LICENSE](LICENSE)).
-Copyright (C) 2026 Cronum Studio.
-The Cronum names and logos are not covered by this licence; see
-https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md
+Copyright (C) 2026 Martin Andersen (Cronum Studio).
+
+**Names and logos.** The AGPL covers the code, not Cronum Studio's names and logos. As
+[NOTICE.md](NOTICE.md) sets out under section 7 of the licence, it grants no trademark rights in
+them, and a version that you change and make available to others needs its own name and logos. The
+ring and the "by Cronum Studio" signature that the kit draws are among those logos. How you may use
+the names and logos is explained in our
+[trademark policy](https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md). Other product
+names mentioned here are trademarks of their respective owners.
 
 The fonts and icons included from other projects keep their own licences: see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

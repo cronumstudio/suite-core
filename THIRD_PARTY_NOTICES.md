@@ -1,6 +1,6 @@
 # Third-party notices
 
-suite-core is Copyright (C) 2026 Cronum Studio and is licensed under the GNU Affero General Public
+suite-core is Copyright (C) 2026 Martin Andersen (Cronum Studio) and is licensed under the GNU Affero General Public
 License v3.0 only (see [LICENSE](LICENSE)). It has no npm dependencies. The material below comes
 from other projects, is included in this repository, and stays under its own licence.
 
