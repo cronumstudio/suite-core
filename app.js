@@ -738,7 +738,10 @@ export function createSuite({
       }
       const user = signed.user ?? await workos.localUser(done.user);
       if (locale && !user.locale) accounts.update(user.id, { locale });
-      return { user: accounts.byId(user.id), signedIn: Boolean(signed.user) };
+      // An email they wrote themselves: WorkOS has mailed a code, which the invitation's page asks
+      // for (confirmEmail), not AuthKit's, where a session of someone else's could answer instead.
+      const pending = !signed.user && signed.step === 'email_verification_required' ? signed.pendingToken ?? null : null;
+      return { user: accounts.byId(user.id), signedIn: Boolean(signed.user), pending };
     } : install.authProvider === 'local' ? async ({ email, password, name, verified = false, locale, req, res }) => {
       const user = accounts.create({
         username: accounts.freeUsername(email), displayName: name ?? undefined, password, email, role: 'user', locale,
@@ -749,6 +752,9 @@ export function createSuite({
       audit.record({ action: 'auth.login', actor: user, req, meta: { invited: true } });
       return { user: accounts.byId(user.id), signedIn: true };
     } : null,
+    confirmEmail: workosLogins ? ({ pendingToken, code, req, res }) => workos.signInWithEmailCode(req, res, {
+      code, pendingToken, ip: clientIp(req, { trustProxy: install.trustProxy }),
+    }) : null,
     taken: workos && workosClient ? async (email) => ((await workosClient.userByEmail(email)) ? 'provider' : null) : async () => null,
     signInUrl: idp ? (back, { provider = null, hint = null, src = null } = {}) => `/auth/login?${new URLSearchParams({
       return: back, ...(provider ? { provider } : {}), ...(hint ? { hint } : {}), ...(src ? { src } : {}),

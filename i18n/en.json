@@ -73,6 +73,8 @@
   "errors.invalid_json": "The request could not be read.",
   "errors.invitation_expired": "That invitation has expired. Ask for a new one.",
   "errors.invitation_invalid": "That invitation isn’t valid: it was already used or withdrawn.",
+  "errors.confirm_code_wrong": "That code isn’t right. Check the latest email you got and type its 6 digits.",
+  "errors.confirm_expired": "That code can’t be used any more. Sign in again and you’ll get a new one.",
   "errors.last_admin": "There must always be at least one active administrator.",
   "errors.last_owner": "A group must always keep at least one owner.",
   "errors.owner_only": "Only the owner can do that.",
@@ -1997,6 +1999,9 @@
   "creatorInvite.title": "Your invitation",
   "creatorInvite.hello": "Hi, {name}.",
   "creatorInvite.ready": "Your Pro account is ready.",
+  "creatorInvite.confirmTitle": "Confirm your email.",
+  "creatorInvite.confirmText": "We’ve sent a 6-digit code to {email}. Type it here to get in.",
+  "creatorInvite.confirmCode": "Code",
   "creatorInvite.months": {
     "one": "Pro free for 1 month.",
     "other": "Pro free for {n} months."

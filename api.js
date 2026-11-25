@@ -208,8 +208,17 @@ export function registerAuthApi(router, {
     }
     const idpSession = sessions.close(ctx.sessionToken);
     sessions.clearCookie(ctx.res);
+    // Every tab of this browser, and its next sign-in, know someone left (http.js SIGNED_OUT_COOKIE):
+    // the provider asks who it is, rather than letting in whoever it still has signed in.
+    if (ctx.user) sessions.markSignedOut?.(ctx.res);
     if (ctx.user) audit?.record({ action: 'auth.logout', actor: ctx.user, req: ctx.req });
-    const logoutUrl = idpSession && idp ? await idp.signOutUrl(idpSession) : null;
+    // Out of the shared login too (Martin, 25/11: signing out of Work signs out of every Cronum
+    // product): a provider that can end the session from here does, whatever page asked and
+    // whether or not it goes to the provider's page after (an invitation's, a phone's connect page).
+    // One that can't (OIDC) gives its sign-out address, as before.
+    let logoutUrl = null;
+    if (idpSession && idp?.revokeSession) revokeAtProvider(idp, [idpSession]);
+    else if (idpSession && idp) logoutUrl = await idp.signOutUrl(idpSession);
     sendJson(ctx.res, 200, { ok: true, ...(logoutUrl ? { logout_url: logoutUrl } : {}) });
   });
 
@@ -452,6 +461,7 @@ export function registerProfileApi(router, {
       const identity = body.identity == null ? 'auto' : (body.identity ? 'all' : 'none');
       const idpSession = sessions.close(ctx.sessionToken);
       sessions.clearCookie(ctx.res);
+      sessions.markSignedOut?.(ctx.res);
       const waiting = await deletion.request(user, { req: ctx.req, identity });
       const logoutUrl = idpSession && idp ? await idp.signOutUrl(idpSession) : null;
       sendJson(ctx.res, 200, {
