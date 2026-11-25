@@ -55,6 +55,9 @@ export const MODULES = Object.freeze({
   // The administrator's connector (admin-mcp.js): an MCP of its own at /admin/mcp, which only an
   // administrator may connect, with the admin panel and the audit log on.
   adminMcp: false,
+  // Where each account came from (a link's tag, the site before, how it was made) and each payment
+  // with its account's origin (origins.js); nothing is kept on anyone's device for it.
+  origins: false,
 });
 
 const PRODUCT_KEYS = new Set([
@@ -82,7 +85,7 @@ const oneOf = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} o
 /** suite.config.js `stores`: what the app on a phone sells in the App Store and Google Play (stores.js). */
 const STORE_KEYS = new Set(['products', 'devices']);
 /** What a store product may say; anything else is a typo that would sell nothing. */
-const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', 'founderOf', ...Object.keys(STORE_FIELDS)]);
+const STORE_PRODUCT_KEYS = new Set(['plan', 'kind', 'days', 'name', 'founderOf', 'amount', 'currency', ...Object.keys(STORE_FIELDS)]);
 
 /** suite.config.js `push`: notices beyond Web Push (native-push.js). */
 const PUSH_KEYS = new Set(['native', 'apnsTopic', 'androidChannel']);
@@ -529,6 +532,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     push,
     // With push.native: { apns, fcm }, each null when its credentials aren't set.
     ...(nativePush ? { nativePush } : {}),
+    // What a site's own server says to tell of a visit (ORIGIN_VISITS_TOKEN, origins.js): with
+    // modules.origins, POST /api/origins/visits takes it; empty, that route isn't there.
+    originVisitsToken: originVisitsTokenOf(env.ORIGIN_VISITS_TOKEN, modules, warnings),
     // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT).
     securityContact: securityContactOf(env.SECURITY_CONTACT, warnings),
     // The biggest copy of data an import takes over HTTP, in MB (IMPORT_MAX_MB); null: portability.js's own.
@@ -599,6 +605,17 @@ function storesFor(given, webProducts, modules, errors) {
     }
     if (spec.playStore != null && !/^[a-z0-9][a-z0-9._]{0,99}(:[a-z0-9][a-z0-9-]{0,62})?$/.test(String(spec.playStore))) {
       errors.push(`stores.products.${key}.playStore: "${String(spec.playStore).slice(0, 100)}" is not a Google Play product id (subscription:base-plan, lowercase)`);
+    }
+    // What the store charges for it, as the web's products say theirs: only for the install's own
+    // figures (origins.js), since a store's purchase arrives without an amount. Never charged from here.
+    if (spec.amount != null && !(typeof spec.amount === 'number' && Number.isFinite(spec.amount) && spec.amount > 0)) {
+      errors.push(`stores.products.${key}.amount: a number above 0, in the currency's units (3.9)`);
+    }
+    if (spec.currency != null && !/^[A-Z]{3}$/.test(String(spec.currency))) {
+      errors.push(`stores.products.${key}.currency: three capital letters (EUR)`);
+    }
+    if ((spec.amount == null) !== (spec.currency == null)) {
+      errors.push(`stores.products.${key}: amount and currency go together`);
     }
     for (const [field, store] of Object.entries(STORE_FIELDS)) {
       if (spec[field] == null) continue;
@@ -808,6 +825,24 @@ function securityContactOf(value, warnings) {
  * before it reaches the server: an install behind it takes copies of up to 95 MB, and says so.
  */
 export const CLOUDFLARE_IMPORT_MB = 95;
+
+/**
+ * ORIGIN_VISITS_TOKEN: a secret of 24 characters or more, without spaces. A shorter one could be
+ * guessed, and whoever holds it writes this install's visits: it is left out, with a warning.
+ */
+function originVisitsTokenOf(value, modules, warnings) {
+  const token = String(value ?? '').trim();
+  if (!token) return '';
+  if (!modules.origins) {
+    warnings.push('ORIGIN_VISITS_TOKEN is set, but the app keeps no origins (modules.origins): visits are not counted');
+    return '';
+  }
+  if (token.length < 24 || /\s/.test(token)) {
+    warnings.push('ORIGIN_VISITS_TOKEN must be 24 characters or more, without spaces: visits are not counted');
+    return '';
+  }
+  return token;
+}
 
 /** IMPORT_MAX_MB: a whole number of MB; by default 95 behind Cloudflare (`trustProxy: 'cloudflare'`), else null. */
 function importMaxMbOf(value, trustProxy, errors) {

@@ -76,7 +76,7 @@ export const NOTICE_VARIABLES = Object.freeze({
   purchase: Object.freeze(['plan', 'amount', 'country', 'flag', 'users', 'app']),
   renewal: Object.freeze(['plan', 'amount', 'country', 'flag', 'users', 'app']),
   cancel: Object.freeze(['reason', 'plan', 'country', 'flag', 'users', 'app']),
-  digest: Object.freeze(['signups', 'purchases', 'renewals', 'cancels', 'top_country', 'users', 'app']),
+  digest: Object.freeze(['signups', 'purchases', 'renewals', 'cancels', 'top_country', 'origins', 'users', 'app']),
 });
 const TEMPLATE_KEYS = Object.freeze([...NOTICE_GROUPS, 'digest']);
 /** What each group says to ntfy for its icon (its emoji short codes). */
@@ -227,7 +227,7 @@ export const NTFY_TOPIC = /^[A-Za-z0-9_-]{1,64}$/;
  */
 export function createAdminNotices({
   database, texts, mailer = null, sign, appName, baseUrl = '', countryOf = null,
-  planName = (id) => id, fetch = globalThis.fetch, clock = () => Date.now(), log = console.log,
+  planName = (id) => id, originsSince = null, fetch = globalThis.fetch, clock = () => Date.now(), log = console.log,
 }) {
   const key = crypto.createHash('sha256').update(sign('admin-notices')).digest();
   const iso = (ms) => new Date(ms).toISOString();
@@ -551,6 +551,11 @@ export function createAdminNotices({
    * the last one. Claimed before it is sent (`admin_notices.digest`), so a restart never sends two;
    * a day with nothing sends none.
    */
+  const originsOf = (from, to) => {
+    if (!originsSince) return null;
+    try { return originsSince(from, to) || null; } catch (err) { log(`the summary's origins could not be read: ${err?.message || err}`); return null; }
+  };
+
   async function digest(s, now) {
     const digestGroups = NOTICE_GROUPS.filter((g) => s.groups[g] === 'digest');
     const { day, hour } = localClock(now, s.digest.zone);
@@ -578,6 +583,8 @@ export function createAdminNotices({
       app: appName,
       signups: count('signup'), purchases: count('purchase'), renewals: count('renewal'), cancels: count('cancel'),
       top_country: top ? `${countryName(top.country, s.lang)} ${flagOf(top.country)}` : null,
+      // Where the new accounts came from, where the app keeps origins (origins.js topSince): the three with most.
+      origins: digestGroups.includes('signup') ? originsOf(mark.from, iso(now)) : null,
       users: s.totals ? number.format(usersNow()) : null,
     };
     const text = renderTemplate(templateOf(s, 'digest'), vars);
@@ -630,6 +637,7 @@ export function createAdminNotices({
       reason: t('notices.reason.ended'),
       signups: number.format(12), purchases: number.format(3), renewals: number.format(2), cancels: number.format(1),
       top_country: s.country ? `${countryName(sample, s.lang)} ${flagOf(sample)}` : null,
+      origins: originsSince ? 'producthunt 5, reddit.com 4, google.com 2' : null,
     });
   }
 

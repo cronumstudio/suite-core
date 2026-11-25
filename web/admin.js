@@ -28,6 +28,7 @@ const TABS = [
   ['data', 'admin.tabs.data'],
   ['notices', 'admin.tabs.notices'],
   ['affiliates', 'admin.tabs.affiliates'],
+  ['origins', 'admin.tabs.origins'],
   ['connector', 'admin.tabs.connector'],
   ['audit', 'admin.tabs.audit'],
 ];
@@ -160,6 +161,8 @@ async function start() {
   state.affiliates = Boolean(state.config.app?.modules?.affiliates);
   // And the creators invited before they have an account (creator-invitations.js), in the same tab.
   state.creatorInvitations = Boolean(state.config.app?.modules?.creator_invitations);
+  // Where accounts come from, and what each origin brought, with modules.origins (origins.js).
+  state.origins = Boolean(state.config.app?.modules?.origins);
   // The administrator's connector, with modules.adminMcp (admin-mcp.js).
   state.connector = Boolean(state.config.app?.modules?.adminMcp);
 
@@ -187,12 +190,13 @@ async function start() {
 function visibleTabs() {
   return TABS.filter(([id]) => (id !== 'invitations' || state.invitations)
     && (id !== 'organizations' || state.organizations) && (id !== 'plans' || state.catalog) && (id !== 'data' || state.data)
-    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates) && (id !== 'connector' || state.connector));
+    && (id !== 'notices' || state.notices) && (id !== 'affiliates' || state.affiliates) && (id !== 'origins' || state.origins)
+    && (id !== 'connector' || state.connector));
 }
 
 const VIEWS = {
   users: renderUsers, invitations: renderInvitations, plans: renderPlans, organizations: renderOrganizations,
-  data: renderData, notices: renderNotices, affiliates: renderAffiliates, connector: renderConnector, audit: renderAudit,
+  data: renderData, notices: renderNotices, affiliates: renderAffiliates, origins: renderOrigins, connector: renderConnector, audit: renderAudit,
 };
 
 let showing = 0;
@@ -610,6 +614,11 @@ function userDialog(user) {
   const usageBox = el('div', { class: 'kit-contents' });
   const usage = fold({ title: t('admin.usage.title'), now: usageNow }, usageBox);
 
+  // Where they came from and what they paid: an app's that keeps origins only (origins.js).
+  const originNow = el('small', { class: 'kit-fold__now', text: t('admin.usage.loading') });
+  const originBox = el('div', { class: 'kit-contents' });
+  const origin = fold({ title: t('admin.origin.title'), now: originNow }, originBox);
+
   const grantsNow = el('small', { class: 'kit-fold__now' });
   // Drawn when they arrive, inside the fold's body as if they were its own.
   const grantsBox = el('div', { class: 'kit-contents' });
@@ -672,7 +681,7 @@ function userDialog(user) {
   const { close: closeDialog, dialog: node } = openDialog({
     title: `${user.display_name} (@${user.username})`,
     wide: true,
-    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, grants, passwordSection, signInBox), endSection],
+    content: [el('div', { class: 'kit-folds' }, profile, planSection, payments, devicesFold, usage, origin, grants, passwordSection, signInBox), endSection],
     actions: [{ label: t('admin.close') }],
   });
   const dialog = { close: closeDialog, node };
@@ -681,6 +690,7 @@ function userDialog(user) {
   if (devicesFold) paintDevices(devicesBox, user, devicesNow).catch(fail);
   if (grants) paintGrants(grantsBox, user, grantsNow).catch(fail);
   paintUsage(usageBox, user, usageNow).catch(() => usage.remove());
+  paintOrigin(originBox, user, originNow).catch(() => origin.remove());
   if (signInBox) paintSignIn().catch(fail);
 }
 
@@ -1007,6 +1017,55 @@ async function paintUsage(box, user, now) {
   now.textContent = usage.peak ? t('admin.usage.peak', { percent: percent(usage.peak.share), what: peakWhat(usage.peak) }) : t('admin.usage.noLimits');
   if (['near', 'reached'].includes(levelOf(usage.peak?.share ?? null))) now.setAttribute('class', 'kit-fold__now kit-fold__now--warn');
   clear(box).append(el('p', { class: 'kit-hint', text: t('admin.usage.lead') }), usageGroups(usage, { admin: true }));
+}
+
+/* --------------------------------- origin --------------------------------- */
+
+/** An amount in a currency's smallest unit, as the admin's language writes money. */
+function moneyText(amount, currency) {
+  let digits = 2;
+  try { digits = new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits; } catch { /* two */ }
+  try {
+    return new Intl.NumberFormat(document.documentElement.lang || undefined, { style: 'currency', currency }).format(amount / 10 ** digits);
+  } catch {
+    return `${amount / 10 ** digits} ${currency}`;
+  }
+}
+
+/**
+ * Where an account came from (an app's with `modules.origins`): the tag of the link it followed,
+ * the site before, how the account was made, and what it has paid since. `now` is the fold's
+ * summary: the tag, else the site.
+ */
+async function paintOrigin(box, user, now) {
+  const { origin, one = null, marks = [], payments = [] } = await api.get(`/api/admin/users/${user.id}/origin`);
+  // The one origin the figures count this account under (origins.js originOf), in words.
+  const oneText = !one || one.kind === 'none' ? t('admin.origin.none')
+    : one.kind === 'entry' ? t(`admin.origin.entry.${one.origin}`) : one.origin;
+  // What they did for the first time, each with its day: something made, a call from an assistant, a limit met.
+  const firsts = marks.map((mark) => {
+    const what = mark.mark.startsWith('limit:') ? t('admin.origin.mark.limit', { feature: mark.mark.slice(6) })
+      : ['made', 'mcp'].includes(mark.mark) ? t(`admin.origin.mark.${mark.mark}`) : null;
+    return what ? `${what} (${new Date(mark.at).toLocaleDateString()})` : null;
+  }).filter(Boolean);
+  const fact = (label, value) => el('div', { class: 'kit-fact' }, el('span', { text: label }), el('strong', { text: value ?? '—' }));
+  const totals = new Map();
+  for (const payment of payments) {
+    if (payment.amount == null || !payment.currency || payment.refunded_at) continue;
+    totals.set(payment.currency, (totals.get(payment.currency) || 0) + payment.amount);
+  }
+  const paid = [...totals].map(([currency, amount]) => moneyText(amount, currency)).join(' + ');
+  now.textContent = [oneText, paid].filter(Boolean).join(' · ');
+  // Only what there is: a null given to append() is written as the word.
+  clear(box).append(...[
+    origin ? null : el('p', { class: 'kit-hint', text: t('admin.origin.noneLead') }),
+    origin || payments.length || firsts.length ? el('div', { class: 'kit-facts' },
+      origin ? fact(t('admin.origin.src'), origin.src) : null,
+      origin ? fact(t('admin.origin.referrer'), origin.referrer) : null,
+      origin ? fact(t('admin.origin.entry'), t(`admin.origin.entry.${origin.entry}`)) : null,
+      firsts.length ? fact(t('admin.origin.marks'), firsts.join(' · ')) : null,
+      payments.length ? fact(t('admin.origin.payments'), [String(payments.length), paid].filter(Boolean).join(' · ')) : null) : null,
+  ].filter(Boolean));
 }
 
 /* ------------------------------- invitations ------------------------------- */
@@ -2128,6 +2187,67 @@ function invitationDialog(view, defaults) {
     },
   });
   name.focus();
+}
+
+/* --------------------------------- origins --------------------------------- */
+
+/** How many weeks back the figures can go. */
+const ORIGIN_SPANS = [4, 8, 12, 26];
+
+/**
+ * Where accounts come from and what each origin brought (origins.js `report`): a table per week,
+ * the week the accounts were made in, with a row per origin and the week's total under them. The
+ * same figures as a CSV.
+ */
+async function renderOrigins(main) {
+  const asked = Number(hashQuery().get('weeks'));
+  const weeks = ORIGIN_SPANS.includes(asked) ? asked : 8;
+  const view = await api.get(`/api/admin/origins?weeks=${weeks}`);
+  const span = segmented(ORIGIN_SPANS.map((n) => ({ value: String(n), label: t('admin.origins.weeks', { n }) })), String(weeks),
+    (value) => { window.location.hash = `#/origins?weeks=${value}`; });
+  span.setAttribute('aria-label', t('admin.origins.span'));
+  const planName = (id) => t(String(state.catalog?.plans?.find((plan) => plan.id === id)?.name ?? id ?? ''));
+  const originText = (row) => (row.kind === 'none' ? t('admin.origins.unknown')
+    : row.kind === 'entry' ? t(`admin.origin.entry.${row.origin}`) : row.origin);
+  const payingText = (row) => (row.paying
+    ? [String(row.paying), Object.entries(row.plans).map(([plan, n]) => `${planName(plan)} ${n}`).join(', ')].filter(Boolean).join(' · ') : '0');
+  const incomeText = (income) => Object.entries(income).map(([currency, amount]) => moneyText(amount, currency)).join(' + ') || '—';
+  const number = (n) => numberFormat().format(n);
+  const weekTitle = (monday) => t('admin.origins.week', {
+    date: new Date(`${monday}T12:00:00Z`).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }),
+  });
+  const headers = [t('admin.origins.origin'), t('admin.origins.kind'), t('admin.origins.visits'), t('admin.origins.signups'),
+    t('admin.origins.activated'), t('admin.origins.limited'), t('admin.origins.paying'), t('admin.origins.income')];
+  const tables = view.weeks.map((monday) => {
+    const rows = view.rows.filter((row) => row.week === monday);
+    if (!rows.length) return null;
+    const total = { visits: 0, signups: 0, activated: 0, limited: 0, paying: 0, plans: {}, income: {} };
+    for (const row of rows) {
+      for (const key of ['visits', 'signups', 'activated', 'limited', 'paying']) total[key] += row[key];
+      for (const [plan, n] of Object.entries(row.plans)) total.plans[plan] = (total.plans[plan] || 0) + n;
+      for (const [currency, amount] of Object.entries(row.income)) total.income[currency] = (total.income[currency] || 0) + amount;
+    }
+    const line = (row, first, kind, strong = false) => el('tr', {},
+      el('td', {}, strong ? el('strong', { text: first }) : first),
+      el('td', { text: kind }),
+      ...['visits', 'signups', 'activated', 'limited'].map((key) => el('td', { text: number(row[key]) })),
+      el('td', { text: payingText(row) }),
+      el('td', { text: incomeText(row.income) }));
+    return el('section', { class: 'kit-stack' },
+      el('h3', { text: weekTitle(monday) }),
+      table(headers, [
+        ...rows.map((row) => line(row, originText(row), t(`admin.origins.kind.${row.kind}`))),
+        line(total, t('admin.origins.total'), '', true),
+      ]));
+  }).filter(Boolean);
+  append(main,
+    el('h2', { text: t('admin.origins.title') }),
+    el('p', { class: 'kit-lead', text: t('admin.origins.lead') }),
+    el('div', { class: 'kit-toolbar' },
+      span,
+      el('a', { class: 'kit-btn', href: `/api/admin/origins/export?weeks=${weeks}`, download: '', text: t('admin.origins.export') })),
+    tables.length ? tables : el('p', { class: 'kit-empty', text: t('admin.origins.none') }),
+  );
 }
 
 /** A creator's campaign: whose (by email), its code and name, what the buyer gets and what it earns. */

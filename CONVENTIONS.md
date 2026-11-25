@@ -108,6 +108,7 @@ names are the same in every app:
 | `SESSION_SECRET` | Optional: generated and kept in the database when empty |
 | `ADMIN_USER`, `ADMIN_PASSWORD` | First administrator; without a password one is generated and printed once |
 | `ADMIN_EMAIL` | With WorkOS: the verified address that administers |
+| `ORIGIN_VISITS_TOKEN` | With `modules.origins`: the secret (24 characters or more) a site's own server sends to tell this install of a visit to its pages, counted per day and origin for /admin › Origins; empty, visits aren't counted |
 | `AUTH_PROVIDER` | `local` (default), `workos`, `oidc` |
 | `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_AUTHKIT_DOMAIN`, `WORKOS_MCP_AUDIENCE` | WorkOS AuthKit. `WORKOS_MCP_AUDIENCE` (`<BASE_URL>/mcp`, that resource in WorkOS) is required with `accounts.sharedIdentity` and the MCP on: the app doesn't start without it |
 | `WORKOS_TWO_FACTOR` | With WorkOS, who Settings offers two-step verification: `on` (default), `admins`, `off`. AuthKit asks for the code only with Multi-Factor Auth set to **Optional** in WorkOS's dashboard |

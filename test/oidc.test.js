@@ -287,6 +287,113 @@ test('OIDC: a phone’s connect page that sent to the sign-in gets the browser s
   assert.ok(!elsewhere.cookies.some((c) => c.startsWith('demo_connect=')), 'the cookie left for later');
 });
 
+test('OIDC: where someone comes from rides with the sign-in to the account made at its end, in no cookie of its own', async (t) => {
+  const { P, codes } = await startProvider(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-oidc-origins-'));
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] }, modules: { origins: true } },
+    env: {
+      DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'oidc', ADMIN_EMAIL: 'ada@example.com',
+      OIDC_ISSUER: `${P}/`, OIDC_CLIENT_ID: 'demo-client', OIDC_CLIENT_SECRET: 'demo-secret',
+    },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  /** A whole sign-in: `/auth/login<search>`, the provider, and back. → the cookies set on the way out, and the session. */
+  const signIn = async (claims, search = '', headers = {}) => {
+    const out = await fetch(`${base}/auth/login${search}`, { redirect: 'manual', headers });
+    const target = new URL(out.headers.get('location'));
+    const set = out.headers.getSetCookie();
+    const code = `c-${crypto.randomUUID()}`;
+    codes.set(code, {
+      sub: claims.sub, claims, override: {}, signing: {}, nonce: target.searchParams.get('nonce'),
+      challenge: target.searchParams.get('code_challenge'), redirect: target.searchParams.get('redirect_uri'),
+    });
+    const back = await fetch(`${base}/auth/callback?code=${code}&state=${target.searchParams.get('state')}`,
+      { redirect: 'manual', headers: { Cookie: set.map((c) => c.split(';')[0]).join('; ') } });
+    const session = (back.headers.getSetCookie?.() || []).find((c) => c.startsWith('demo_sid='))?.split(';')[0] || null;
+    return { set, target, session, location: back.headers.get('location') };
+  };
+  const origin = (email) => {
+    const row = suite.database.get(`SELECT o.src, o.referrer, o.entry FROM account_origins o JOIN users u ON u.id = o.user_id
+      WHERE u.email = ?`, email);
+    return row ? { ...row } : null;
+  };
+
+  // The admin first: a link's tag and the site before, as the website's links say them.
+  const ada = await signIn({ sub: 'u-ada', email: 'ada@example.com', email_verified: true, name: 'Ada' },
+    '?signup=1&src=Reddit-MCP&via=https%3A%2F%2Fwww.reddit.com%2Fr%2Fmcp%2F');
+  assert.deepEqual(origin('ada@example.com'), { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web' });
+  // Nothing new is kept in the browser: the sign-in's own cookies and no other, and the provider is told nothing of it.
+  assert.deepEqual(ada.set.map((c) => c.split('=')[0]).filter((name) => !name.startsWith('demo_oidc')), []);
+  assert.ok(ada.set.every((c) => /HttpOnly/.test(c) && /Path=\/auth/.test(c) && /Max-Age=1800/.test(c)));
+  assert.doesNotMatch(ada.target.href, /reddit/i);
+
+  // The kit's sign-in sends the page it was on: its tag counts, and they go back to that page.
+  const bob = await signIn({ sub: 'u-bob', email: 'bob@example.com', email_verified: true },
+    `?via=news.ycombinator.com&return=${encodeURIComponent('/?settings=plan&ref=producthunt')}`);
+  assert.deepEqual(origin('bob@example.com'), { src: 'producthunt', referrer: 'news.ycombinator.com', entry: 'web' });
+  assert.equal(bob.location, '/?settings=plan&ref=producthunt');
+  // Straight to the sign-in from another site: its domain from the request, never its page.
+  await signIn({ sub: 'u-cat', email: 'cat@example.com', email_verified: true }, '?signup=1', { Referer: 'https://chatgpt.com/c/abc-123' });
+  assert.deepEqual(origin('cat@example.com'), { src: null, referrer: 'chatgpt.com', entry: 'web' });
+  // Nothing said: how the account was made, and no more. What is no tag is none.
+  await signIn({ sub: 'u-dan', email: 'dan@example.com', email_verified: true }, '?src=%3Cscript%3E&via=not%20a%20site');
+  assert.deepEqual(origin('dan@example.com'), { src: null, referrer: null, entry: 'web' });
+
+  // Signing in again with another link changes nothing: the first origin stays.
+  await signIn({ sub: 'u-ada', email: 'ada@example.com', email_verified: true }, '?src=later&via=example.org');
+  assert.deepEqual(origin('ada@example.com'), { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web' });
+
+  // The admin reads an account's origin; nobody else.
+  const get = async (pathname, session) => {
+    const res = await fetch(base + pathname, { headers: session ? { Cookie: session } : {} });
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
+  const bobId = suite.database.get("SELECT id FROM users WHERE email = 'bob@example.com'").id;
+  const seen = (await get(`/api/admin/users/${bobId}/origin`, ada.session)).data;
+  assert.deepEqual({ ...seen.origin, at: typeof seen.origin.at }, { src: 'producthunt', referrer: 'news.ycombinator.com', entry: 'web', at: 'string' });
+  assert.deepEqual(seen.payments, []);
+  assert.equal((await get(`/api/admin/users/${bobId}/origin`, bob.session)).status, 403);
+  assert.equal((await get(`/api/admin/users/${bobId}/origin`)).status, 401);
+  assert.equal((await get('/api/admin/users/999/origin', ada.session)).status, 404);
+});
+
+test('OIDC: an app that keeps no origins carries nothing with its sign-in and has no route for them', async (t) => {
+  const { P, codes } = await startProvider(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-oidc-no-origins-'));
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] } },
+    env: {
+      DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'oidc', ADMIN_EMAIL: 'ada@example.com',
+      OIDC_ISSUER: `${P}/`, OIDC_CLIENT_ID: 'demo-client', OIDC_CLIENT_SECRET: 'demo-secret',
+    },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const out = await fetch(`${base}/auth/login?src=reddit-mcp&via=reddit.com`, { redirect: 'manual' });
+  const target = new URL(out.headers.get('location'));
+  const value = decodeURIComponent(out.headers.getSetCookie()[0].split(';')[0].split('=')[1]);
+  assert.equal(value.split('.').length, 4, 'state, verifier, nonce and the way back: as before');
+  const code = `c-${crypto.randomUUID()}`;
+  codes.set(code, {
+    sub: 'u-ada', claims: { sub: 'u-ada', email: 'ada@example.com', email_verified: true }, override: {}, signing: {},
+    nonce: target.searchParams.get('nonce'), challenge: target.searchParams.get('code_challenge'), redirect: target.searchParams.get('redirect_uri'),
+  });
+  const back = await fetch(`${base}/auth/callback?code=${code}&state=${target.searchParams.get('state')}`,
+    { redirect: 'manual', headers: { Cookie: out.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ') } });
+  const session = back.headers.getSetCookie().find((c) => c.startsWith('demo_sid=')).split(';')[0];
+  assert.equal(suite.database.get('SELECT COUNT(*) AS n FROM account_origins').n, 0);
+  assert.equal((await fetch(`${base}/api/admin/users/1/origin`, { headers: { Cookie: session } })).status, 404);
+});
+
 test('OIDC: a provider that doesn’t answer, and a configuration that is missing', async () => {
   // A port that was just free: nothing listens there any more.
   const gone = http.createServer();

@@ -10,7 +10,7 @@
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
-import { HttpError, sendJson, localPath, signInFlowCookies } from './http.js';
+import { HttpError, sendJson, localPath, signInFlowCookies, signedOutHere } from './http.js';
 import { safeEqual } from './crypto.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
@@ -233,6 +233,8 @@ function freeUsername(seed, taken) {
  *   and its name there. Signing in here sets it, once (`users.marked`), and `markAll` sets it for
  *   whoever signed in before; `otherApps(userId)` reads the names the others set, and
  *   `unmark(userId)` takes this app's off when the account here goes but the user there stays.
+ * @param {object} [options.origins]   where accounts come from (origins.js): what `/auth/login` says
+ *   of it (`src`, `via`) rides with the sign-in's state to the callback, for the account made there
  * @param {boolean} [options.mcp]   false when the app has no MCP: the OAuth metadata for AI
  *   clients isn't served, so its paths answer the app's JSON 404 and no client is sent to AuthKit
  *   for a connector that isn't there. Sign-in on the web is the same either way.
@@ -240,7 +242,7 @@ function freeUsername(seed, taken) {
 export function createWorkosAccounts({
   baseUrl, appName, workos, adminEmail = '', users, sessions, connections = null,
   secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, mark = null, afterSignIn = null,
-  log = console.log,
+  origins = null, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
@@ -516,15 +518,20 @@ export function createWorkosAccounts({
       // Back where sign-in began (`return`): a module installed on its own (`/notes/`) back in
       // its own app, not at `/`, which in Cronum Work is the whole of it.
       const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
-      flows.start(res, state, `${state}.${verifier}.${back}`);
+      // Where they come from (a link's tag, the site before), for an account made on the way back:
+      // with the state, never in a cookie of its own (origins.js).
+      const from = origins?.pack(origins.fromLogin(req, url)) || '';
+      flows.start(res, state, `${state}.${verifier}.${back}${from ? `.${from}` : ''}`);
       redirect(res, workos.signInUrl({
         redirectUri: `${BASE_URL}/auth/callback`,
         state,
         challenge: pkceChallenge,
         signUp: url.searchParams.get('signup') === '1',
         // The device connect page asks for it (device-pages.js), to sign in as someone else, and the
-        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin).
-        fresh: url.searchParams.get('prompt') === 'login',
+        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin). And
+        // after someone signed out in this browser (http.js SIGNED_OUT_COOKIE): AuthKit asks who it
+        // is, rather than letting in whoever it still remembers.
+        fresh: url.searchParams.get('prompt') === 'login' || signedOutHere(req),
         // Straight to Google rather than AuthKit's page (a creator's invitation's «or with Google»).
         ...(STRAIGHT_TO[url.searchParams.get('provider')] ? { provider: STRAIGHT_TO[url.searchParams.get('provider')] } : {}),
         // AuthKit's page with their email already written (an invitation to an email that has a login).
@@ -534,7 +541,7 @@ export function createWorkosAccounts({
     }
 
     if (path === '/auth/callback') {
-      const [state, verifier, back] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
+      const [state, verifier, back, from] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
       const code = url.searchParams.get('code');
       // Without a state matching the cookie's, this return wasn't started by
       // this browser: it could be someone slipping their own account into the
@@ -546,6 +553,7 @@ export function createWorkosAccounts({
       }
       try {
         const { account, sessionId, method, authTime } = await workos.exchangeCode({ code, verifier });
+        origins?.arriving(req, from);
         const user = await localUser(account);
         // Its owner asked to delete it: no session, the offer to take it back.
         if (user.disabled_at && user.delete_after && pendingDeletion) {

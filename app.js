@@ -50,6 +50,7 @@ import {
 import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createAffiliates, registerAffiliatesApi } from './affiliates.js';
 import { createCreatorInvitations, registerCreatorInvitationsApi, INVITATION_PATH } from './creator-invitations.js';
+import { createOrigins, registerOriginsApi } from './origins.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
@@ -336,6 +337,23 @@ export function createSuite({
     accounts.whenCreated(affiliates.attributeLink);
     accounts.whenRemoved((userId) => affiliates.forget(userId));
   }
+  // Where each account came from, and each payment with its account's origin (origins.js): what the
+  // sign-in carried is written when the account is made, and payments are noted as they arrive, the
+  // web's with what was charged and the stores' with their product's listed amount.
+  const origins = config.modules.origins ? createOrigins({
+    database, baseUrl: install.baseUrl, ownHosts: [install.workos?.authkitDomain, install.oidc?.issuer].filter(Boolean),
+    products: config.products || {}, storeProducts: config.stores?.products || {},
+    appCookie: config.devices?.connectPage ? `${config.app.id.replace(/-/g, '_')}_connect` : null, log,
+  }) : null;
+  if (origins) {
+    accounts.whenCreated(origins.noteCreated);
+    accounts.whenRemoved((userId) => origins.forget(userId));
+    billing?.whenPaid((paid) => origins.paid(paid, { provider: billing.provider }));
+    billing?.whenRefunded((refund) => origins.refunded(refund, { provider: billing.provider }));
+    stores?.whenApplied(origins.applied);
+    // A limit of its plan an account runs into, once each (a host tells of its modules' too).
+    entitlements.whenLimit(origins.limitReached);
+  }
   // An account that goes lets go of its links, subscriptions and grants here, never of its login.
   if (config.billing?.forgetOnRemove && (billing || stores)) {
     accounts.whenRemoved((userId) => {
@@ -385,6 +403,7 @@ export function createSuite({
     // Without an MCP, AI clients find no OAuth metadata to follow.
     mcp: config.modules.mcp,
     afterSignIn: connectAfterSignIn({ config, sessions }),
+    origins,
     sessions: {
       open: (res, userId, { workosSessionId, req = null, authTime = null }) => {
         freshSignIns.note(sessions.open(userId, { req, res, idpSessionId: workosSessionId }), authTime);
@@ -404,6 +423,7 @@ export function createSuite({
     stateCookie: `${config.app.id.replace(/-/g, '_')}_oidc`,
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     afterSignIn: connectAfterSignIn({ config, sessions }),
+    origins,
     sessions: {
       open: (res, userId, { idpSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId });
@@ -519,6 +539,8 @@ export function createSuite({
     database, texts, mailer, sign: sessions.sign, appName: config.app.name, baseUrl: install.baseUrl,
     countryOf: behindCloudflare ? (req) => cloudflareCountry(req, { trustProxy: install.trustProxy }) : null,
     planName: (id) => entitlements.describe().plans.find((p) => p?.id === id)?.name ?? id,
+    // Where the day's new accounts came from, for the daily summary (origins.js).
+    originsSince: origins ? (from, to) => origins.topSince(from, to) : null,
     log: (line) => log(`${tag} ${line}`),
   }) : null;
   if (notices) {
@@ -742,7 +764,9 @@ export function createSuite({
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    shareMail, shareBrake, goneBrake, affiliates, creatorInvitations,
+    shareMail, shareBrake, goneBrake, affiliates, creatorInvitations, origins,
+    // The first thing someone creates, noted once for the figures by origin; null without them.
+    made: origins?.made ?? null,
     /**
      * Whose something is (ownership.js), made once: its refusals, its notices of something deleted in
      * the person's language, and the hand-over of what someone leaving shared (audit ownership-20).
@@ -823,6 +847,9 @@ export function clientTexts(flat) {
  * @param {object} options.suite          from createSuite()
  * @param {string} [options.publicDir]    the app's static files (index.html, js/, i18n/…)
  * @param {object|Function} [options.routes]  the app's router, or (router) => { … } to fill one
+ * @param {boolean} [options.firsts]  whether what the app's own routes create (a 201) is noted as the
+ *   first thing someone made, where the app keeps origins (origins.js). A host's root says false:
+ *   there it is what is made in its modules that counts, not a link or a message at the root
  * @param {boolean} [options.zonedRoutes]  each of the app's own routes runs in the time zone of
  *   whoever asks (time.js inZoneOf), as its tools do: `todayFor()` and the date parsers read their
  *   day. The suite's routes are left as they are. A host passes its module's (`createModule().zonedRoutes`)
@@ -911,7 +938,7 @@ export function createApp({
   clientRoutes = null,
   version = '0.0.0', watchRoot = null, handleSignals = true, log = console.log, portable = null,
   sweep = null, offersMcp = null, frames = 'none', embeds = [],
-  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null, adminUsage = null,
+  deviceActions = null, resolveDeviceAction = null, storage = null, billingReturn = null, adminUsage = null, firsts = true,
 }) {
   const {
     config, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, texts, entitlements, organizations,
@@ -956,6 +983,8 @@ export function createApp({
         ...(suite.affiliates && config.modules.admin ? { affiliates: true } : {}),
         // And its creators' invitations (creator-invitations.js), with affiliates.invitations.
         ...(suite.creatorInvitations && config.modules.admin ? { creator_invitations: true } : {}),
+        // With origins kept, /admin › Origins (origins.js).
+        ...(suite.origins && config.modules.admin ? { origins: true } : {}),
         // The program on: Settings links to the person's panel (/afiliados), on the web only.
         ...(suite.affiliates?.enabled ? { recommend: true } : {}),
         // The administrator's connector (admin-mcp.js): /admin › Connector.
@@ -1071,6 +1100,10 @@ export function createApp({
     accounts.whenRemoved((userId) => adminMcp.forget(userId));
     registerAdminMcpApi(api, { adminMcp, audit });
   }
+  // An account's origin and its payments, for the admin's panel (origins.js).
+  if (suite.origins && config.modules.admin) {
+    registerOriginsApi(api, { origins: suite.origins, accounts, visitsToken: install.originVisitsToken });
+  }
   if (organizations) registerOrganizationsApi(api, { organizations, audit, baseUrl: install.baseUrl });
   if (push) {
     registerPushApi(api, {
@@ -1155,11 +1188,20 @@ export function createApp({
     const declared = entitlements.describe().features;
     if (declared['mcp.calls_per_week']) {
       const week = entitlements.countWeekly(user, 'mcp.calls_per_week');
+      if (week.allowed) suite.origins?.usedMcp(user);
+      else entitlements.limitReached(user, 'mcp.calls_per_week');
       return week.allowed || weeklyLimitText(week, config.app.name);
     }
-    if (!declared['mcp.calls_per_day']) return true;
+    if (!declared['mcp.calls_per_day']) {
+      suite.origins?.usedMcp(user);
+      return true;
+    }
     const day = entitlements.countDaily(user, 'mcp.calls_per_day');
-    if (day.allowed) return true;
+    if (day.allowed) {
+      suite.origins?.usedMcp(user);
+      return true;
+    }
+    entitlements.limitReached(user, 'mcp.calls_per_day');
     return dailyLimitText(day, config.app.name);
   };
 
@@ -1269,7 +1311,11 @@ export function createApp({
 
   /** The route of a request among the suite's and the app's, or what to answer. */
   function route(method, pathname) {
-    const found = [api, appApi].map((router) => router?.match(method, pathname)).filter(Boolean);
+    // `own`: a route of the app's own, not one of the suite's (what it creates is the person's work).
+    const found = [[api, false], [appApi, true]].map(([router, own]) => {
+      const match = router?.match(method, pathname);
+      return match ? { ...match, own } : null;
+    }).filter(Boolean);
     const exact = found.find((m) => m.handler);
     if (exact) return exact;
     if (!found.length) return null;
@@ -1377,6 +1423,11 @@ export function createApp({
         // Nor one that keys its writes itself, for an account it finds on its own (keyedByRoute).
         const replayable = suite.idempotency && !match.handler.answeredOnce && !match.handler.keyedByRoute;
         await (replayable ? suite.idempotency.run(ctx, () => match.handler(ctx)) : match.handler(ctx));
+        // The first thing someone creates here, for the figures by origin (origins.js): a route of
+        // the app's own that answered them 201. Not the suite's routes (a token, a device, an
+        // account the admin makes are no work of theirs), nor a host's root (`firsts: false`).
+        // Noted once an account, and never a reason for the answer to fail.
+        if (firsts && suite.made && match.own && res.statusCode === 201 && ctx.user) suite.made(ctx.user);
         return;
       }
 

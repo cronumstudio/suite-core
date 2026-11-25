@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.344.0 — 2026-11-25
+## 0.347.0 — 2026-11-25
 
 - **The admin connector deletes the test accounts its own invitations made** (`admin-mcp.js`).
   An account counts as the connector's test account, beside those it made with
@@ -16,6 +16,83 @@ change an interface and a patch never does. Apps pin a version through the submo
   Accounts from an invitation made in /admin, or with an email outside the patterns, are still
   refused. `delete_test_account`, `get_account`'s `test_account` and `find_accounts`'
   `test_accounts` follow the same rule. No migration.
+
+## 0.346.0 — 2026-11-25
+
+- **/admin › Origins: what each origin brought** (`origins.js` `report`, `GET /api/admin/origins?weeks=`,
+  and the same as a CSV at `/export`): a table per week, the week the accounts were made in, with a
+  row per origin: that week's visits, the accounts made, how many did something, how many ran into a
+  limit of their plan in their first 30 days, how many pay, by plan, and what they have paid,
+  refunds left out. An account's origin there is one: its link's tag, else the site it came from,
+  else how it was made when that says something (an assistant, the phone app); with none of them
+  it is «not known», a row of its own. Nobody is asked where they came from. The admin's card of
+  an account says the same one origin. With `modules.origins`; /api/auth/config says
+  `modules.origins`.
+- **What an account did for the first time**, once each (new suite migration 39, `account_marks`):
+  `made`, the first thing it created (a route of the app's own answered it 201: in a host, a
+  module's, with `createApp({ firsts: false })` at the root; never the suite's routes, where a
+  token or a device is made); `mcp`, its first call from an assistant; and `limit:<feature>`, each limit of its plan it
+  ran into. For that, **`entitlements.whenLimit(hook)`**: `hook(user, feature)` as `require`
+  refuses a limit, as the storage does (`storage.js`) and as the MCP's quota does for the week's or
+  the day's calls (`entitlements.limitReached`). In a host, a module's limits and what is made in
+  it count for the root's figures. A mark is written after what refused it, so a transaction undone
+  doesn't take it along.
+- **Visits, as a number per day and origin** (`origin_visits`): a site's own server tells of a
+  visit with `POST /api/origins/visits { src, via }` and the install's `ORIGIN_VISITS_TOKEN` in
+  `Authorization: Bearer` (24 characters or more; without it the route isn't there, and a short
+  one is left out with a warning). Nothing of the visitor comes with it or is kept: no address, no
+  browser, no identifier. A day tells apart 500 origins at most; past them, the rest are `(other)`.
+- **The admin's daily summary can say where the day's accounts came from**: `{origins}`, the three
+  origins with most (`reddit-mcp 4, google.com 2`), in the default template as «Came from: …» and
+  left out when none is known. A summary whose template the admin wrote gets it when they add it.
+
+## 0.345.0 — 2026-11-25
+
+- **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 38,
+  `account_origins` and `origin_payments`): kept when the account is made and never written over,
+  the tag of the link it followed (`?src=reddit-mcp`; `?utm_source=` or `?ref=`, which some sites
+  add to the links they list, when there is no `src`), the domain of the site before, never its
+  page, and how the account was made: on the web, from the phone app's connect page, or by an
+  assistant's token. A tag is text from outside: 1 to 40 of a-z, 0-9, `.`, `_` and `-`, in lower
+  case, or it is none; a site is a domain of 80 characters at most, and never this install's own
+  nor its sign-in provider's.
+- **Nothing is kept on anyone's device for it.** The tag and the site travel in the address
+  (`/auth/login?src=…&via=…`; the kit's sign-in adds them from the page's own address and
+  `document.referrer`, `web/signin.js` `arrivalQuery`) and to the provider and back as one more
+  part of the state the sign-in already keeps for itself (`workos-accounts.js`, `oidc.js`: its
+  30-minute cookie at /auth, gone on return). The provider is told nothing of them, and what comes
+  back is checked again before it is written. An app without `modules.origins` signs in exactly as
+  before.
+- **Every payment is noted with its account's origin as it was then**, since `billing.js` keeps
+  what someone has now and not what they paid: the web provider's `payment` events with what was
+  charged (`billing.whenPaid`), and the stores' purchases and renewals, one per paid period
+  (`stores.whenApplied`). A store's purchase arrives without an amount, so a store product may now
+  say `amount` and `currency` (`stores.products.<key>`, both or neither, never charged from
+  here): its payments are noted with that, marked as an estimate. A refund marks its payment. An
+  account that goes takes its origin and its payments' rows with it. An account the admin makes, in
+  /admin or through the administrator's connector, has no origin.
+- **The admin sees an account's origin** in its dialog, in a fold of its own: the link's tag, the
+  site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
+  host it is the root's, as the affiliates are.
+## 0.344.0 — 2026-11-25
+
+- **Signing out signs out of the shared login, and the next sign-in asks who it is**
+  (`api.js`, `http.js`, `sessions.js`, `workos-accounts.js`, `oidc.js`, `web/signin.js`). In
+  production an account signed out and was back one or two seconds later: the server tells every
+  tab of that session at once, another tab of Cronum Work reloaded, went to AuthKit by itself
+  (`straightToProvider`), and AuthKit, still signed in, let it in without asking. Sometimes as
+  another account than the one that had just left (whoever AuthKit remembered), and AuthKit stayed
+  signed in whenever the page that signed out didn't go to the provider's page after (a creator's
+  invitation, a phone's connect page). Now:
+  - `POST /api/auth/logout` revokes the AuthKit session from the server, whatever page asked, and
+    no longer answers `logout_url` with WorkOS (an OIDC provider still gives its own). Signing out
+    of one Cronum product signs out of the login they share.
+  - It leaves the browser the mark `suite_signed_out=1` (`SIGNED_OUT_COOKIE`, `markSignedOut`,
+    `clearSignedOut`, `signedOutHere` in http.js; `sessions.markSignedOut(res)`), for a month.
+    While it is there, `/auth/login` asks AuthKit to sign in again (`max_age=0`; OIDC
+    `prompt=login`), and `straightToProvider` keeps the card in every tab
+    (`signedOutInBrowser()` in web/signin.js). Signing in takes it away (`sessions.open` with
+    `res`). Deleting one's account leaves it too.
 
 ## 0.342.0 — 2026-11-24
 

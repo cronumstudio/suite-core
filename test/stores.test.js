@@ -792,7 +792,7 @@ test('the configuration: STORE_BILLING and stores, off by default, every mistake
   assert.deepEqual(stores({ devices: true }), ['stores.devices needs modules.devices: the device tokens it takes']);
   assert.deepEqual(stores({ devices: 'yes' }), ['stores.devices must be true or false']);
   assert.deepEqual(stores({ products: { p: { plan: 'pro', kind: 'subscription', appstore: 'com.example.p' } } }), [
-    'stores.products.p.appstore is not a setting (plan, kind, days, name, founderOf, appStore, playStore)',
+    'stores.products.p.appstore is not a setting (plan, kind, days, name, founderOf, amount, currency, appStore, playStore)',
     'stores.products.p: its id in a store is needed (appStore or playStore)',
   ]);
   assert.deepEqual(stores({ products: { p: { plan: 'pro', kind: 'subscription', appStore: 'com.example.p', for: 'organization' } } }),

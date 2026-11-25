@@ -43,6 +43,8 @@ test('a template: variables by their values, a part in brackets left out when on
 test('the variables a template may name are its group’s', () => {
   assert.deepEqual(unknownVariables('New account from {pais}, {users}', 'signup'), ['pais']);
   assert.deepEqual(unknownVariables('{signups} new, {top_country}', 'digest'), []);
+  assert.deepEqual(unknownVariables('{signups} new, from {origins}', 'digest'), [], 'where the new accounts came from, where origins are kept');
+  assert.deepEqual(unknownVariables('{origins}', 'signup'), ['origins'], 'the summary’s alone');
   assert.deepEqual(unknownVariables('{plan}', 'signup'), ['plan'], 'an account has no plan');
   for (const vars of Object.values(NOTICE_VARIABLES)) assert.ok(vars.includes('app'));
 });

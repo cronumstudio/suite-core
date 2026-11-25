@@ -86,6 +86,7 @@ suite-core/
   affiliates.js         done   referral codes and creators' campaigns: who brought whom, commissions, months given, payouts
   admin-mcp.js          done   the administrator's connector: /admin/mcp, its own OAuth, rules kept by the server
   creator-invitations.js done  invitations with the plan (a creator's code, or the plan alone): a link, and the account, plan and code made when someone enters
+  origins.js            done   where each account came from (a link's tag, the site before, how it was made) and each payment with its origin
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -651,6 +652,17 @@ change who someone is or make a new account's login: their session counts only i
 signed in (`auth_time`) after the server asked them, in the ten minutes since
 (`createFreshSignIns`, workos-security.js). A session opened in the last minutes proved nothing,
 since AuthKit signs a browser in again without a word while its own session lasts.
+
+**Signing out** (v0.344.0): `POST /api/auth/logout` closes the session here and, with WorkOS,
+revokes its AuthKit session from the server (`revokeSession`, in the background): out of the
+shared login too, whatever page asked. It no longer answers a `logout_url` for WorkOS; an OIDC
+provider, which can't end a session from the server, still gives its own. It also leaves the
+browser the mark `suite_signed_out=1` (http.js `SIGNED_OUT_COOKIE`, every path, a month, readable
+by the pages): while it is there, `/auth/login` asks the provider to sign in again (AuthKit
+`max_age=0`, OIDC `prompt=login`) and `straightToProvider` keeps the card in every tab, not only
+the one that signed out. Signing in again takes it away (sessions.js `open`). Before it, another tab
+of Cronum Work that lost its session went to AuthKit by itself and was let in a second later, as
+whoever AuthKit still had signed in.
 
 **Sessions of the web from a device** (**done**, v0.105.0, with `devices.webSessions`): an app
 whose screens are its web pages in a WebView (Cronum Work) turns its token into the web's own
