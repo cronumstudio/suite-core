@@ -3,6 +3,15 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.347.1 — 2026-11-25
+
+- **No banner for a change made online** (`web/ui.js` `offlineBanner`). Online, the banner said
+  «Sending a change made offline…» for any change waiting, so a module that saves as one types
+  (Notes) showed it and took it away at every save, and the whole screen went down and up again
+  under it. Now, online, it says only those that waited without a signal, or were already waiting
+  when the banner was made, are being sent; a change made online is the save state's to say, next
+  to what is saved (web-kit.md). Without a signal, and back while those go, it is as before.
+
 ## 0.347.0 — 2026-11-25
 
 - **The admin connector deletes the test accounts its own invitations made** (`admin-mcp.js`).
