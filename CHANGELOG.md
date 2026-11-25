@@ -3,7 +3,7 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
-## 0.342.0 — 2026-11-25
+## 0.345.0 — 2026-11-25
 
 - **Where each account came from** (`origins.js`, with `modules.origins`; new suite migration 38,
   `account_origins` and `origin_payments`): kept when the account is made and never written over,
@@ -31,6 +31,46 @@ change an interface and a patch never does. Apps pin a version through the submo
 - **The admin sees an account's origin** in its dialog, in a fold of its own: the link's tag, the
   site, how the account was made and what it has paid (`GET /api/admin/users/:id/origin`). In a
   host it is the root's, as the affiliates are.
+## 0.344.0 — 2026-11-25
+
+- **Signing out signs out of the shared login, and the next sign-in asks who it is**
+  (`api.js`, `http.js`, `sessions.js`, `workos-accounts.js`, `oidc.js`, `web/signin.js`). In
+  production an account signed out and was back one or two seconds later: the server tells every
+  tab of that session at once, another tab of Cronum Work reloaded, went to AuthKit by itself
+  (`straightToProvider`), and AuthKit, still signed in, let it in without asking. Sometimes as
+  another account than the one that had just left (whoever AuthKit remembered), and AuthKit stayed
+  signed in whenever the page that signed out didn't go to the provider's page after (a creator's
+  invitation, a phone's connect page). Now:
+  - `POST /api/auth/logout` revokes the AuthKit session from the server, whatever page asked, and
+    no longer answers `logout_url` with WorkOS (an OIDC provider still gives its own). Signing out
+    of one Cronum product signs out of the login they share.
+  - It leaves the browser the mark `suite_signed_out=1` (`SIGNED_OUT_COOKIE`, `markSignedOut`,
+    `clearSignedOut`, `signedOutHere` in http.js; `sessions.markSignedOut(res)`), for a month.
+    While it is there, `/auth/login` asks AuthKit to sign in again (`max_age=0`; OIDC
+    `prompt=login`), and `straightToProvider` keeps the card in every tab
+    (`signedOutInBrowser()` in web/signin.js). Signing in takes it away (`sessions.open` with
+    `res`). Deleting one's account leaves it too.
+
+## 0.342.0 — 2026-11-24
+
+- **An invitation's email that they wrote is confirmed on the invitation's page**
+  (`creator-invitations.js`, `web/creator-invitation.js`). On a link that names nobody, WorkOS
+  wants the email confirmed before it opens a session, and the page used to send them to
+  AuthKit for that. If AuthKit still had someone else signed in in that browser, it let that
+  person in instead: the new account was made, with its Pro, but nobody was signed in to it, and
+  its email stayed empty here. Now `accept` answers `confirm: { id, email }` when that happens,
+  the page asks for the 6-digit code WorkOS has just mailed, and the new
+  `POST /api/creator-invitations/:token/confirm` (`{ id, code }`) confirms it and opens the
+  session of the account that was just made. A wrong code is 400 `confirm_code_wrong`, and five
+  of them end it. After 15 minutes, or for an id that isn't that invitation's, the answer is
+  410 `confirm_expired`; the page then sends them to sign in with that email, which mails a new
+  code.
+- **workos.js** adds `authenticateWithEmailCode({ code, pendingToken })`, the grant
+  `email-verification:code`. When WorkOS asks for one more step, `authenticateWithPassword`
+  now also returns the `pendingToken` it gave. **workos-accounts.js** adds
+  `signInWithEmailCode(req, res, { code, pendingToken })`.
+- New texts in five languages: `creatorInvite.confirmTitle`, `creatorInvite.confirmText`,
+  `creatorInvite.confirmCode`, `errors.confirm_code_wrong` and `errors.confirm_expired`.
 
 ## 0.341.0 — 2026-11-24
 

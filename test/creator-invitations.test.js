@@ -111,8 +111,15 @@ async function providerApi(t) {
 async function fakeWorkos(t) {
   const users = new Map();
   const calls = [];
-  const state = { mfa: false, refuse: false };
+  const state = { mfa: false, refuse: false, mailed: [] };
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const signedIn = (user) => {
+    const { password: _, ...shown } = user;
+    return { status: 200, payload: {
+      user: shown, authentication_method: 'Password', refresh_token: 'rt',
+      access_token: `${b64({ alg: 'none' })}.${b64({ sid: `session_${user.id}`, sub: user.id, auth_time: Math.floor(Date.now() / 1000) })}.`,
+    } };
+  };
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
@@ -125,14 +132,24 @@ async function fakeWorkos(t) {
       if (url.pathname === '/user_management/authenticate' && body?.grant_type === 'password') {
         const user = byEmail(body.email);
         if (!user || user.password !== body.password) return answer(400, { code: 'invalid_credentials' });
-        if (!user.email_verified) return answer(400, { code: 'email_verification_required', message: 'Email ownership must be verified.' });
+        if (!user.email_verified) {
+          // WorkOS mails a code then, and answers with what takes it.
+          state.mailed.push({ email: user.email, code: '123456' });
+          return answer(400, {
+            code: 'email_verification_required', message: 'Email ownership must be verified.',
+            pending_authentication_token: `pat_${user.id}`, email_verification_id: 'email_verification_1', email: user.email,
+          });
+        }
         if (state.mfa) return answer(400, { code: 'mfa_enrollment', message: 'The user must enroll in MFA.' });
         if (state.refuse) return answer(400, { code: 'invalid_credentials' });
-        const { password: _, ...shown } = user;
-        return answer(200, {
-          user: shown, authentication_method: 'Password', refresh_token: 'rt',
-          access_token: `${b64({ alg: 'none' })}.${b64({ sid: `session_${user.id}`, sub: user.id, auth_time: Math.floor(Date.now() / 1000) })}.`,
-        });
+        return answer(200, signedIn(user).payload);
+      }
+      if (url.pathname === '/user_management/authenticate' && body?.grant_type === 'urn:workos:oauth:grant-type:email-verification:code') {
+        const user = users.get(String(body.pending_authentication_token || '').replace(/^pat_/, ''));
+        if (!user) return answer(400, { code: 'invalid_pending_authentication_token' });
+        if (body.code !== '123456') return answer(400, { code: 'email_verification_code_incorrect' });
+        user.email_verified = true;
+        return answer(200, signedIn(user).payload);
       }
       if (url.pathname === '/user_management/users' && req.method === 'GET') {
         const found = byEmail(url.searchParams.get('email'));
@@ -589,6 +606,51 @@ test('WorkOS: the login made with its email verified and the app’s mark, the s
   // Where it came from, for the figures by origin.
   // Said for each request that went on to make the login: the refused password’s too, which made no account.
   assert.deepEqual(arrived, [{ src: 'creator' }, { src: 'creator' }], 'a creator’s invitation, as the account’s origin');
+});
+
+test('WorkOS: an email they wrote is confirmed on the page with the mailed code, not on AuthKit’s, and opens their own account', async (t) => {
+  const workos = await fakeWorkos(t);
+  const { suite, admin, browser } = await serve(t, { workos });
+  const made = (await admin('POST', '/api/admin/creator-invitations', { name: 'Reddit', creator: false, pro_months: 1 })).data.invitation;
+  const token = tokenOf(made.link);
+  const page = browser();
+  const done = await page('POST', `/api/creator-invitations/${token}/accept`, { password: PASSWORD, email: 'Ana@Example.com' });
+  assert.equal(done.status, 200, JSON.stringify(done.data));
+  assert.equal(done.data.signed_in, false);
+  assert.equal(done.data.confirm.email, 'ana@example.com');
+  assert.match(done.data.confirm.id, /^[A-Za-z0-9_-]{32}$/);
+  assert.deepEqual(workos.state.mailed.map((m) => m.email), ['ana@example.com'], 'WorkOS mailed the code');
+  assert.equal(page.cookie, '', 'no session before the code');
+  const [login] = [...workos.users.values()];
+  assert.equal(login.email_verified, false);
+  const user = suite.accounts.byIdentity('workos', login.id);
+  assert.equal(user.email, null, 'an email nobody confirmed is not kept yet');
+  assert.equal(suite.entitlements.of(user).plan.id, 'pro', 'its Pro, already');
+
+  // Wrong: said, and another try. Another link's, a made-up id, or none: gone.
+  const confirm = (body, who = page, at = token) => who('POST', `/api/creator-invitations/${at}/confirm`, body);
+  assert.deepEqual([(await confirm({ id: done.data.confirm.id, code: '000000' })).data.error], ['confirm_code_wrong']);
+  assert.equal((await confirm({ id: done.data.confirm.id, code: 'abc' })).data.error, 'confirm_code_wrong');
+  assert.equal((await confirm({ id: 'nope', code: '123456' })).status, 410);
+  assert.equal((await confirm({ id: done.data.confirm.id, code: '123456' }, page, 'ci_other')).status, 410);
+
+  // Someone else signed in in this browser does not matter: the code opens the new account.
+  const it = suite.accounts.create({ username: 'it', email: 'it@example.com', role: 'admin' });
+  page.cookie = `demo_sid=${suite.sessions.open(it.id)}`;
+  const right = await confirm({ id: done.data.confirm.id, code: '123 456' });
+  assert.equal(right.status, 200, JSON.stringify(right.data));
+  assert.equal(right.data.signed_in, true);
+  assert.equal((await page('GET', '/api/auth/me')).data.user.id, user.id, 'signed in as the new account');
+  assert.equal(suite.accounts.byId(user.id).email, 'ana@example.com', 'the email kept, now confirmed');
+  assert.equal(login.email_verified, true);
+  assert.equal((await confirm({ id: done.data.confirm.id, code: '123456' })).status, 410, 'once');
+
+  // Five wrong codes and it goes: signing in from the start mails a new one.
+  const many = (await admin('POST', '/api/admin/creator-invitations', { creator: false, pro_months: 1, uses: 3 })).data.invitation;
+  const other = browser();
+  const next = (await other('POST', `/api/creator-invitations/${tokenOf(many.link)}/accept`, { password: PASSWORD, email: 'bo@example.com' })).data;
+  for (let i = 0; i < 5; i += 1) assert.equal((await confirm({ id: next.confirm.id, code: '111111' }, other, tokenOf(many.link))).status, 400);
+  assert.equal((await confirm({ id: next.confirm.id, code: '123456' }, other, tokenOf(many.link))).status, 410);
 });
 
 test('WorkOS: an email with a login elsewhere signs in there and claims on the way back; Google straight; a second step left to AuthKit', async (t) => {

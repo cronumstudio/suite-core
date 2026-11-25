@@ -144,10 +144,14 @@ export function codeFromName(name, offer = null) {
  * @param {Function} options.sign       sessions.sign: the install's keyed hash, for the token and the email's hash
  * @param {object} options.config       resolveAffiliates()'s `invitations` (days, proMonths, google, terms, privacy)
  * @param {object} [options.billing]    for the plan the invitation gives: the plan of the creators' products
- * @param {Function} [options.signUp]   async ({ email, password, name, verified, locale, req, res }) → { user, signedIn }:
+ * @param {Function} [options.signUp]   async ({ email, password, name, verified, locale, req, res }) → { user, signedIn, pending }:
  *   a login made with a password and that email (confirmed when `verified`: the invitation named it),
  *   and its session opened when it can be (the identity provider may want one more step first, such
- *   as confirming an email the invitation didn't name). Null where no password can be given here (OIDC)
+ *   as confirming an email the invitation didn't name: `pending` then, for confirmEmail). Null where no
+ *   password can be given here (OIDC)
+ * @param {Function} [options.confirmEmail]  async ({ pendingToken, code, req, res }) → { user } | { user: null,
+ *   refused } | { user: null, step }: the code the identity provider mailed to confirm that email, and the
+ *   session it opens
  * @param {Function} [options.taken]    async (email) → 'here' | 'provider' | null: whether that email
  *   has an account here, or a login at the identity provider (another app of the suite's)
  * @param {Function} [options.signInUrl]  (back, { provider, hint, src }) → where to sign in elsewhere and
@@ -159,7 +163,7 @@ export function codeFromName(name, offer = null) {
  * @param {object} [options.audit]
  */
 export function createCreatorInvitations({
-  database, affiliates, accounts, entitlements, sign, config, billing = null, signUp = null, taken = async () => null,
+  database, affiliates, accounts, entitlements, sign, config, billing = null, signUp = null, confirmEmail = null, taken = async () => null,
   signInUrl = null, origins = null, sampleData = () => null, passwordMin = 10, audit = null, baseUrl = '',
   clock = () => Date.now(), log = console.log,
 }) {
@@ -518,11 +522,57 @@ export function createCreatorInvitations({
     // Its origin, for the figures by origin: an invitation, whatever link brought the page.
     const kept = typeof origins === 'function' ? origins() : origins;
     if (kept?.arriving && kept?.pack) kept.arriving(req, kept.pack({ src: isCreator(row) ? 'creator' : 'invitation' }));
-    const { user, signedIn } = await signUp({
+    const { user, signedIn, pending = null } = await signUp({
       email: address, password, name: row.uses === 1 ? row.name : null, verified: Boolean(row.email), locale, req, res,
     });
     const done = await settle(row, user, { code, sample, locale, req });
+    if (!signedIn && pending && confirmEmail) {
+      return { ...done, signed_in: false, confirm: { id: waitFor({ token, pending, userId: user.id }), email: address } };
+    }
     return { ...done, signed_in: Boolean(signedIn) };
+  }
+
+  /*
+   * An email they wrote, not the invitation's: the identity provider mailed a code to confirm it, and
+   * the page asks for it. What that answer gave to go on (its pending token) stays here, under an id
+   * only that page knows, for as long as such a code lasts; a few wrong codes and it goes.
+   */
+  const waiting = new Map();
+  const CONFIRM_FOR = 15 * 60 * 1000;
+  const CONFIRM_TRIES = 5;
+  function waitFor({ token, pending, userId }) {
+    const now = clock();
+    for (const [id, entry] of waiting) if (entry.until <= now) waiting.delete(id);
+    const id = randomToken(24);
+    waiting.set(id, { token, pending, userId, until: now + CONFIRM_FOR, tries: 0 });
+    return id;
+  }
+
+  /**
+   * The code from their inbox, on the page: the email confirmed and their session opened.
+   * → `{ signed_in: true }`, or `{ signed_in: false }` when the provider wants yet another step (its
+   * own page then); 400 `confirm_code_wrong` for a wrong code, 410 `confirm_expired` once it can't be
+   * used any more (time, tries, another link's), when signing in from the start sends a new code.
+   */
+  async function confirm(token, { id, code } = {}, { req = null, res = null } = {}) {
+    const entry = typeof id === 'string' ? waiting.get(id) : null;
+    if (entry && entry.until <= clock()) waiting.delete(id);
+    if (!entry || entry.token !== token || entry.until <= clock()) throw new HttpError(410, 'confirm_expired');
+    const typed = String(code ?? '').replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(typed)) throw badRequest('confirm_code_wrong');
+    const answer = await confirmEmail({ pendingToken: entry.pending, code: typed, req, res });
+    if (answer?.user) {
+      waiting.delete(id);
+      if (answer.user.id !== entry.userId) log(`[invitations] a confirmed email opened account #${answer.user.id}, not #${entry.userId}`);
+      return { signed_in: true };
+    }
+    if (answer?.step) {
+      waiting.delete(id);
+      return { signed_in: false };
+    }
+    entry.tries += 1;
+    if (entry.tries >= CONFIRM_TRIES) waiting.delete(id);
+    throw badRequest('confirm_code_wrong');
   }
 
   /** Signed in already (their account, or Google's way back): the invitation goes to that account. */
@@ -575,7 +625,7 @@ export function createCreatorInvitations({
   };
 
   return {
-    settings, defaults, create, list, get, revoke, page, checkCode, accept, claim, signInFor, sweep, forget,
+    settings, defaults, create, list, get, revoke, page, checkCode, accept, confirm, claim, signInFor, sweep, forget,
     linkOf: (id) => {
       const row = byId(id);
       return row && statusOf(row) === 'pending' && row.seed ? linkOf(row) : null;
@@ -630,6 +680,12 @@ export function registerCreatorInvitationsApi(router, { invitations, limiter = n
     }, { req: ctx.req, res: ctx.res, before: () => brake(ctx) });
     sendJson(ctx.res, 200, done);
   })));
+  // The code their inbox got, when the email was one they wrote (accept's `confirm`).
+  router.post('/api/creator-invitations/:token/confirm', provider(async (ctx) => {
+    fromHere(ctx);
+    const body = await readJson(ctx.req);
+    sendJson(ctx.res, 200, await invitations.confirm(ctx.params.token, { id: body.id, code: body.code }, { req: ctx.req, res: ctx.res }));
+  }));
   router.post('/api/creator-invitations/:token/claim', answeredOnce(provider(async (ctx) => {
     const user = requireUser(ctx);
     const body = await readJson(ctx.req);

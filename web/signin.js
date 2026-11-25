@@ -38,6 +38,15 @@ function dropParam(name) {
 }
 
 const SIGNED_OUT = 'suite.signedOut';
+/** The server's mark of a sign-out in this browser, for every tab (http.js SIGNED_OUT_COOKIE). */
+const SIGNED_OUT_COOKIE = 'suite_signed_out';
+
+/** Whether someone signed out in this browser and nobody has signed in since (the server's mark). */
+export function signedOutInBrowser(cookies = null) {
+  let jar = cookies;
+  try { jar ??= globalThis.document?.cookie ?? ''; } catch { return false; }
+  return String(jar).split(';').some((part) => part.trim() === `${SIGNED_OUT_COOKIE}=1`);
+}
 const STRAIGHT = 'suite.signInStraight';
 
 /**
@@ -48,7 +57,9 @@ const STRAIGHT = 'suite.signInStraight';
  * here (`leave` leaves a mark: whoever left sees the card, not the provider's page), and not twice
  * in a minute in this tab, so a session that never takes (cookies blocked) or Back from the
  * provider's page ends on the card instead of going round in circles. Without sessionStorage
- * (private mode), the card, as before.
+ * (private mode), the card, as before. Nor after someone signed out in this browser, in any tab
+ * (`cookies`, the server's mark): another tab of Work that lost its session with that sign-out
+ * used to go to the provider at once and come back signed in, a second later.
  */
 /**
  * Where this page was reached from, for `/auth/login` to carry to an account made now (the
@@ -71,8 +82,9 @@ export function arrivalQuery({ search = '', referrer = '', host = '' } = {}) {
   return out.toString();
 }
 
-export function straightToProvider({ storage = null, now = Date.now(), framed = FRAMED, app = inApp() } = {}) {
+export function straightToProvider({ storage = null, now = Date.now(), framed = FRAMED, app = inApp(), cookies = null } = {}) {
   if (framed || app) return false;
+  if (signedOutInBrowser(cookies)) return false;
   try {
     // Read here and not as the default: with the site's data blocked, merely naming sessionStorage
     // throws (SecurityError), and the card must stay as before rather than signIn() failing (audit sc-auth-5).

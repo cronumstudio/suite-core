@@ -73,6 +73,8 @@
   "errors.invalid_json": "Die Anfrage konnte nicht gelesen werden.",
   "errors.invitation_expired": "Diese Einladung ist abgelaufen. Bitte um eine neue.",
   "errors.invitation_invalid": "Diese Einladung ist ungültig: Sie wurde schon benutzt oder zurückgezogen.",
+  "errors.confirm_code_wrong": "Dieser Code stimmt nicht. Sieh in der letzten E-Mail nach und gib die 6 Ziffern ein.",
+  "errors.confirm_expired": "Dieser Code gilt nicht mehr. Melde dich erneut an, dann bekommst du einen neuen.",
   "errors.last_admin": "Es muss immer mindestens einen aktiven Administrator geben.",
   "errors.last_owner": "Eine Gruppe braucht immer mindestens einen Eigentümer.",
   "errors.owner_only": "Nur der Eigentümer kann das tun.",
@@ -1970,6 +1972,9 @@
   "creatorInvite.title": "Deine Einladung",
   "creatorInvite.hello": "Hallo, {name}.",
   "creatorInvite.ready": "Dein Pro-Konto ist bereit.",
+  "creatorInvite.confirmTitle": "Bestätige deine E-Mail.",
+  "creatorInvite.confirmText": "Wir haben einen 6-stelligen Code an {email} geschickt. Gib ihn hier ein, um loszulegen.",
+  "creatorInvite.confirmCode": "Code",
   "creatorInvite.months": {
     "one": "Pro 1 Monat lang kostenlos.",
     "other": "Pro {n} Monate lang kostenlos."

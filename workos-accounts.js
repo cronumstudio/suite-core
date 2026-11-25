@@ -10,7 +10,7 @@
 import crypto from 'node:crypto';
 import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
-import { HttpError, sendJson, localPath, signInFlowCookies } from './http.js';
+import { HttpError, sendJson, localPath, signInFlowCookies, signedOutHere } from './http.js';
 import { safeEqual } from './crypto.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
@@ -528,8 +528,10 @@ export function createWorkosAccounts({
         challenge: pkceChallenge,
         signUp: url.searchParams.get('signup') === '1',
         // The device connect page asks for it (device-pages.js), to sign in as someone else, and the
-        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin).
-        fresh: url.searchParams.get('prompt') === 'login',
+        // admin panel, for an admin who must sign in again (workos-security.js confirmAdmin). And
+        // after someone signed out in this browser (http.js SIGNED_OUT_COOKIE): AuthKit asks who it
+        // is, rather than letting in whoever it still remembers.
+        fresh: url.searchParams.get('prompt') === 'login' || signedOutHere(req),
         // Straight to Google rather than AuthKit's page (a creator's invitation's «or with Google»).
         ...(STRAIGHT_TO[url.searchParams.get('provider')] ? { provider: STRAIGHT_TO[url.searchParams.get('provider')] } : {}),
         // AuthKit's page with their email already written (an invitation to an email that has a login).
@@ -610,7 +612,8 @@ export function createWorkosAccounts({
    * same as a return from AuthKit: the account here (made now if it isn't yet, with the request's
    * hooks: its origin, a code's link), how they signed in, this app's mark, and the session.
    * → `{ user }` signed in; `{ user: null, step }` when WorkOS wants one more step first (a second
-   * factor), which only AuthKit's page takes, so no session is opened; 401 `bad_credentials` for a
+   * factor), which only AuthKit's page takes, so no session is opened (with `pendingToken` when the
+   * step is the email's code, which signInWithEmailCode takes); 401 `bad_credentials` for a
    * password that isn't theirs, 403 `account_disabled` for an account that is.
    * @throws {WorkosUnavailable}
    */
@@ -618,8 +621,28 @@ export function createWorkosAccounts({
     const answer = await workos.authenticateWithPassword({
       email, password, ip, userAgent: String(req?.headers?.['user-agent'] || '').slice(0, 400) || null,
     });
-    if (answer.step) return { user: null, step: answer.step };
+    if (answer.step) return { user: null, step: answer.step, pendingToken: answer.pendingToken ?? null };
     if (!answer.account) throw new HttpError(401, 'bad_credentials');
+    return openFrom(req, res, answer);
+  }
+
+  /**
+   * The code WorkOS mailed to confirm the email, after signInWithPassword's `email_verification_required`:
+   * the email confirmed (and so kept on the account here), and the session, as signInWithPassword
+   * opens it. → `{ user }`; `{ user: null, refused }` for a wrong or old code; `{ user: null, step }`
+   * when WorkOS wants yet another step (AuthKit's page then).
+   * @throws {WorkosUnavailable}
+   */
+  async function signInWithEmailCode(req, res, { code, pendingToken, ip = null }) {
+    const answer = await workos.authenticateWithEmailCode({
+      code, pendingToken, ip, userAgent: String(req?.headers?.['user-agent'] || '').slice(0, 400) || null,
+    });
+    if (answer.step) return { user: null, step: answer.step };
+    if (!answer.account) return { user: null, refused: answer.refused || 'refused' };
+    return openFrom(req, res, answer);
+  }
+
+  async function openFrom(req, res, answer) {
     const { account, sessionId, method, authTime } = answer;
     const user = await localUser(account);
     if (user.disabled_at) throw new HttpError(403, 'account_disabled');
@@ -639,7 +662,7 @@ export function createWorkosAccounts({
   }
 
   return {
-    id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser, signInWithPassword,
+    id: 'workos', name: 'WorkOS', handle, userFromToken, challenge, localUser, signInWithPassword, signInWithEmailCode,
     ...(users.workosIdOf ? { connectionsOf, revokeConnection, revokeAllConnections, deleteIdentity } : {}),
     ...(mark && users.workosIdOf ? { markAll, otherApps, unmark } : {}),
     signOutUrl: workos.signOutUrl, revokeSession: workos.revokeSession,

@@ -195,3 +195,24 @@ test('with the site\'s data blocked, naming sessionStorage throws, and the card 
     Object.defineProperty(globalThis, 'sessionStorage', kept);
   }
 });
+
+test('signed out in another tab of this browser (the server\'s mark), the card stays here too, and comes back once someone signs in', () => {
+  const box = new Map();
+  const storageOf = { getItem: (k) => (box.has(k) ? box.get(k) : null), setItem: (k, v) => box.set(k, String(v)), removeItem: (k) => box.delete(k) };
+  const now = Date.now();
+  assert.equal(straightToProvider({ storage: storageOf, now, framed: false, app: false, cookies: 'theme=dark; suite_signed_out=1' }), false);
+  assert.equal(box.size, 0, 'nothing noted: the next one in the minute may still go');
+  assert.equal(straightToProvider({ storage: storageOf, now, framed: false, app: false, cookies: 'suite_signed_out=0' }), true, 'only its mark');
+  assert.equal(straightToProvider({ storage: storageOf, now: now + 60_001, framed: false, app: false, cookies: 'theme=dark' }), true, 'signed in since: as before');
+  // The screen itself: the card, with its button, and the page doesn't go anywhere by itself.
+  const before = Object.getOwnPropertyDescriptor(globalThis.document, 'cookie');
+  Object.defineProperty(globalThis.document, 'cookie', { configurable: true, get: () => 'suite_signed_out=1' });
+  try {
+    signIn({ app, config: workos });
+    assert.deepEqual(went, []);
+    assert.deepEqual(card().links, ['Sign in', 'Create an account']);
+  } finally {
+    if (before) Object.defineProperty(globalThis.document, 'cookie', before);
+    else delete globalThis.document.cookie;
+  }
+});

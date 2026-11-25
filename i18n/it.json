@@ -73,6 +73,8 @@
   "errors.invalid_json": "Non è stato possibile leggere la richiesta.",
   "errors.invitation_expired": "Quell’invito è scaduto. Chiedine uno nuovo.",
   "errors.invitation_invalid": "Quell’invito non è valido: è già stato usato o ritirato.",
+  "errors.confirm_code_wrong": "Quel codice non è corretto. Controlla l’ultima email ricevuta e scrivi le sue 6 cifre.",
+  "errors.confirm_expired": "Quel codice non vale più. Accedi di nuovo e ne riceverai uno nuovo.",
   "errors.last_admin": "Deve esserci sempre almeno un amministratore attivo.",
   "errors.last_owner": "Un gruppo deve avere sempre almeno un proprietario.",
   "errors.owner_only": "Solo il proprietario può farlo.",
@@ -1970,6 +1972,9 @@
   "creatorInvite.title": "Il tuo invito",
   "creatorInvite.hello": "Ciao, {name}.",
   "creatorInvite.ready": "Il tuo account Pro è pronto.",
+  "creatorInvite.confirmTitle": "Conferma la tua email.",
+  "creatorInvite.confirmText": "Abbiamo inviato un codice di 6 cifre a {email}. Scrivilo qui per entrare.",
+  "creatorInvite.confirmCode": "Codice",
   "creatorInvite.months": {
     "one": "Pro gratis per 1 mese.",
     "other": "Pro gratis per {n} mesi."
