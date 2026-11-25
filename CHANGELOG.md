@@ -3,6 +3,20 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.347.0 — 2026-11-25
+
+- **The admin connector deletes the test accounts its own invitations made** (`admin-mcp.js`).
+  An account counts as the connector's test account, beside those it made with
+  `create_test_account`, when both of these hold:
+  - it was made by entering through an invitation the connector made (`create_creator_invitation`,
+    whose creation the log marks with the connector's `via`);
+  - its email fits the install's patterns for test accounts, or it has no email and nobody ever
+    signed in to it (an email typed on the link and never confirmed).
+
+  Accounts from an invitation made in /admin, or with an email outside the patterns, are still
+  refused. `delete_test_account`, `get_account`'s `test_account` and `find_accounts`'
+  `test_accounts` follow the same rule. No migration.
+
 ## 0.346.0 — 2026-11-25
 
 - **/admin › Origins: what each origin brought** (`origins.js` `report`, `GET /api/admin/origins?weeks=`,
