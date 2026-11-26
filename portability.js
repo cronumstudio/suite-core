@@ -86,9 +86,12 @@ export const EXPORT_VERSION = 1;
  * The profile of an account that travels: never its password, second step or identities elsewhere.
  * `delete_after` is when an account its owner asked to delete goes (account-deletion.js): a whole
  * install's copy keeps it waiting, or it would arrive disabled and never go, data and all.
+ * `terms_accepted_at` and `terms_version`: when it accepted the install's terms and which (terms.js),
+ * in the person's copy as the rest of their profile; a whole install's copy keeps them, the same
+ * service moving, and someone's own brings none: those were another install's terms.
  */
 const USER_COLUMNS = ['id', 'username', 'display_name', 'email', 'email_verified_at', 'role', 'locale', 'theme',
-  'prefs', 'created_at', 'disabled_at', 'delete_after'];
+  'prefs', 'created_at', 'disabled_at', 'delete_after', 'terms_accepted_at', 'terms_version'];
 /** What travels of an organization, of a membership and of an invitation still waiting. */
 const ORGANIZATION_COLUMNS = ['id', 'slug', 'name', 'kind', 'settings', 'branding', 'created_at', 'archived_at'];
 const MEMBERSHIP_COLUMNS = ['organization_id', 'user_id', 'role', 'invited_by', 'joined_at'];
@@ -1442,7 +1445,7 @@ export function createPortability({
       if (!isId(user.id) || seen.has(user.id)) throw invalidData('users', { column: 'id' });
       if (typeof user.username !== 'string' || !user.username.trim()) throw invalidData('users', { column: 'username' });
       for (const text of ['display_name', 'email', 'role', 'locale', 'theme', 'prefs', 'created_at', 'disabled_at', 'email_verified_at',
-        'delete_after']) {
+        'delete_after', 'terms_accepted_at', 'terms_version']) {
         if (user[text] != null && typeof user[text] !== 'string') throw invalidData('users', { column: text });
       }
       // The account's row is read whole on every request it makes: what comes in
@@ -2101,6 +2104,13 @@ export function createPortability({
           database.run(`UPDATE users SET created_at = COALESCE(?, created_at), disabled_at = ?, email_verified_at = ?
             ${model.userColumns.includes('delete_after') ? ', delete_after = ?' : ''} WHERE id = ?`,
           source.created_at ?? null, disabled, verified, ...(model.userColumns.includes('delete_after') ? [goes] : []), account.id);
+          // The terms it accepted, when the whole install moves: the same service, the same terms (terms.js).
+          const accepted = mode === 'install' && model.userColumns.includes('terms_accepted_at') && typeof source.terms_accepted_at === 'string'
+            && !Number.isNaN(Date.parse(source.terms_accepted_at)) ? new Date(Date.parse(source.terms_accepted_at)).toISOString() : null;
+          if (accepted) {
+            database.run('UPDATE users SET terms_accepted_at = ?, terms_version = ? WHERE id = ?', accepted,
+              typeof source.terms_version === 'string' ? source.terms_version.slice(0, 40) : null, account.id);
+          }
           userMap.set(sourceId, account.id);
           created.push(account.id);
         }

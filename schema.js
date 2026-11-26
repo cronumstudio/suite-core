@@ -37,6 +37,7 @@ import { devicePushTokensSchema, deviceRemindersSchema } from './native-push.js'
 import { strangerInvitesSchema, strangerInvitesKeepSchema } from './stranger-invites.js';
 import { adminNoticesSchema } from './admin-notices.js';
 import { adminMcpSchema } from './admin-mcp.js';
+import { termsSchema } from './terms.js';
 
 /** Migration 33: `email = ? COLLATE NOCASE` on users read the whole table (audit sc-data-25). */
 function usersEmailSchema(d) {
@@ -129,4 +130,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 39, name: 'origin-figures', up: originFiguresSchema },
   // What Admin sets of the affiliates program: the creators' default reward (affiliates.js).
   { version: 40, name: 'affiliate-settings', up: affiliateSettingsSchema },
+  // Whether an account must accept the install's terms, and when it did and which version (terms.js).
+  { version: 41, name: 'terms-acceptance', up: termsSchema },
 ]);

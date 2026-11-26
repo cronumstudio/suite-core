@@ -1807,6 +1807,11 @@ export async function createHost({
         sendJson(res, 401, { error: 'unauthorized' });
         return undefined;
       }
+      // Nothing of the modules before the terms are accepted (terms.js), as on every other route.
+      if (suite.terms?.blocks(user)) {
+        sendJson(res, 403, { error: 'terms_required' });
+        return undefined;
+      }
       liveStreams.subscribe(liveChannels(), req, res, user, { sessionToken: suite.sessions.tokenFrom(req) ?? null });
       return undefined;
     }

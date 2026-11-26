@@ -399,6 +399,44 @@ test('OIDC: an app that keeps no origins carries nothing with its sign-in and ha
   assert.equal((await fetch(`${base}/api/admin/users/1/origin`, { headers: { Cookie: session } })).status, 404);
 });
 
+test('OIDC: a new account goes to the page of the terms before the app, and the box posted from the sign-in skips it', async (t) => {
+  const { P, codes } = await startProvider(t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-core-oidc-terms-'));
+  const suite = createSuite({
+    config: { app: { id: 'demo', name: 'Demo', languages: ['en'] } },
+    env: {
+      DATA_DIR: dir, PORT: '0', BASE_URL: 'http://127.0.0.1', AUTH_PROVIDER: 'oidc',
+      OIDC_ISSUER: `${P}/`, OIDC_CLIENT_ID: 'demo-client', OIDC_CLIENT_SECRET: 'demo-secret',
+      TERMS_URL: 'https://example.com/terms', PRIVACY_URL: 'https://example.com/privacy', TERMS_VERSION: '2026-12-08',
+    },
+    log: () => {}, exitOnError: false,
+  });
+  const app = createApp({ suite, handleSignals: false, log: () => {} });
+  const server = await app.listen();
+  t.after(async () => { await app.close(); suite.database.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const signIn = async (sub, search, init = {}) => {
+    const out = await fetch(`${base}/auth/login${search}`, { redirect: 'manual', ...init });
+    const target = new URL(out.headers.get('location'));
+    const code = `c-${crypto.randomUUID()}`;
+    codes.set(code, {
+      sub, claims: { sub, email: `${sub}@example.com`, email_verified: true }, override: {}, signing: {},
+      nonce: target.searchParams.get('nonce'), challenge: target.searchParams.get('code_challenge'), redirect: target.searchParams.get('redirect_uri'),
+    });
+    const back = await fetch(`${base}/auth/callback?code=${code}&state=${target.searchParams.get('state')}`,
+      { redirect: 'manual', headers: { Cookie: out.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ') } });
+    return back.headers.get('location');
+  };
+  const accepted = (sub) => suite.database.get('SELECT terms_version FROM users WHERE email = ?', `${sub}@example.com`).terms_version;
+  assert.equal(await signIn('ivy', `?return=${encodeURIComponent('/lists/')}`), `/auth/terms?return=${encodeURIComponent('/lists/')}`);
+  assert.equal(accepted('ivy'), null);
+  const posted = await signIn('jo', '?return=%2Flists%2F', {
+    method: 'POST', body: 'terms=1', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: base },
+  });
+  assert.equal(posted, '/lists/');
+  assert.equal(accepted('jo'), '2026-12-08');
+});
+
 test('OIDC: a provider that doesn’t answer, and a configuration that is missing', async () => {
   // A port that was just free: nothing listens there any more.
   const gone = http.createServer();

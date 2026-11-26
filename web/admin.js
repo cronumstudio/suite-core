@@ -460,6 +460,10 @@ function userDialog(user) {
       field(t('fields.display_name'), name),
       field(t('fields.email'), email, user.email && !user.email_verified ? t('admin.users.unconfirmed') : null),
       field(t('fields.role'), role)),
+    // When they accepted the install's terms and which version (terms.js), once they have.
+    user.terms_accepted_at ? el('p', { class: 'kit-hint', 'data-terms': '', text: user.terms_version
+      ? t('admin.users.termsAccepted', { date: formatDateTime(user.terms_accepted_at), version: user.terms_version })
+      : t('admin.users.termsAcceptedNoVersion', { date: formatDateTime(user.terms_accepted_at) }) }) : null,
     local() ? el('label', { class: 'kit-check' }, verified, el('span', { text: t('admin.users.emailVerified') })) : null,
     local() && state.config.mail === false ? el('p', { class: 'kit-hint', text: t('admin.users.confirmByHand') }) : null,
     el('label', { class: 'kit-check' }, disabled, el('span', { text: t('admin.users.disabled') })),

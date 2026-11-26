@@ -3,6 +3,36 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.350.0 — 2026-11-26
+
+- **New accounts accept the install's terms and privacy policy, once, and the account keeps the
+  record** (`terms.js`, suite migration 41). With `TERMS_URL` or `PRIVACY_URL` set:
+  - the kit's sign-in shows «I accept the terms and the privacy policy», each a link, where it makes
+    an account, and the button waits for it: beside a provider's «Create an account» (WorkOS), and
+    in a local sign-up's form (`accept_terms`). For the provider, the tick is posted to
+    `/auth/login` (`terms=1`, asking for JSON), which holds it on the server under the sign-in's
+    state, never in its cookie, and answers the provider's address (`{ location }`), which the page
+    opens: a form redirected to another site would meet the pages' `form-action 'self'`. It is
+    recorded at the callback. Only a post from the site's own page counts (its Origin, or
+    `Sec-Fetch-Site`), so a link or another site's form can't tick it for someone;
+  - an account that came in without the box (the provider's own «Sign up», the phone app, OIDC, an
+    assistant first, an account an administrator made) goes from the callback to `/auth/terms`,
+    with the box, «Continue» and «Sign out». Until it accepts, its browser sessions get 403
+    `terms_required` from every route but `/api/auth/config`, `/api/auth/logout` and
+    `/api/auth/terms` (a host's live channel for all its modules too), and the kit's client
+    (`web/api.js`) takes the whole window to that page and back. Bearer tokens (the MCP, a phone's device token, API tokens)
+    are never asked;
+  - the account records when it accepted and which version (`users.terms_accepted_at`,
+    `terms_version`, from `TERMS_VERSION`: a date or a short name; empty, no version, said at the
+    start), with an entry in the activity log (`auth.terms_accept`). The admin's list and the
+    account's card say it; so does the person's copy of their data, and a whole install's copy
+    keeps it (someone's own brings none into another account).
+  Who is asked: an account made in a request from this version on (`users.terms_asked`, set as it is
+  made). Every account already there gets 0 from the migration and is never asked, nor is one an
+  import brings or a script makes (the first administrator). With neither page, none of this
+  appears; accounts made meanwhile are asked once the install links them. /api/auth/config says
+  `terms` (`{ terms, privacy, version }`) when on. New keys in the five catalogs.
+
 ## 0.349.0 — 2026-11-26
 
 - **Settings › About says the code's licence, and links to the exact source that runs** (`about.js`,
