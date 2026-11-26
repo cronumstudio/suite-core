@@ -332,14 +332,17 @@ try {
     && loginWithout.status === 302 && new URL(loginWithout.headers.Location).pathname === '/user_management/authorize',
   JSON.stringify(loginWithout.headers));
   {
-    // Where someone comes from (origins.js) rides with the sign-in's state, in its own cookie and
-    // no other, and is handed over before the account is made on the way back.
+    // Where someone comes from (origins.js) is held on the server under the sign-in's state, never
+    // in its cookie, and is handed over before the account is made on the way back.
     const seen = [];
+    const held = new Map();
     const withOrigins = createWorkosAccounts({
       baseUrl: base, appName: 'Test app', workos, users, sessions: { open: () => {} }, stateCookie: 'test_auth', log: () => {},
       origins: {
         fromLogin: (req, url) => ({ src: url.searchParams.get('src'), via: null }),
         pack: ({ src }) => (src ? Buffer.from(src).toString('base64url') : ''),
+        hold: (state, packed) => { if (packed) held.set(state, packed); },
+        take: (state) => { const packed = held.get(state) || ''; held.delete(state); return packed; },
         arriving: (req, packed) => seen.push({ packed, made: users.byWorkosId('user_new') != null }),
       },
     });
@@ -355,10 +358,13 @@ try {
     };
     const plain = await start('');
     const tagged = await start('?signup=1&src=reddit.mcp');
-    check('A sign-in with nothing to say of where it comes from keeps its state as before',
-      plain.value.split('.').length === 3 && plain.cookies.every((c) => c.startsWith('test_auth')), plain.value);
-    check('One that says it carries it as one more part of that state, whatever dots it has, and tells AuthKit nothing',
-      tagged.value.split('.').length === 4 && Buffer.from(tagged.value.split('.')[3], 'base64url').toString() === 'reddit.mcp'
+    const taggedState = tagged.target.searchParams.get('state');
+    check('A sign-in with nothing to say of where it comes from keeps its state as before, and holds nothing',
+      plain.value.split('.').length === 3 && plain.cookies.every((c) => c.startsWith('test_auth'))
+      && !held.has(plain.target.searchParams.get('state')), plain.value);
+    check('One that says it keeps the same cookie, without it, holds it on the server under its state and tells AuthKit nothing',
+      tagged.value.split('.').length === 3 && !tagged.cookies.some((c) => decodeURIComponent(c).includes(Buffer.from('reddit.mcp').toString('base64url')))
+      && Buffer.from(held.get(taggedState) || '', 'base64url').toString() === 'reddit.mcp'
       && tagged.cookies.every((c) => c.startsWith('test_auth')) && !tagged.target.href.includes('reddit'), tagged.value);
     ACCOUNTS.user_new = { id: 'user_new', email: 'new@example.com', email_verified: true, first_name: 'New' };
     const code = `c-user_new-${Math.random()}`;
@@ -366,9 +372,9 @@ try {
     const back = answer();
     await withOrigins.handle({ method: 'GET', headers: { cookie: tagged.cookies.join('; ') } }, back,
       new URL(`/auth/callback?code=${code}&state=${tagged.target.searchParams.get('state')}`, base));
-    check('Back from AuthKit it is handed over before the account is made',
-      back.status === 302 && seen.length === 1 && seen[0].packed === tagged.value.split('.')[3] && seen[0].made === false
-      && users.byWorkosId('user_new') != null, JSON.stringify(seen));
+    check('Back from AuthKit it is handed over before the account is made, and no longer held',
+      back.status === 302 && seen.length === 1 && Buffer.from(seen[0].packed, 'base64url').toString() === 'reddit.mcp'
+      && seen[0].made === false && users.byWorkosId('user_new') != null && !held.has(taggedState), JSON.stringify(seen));
   }
   check('Signing out also closes AuthKit’s session',
     accounts.signOutUrl('sess_1') === `${AUTHKIT}/user_management/sessions/logout?session_id=sess_1`);

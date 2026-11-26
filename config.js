@@ -32,6 +32,7 @@ import { appLinksFrom } from './app-links.js';
 import { organizationKinds } from './organizations.js';
 import { DEFAULT_LIMITS } from './rate-limit.js';
 import { isObject } from './http.js';
+import { aboutFromEnv } from './about.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -535,8 +536,12 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // What a site's own server says to tell of a visit (ORIGIN_VISITS_TOKEN, origins.js): with
     // modules.origins, POST /api/origins/visits takes it; empty, that route isn't there.
     originVisitsToken: originVisitsTokenOf(env.ORIGIN_VISITS_TOKEN, modules, warnings),
-    // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT).
-    securityContact: securityContactOf(env.SECURITY_CONTACT, warnings),
+    // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT, else
+    // ADMIN_EMAIL); null: whoever runs the install named nobody, and there is no security.txt.
+    securityContact: securityContactOf(env.SECURITY_CONTACT, env.ADMIN_EMAIL, warnings),
+    // What Settings › About says of the code that runs and of whoever runs it (about.js): SOURCE_*,
+    // the legal links, and where the public pages invite people to sign up (SIGNUP_URL).
+    about: aboutFromEnv(env, warnings),
     // The biggest copy of data an import takes over HTTP, in MB (IMPORT_MAX_MB); null: portability.js's own.
     importMaxMb: importMaxMbOf(env.IMPORT_MAX_MB, env.TRUST_PROXY || p.trustProxy, errors),
     hotReload: env.HOT_RELOAD === 'true',
@@ -804,20 +809,25 @@ function productsFor(products, billing, errors) {
   return out;
 }
 
-/** Cronum Studio's address for reports of a security problem: the suite's own, until an install names its own. */
-export const SECURITY_CONTACT = 'mailto:hello@cronumstudio.com';
+/** A bare email, as SECURITY_CONTACT and ADMIN_EMAIL may say it. */
+const BARE_EMAIL = /^[^\s@:/]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * SECURITY_CONTACT: a mailto: or https: address (RFC 9116), or a bare email, which becomes a
- * mailto:. Anything else is said once and the suite's address stands: a typo there must not stop the app.
+ * mailto:. Empty, the install's administrator (ADMIN_EMAIL): reports about an install go to
+ * whoever runs it, never to the suite's authors. Neither: null, and no security.txt is served.
+ * A mistake is said once and the administrator's address stands: a typo there must not stop the app.
  */
-function securityContactOf(value, warnings) {
+function securityContactOf(value, adminEmail, warnings) {
   const given = String(value ?? '').trim();
-  if (!given) return SECURITY_CONTACT;
+  const admin = String(adminEmail ?? '').trim();
+  const fallback = BARE_EMAIL.test(admin) ? `mailto:${admin}` : null;
+  if (!given) return fallback;
   if (/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/i.test(given)) return given;
-  if (/^[^\s@:/]+@[^\s@]+\.[^\s@]+$/.test(given)) return `mailto:${given}`;
-  warnings.push(`SECURITY_CONTACT "${given}" is not a mailto: or https: address: ${SECURITY_CONTACT} is used`);
-  return SECURITY_CONTACT;
+  if (BARE_EMAIL.test(given)) return `mailto:${given}`;
+  warnings.push(`SECURITY_CONTACT "${given}" is not a mailto: or https: address: ${fallback
+    ? 'the administrator’s (ADMIN_EMAIL) is used' : 'no security.txt is served'}`);
+  return fallback;
 }
 
 /**

@@ -98,6 +98,7 @@ import { staticFile } from './http.js';
 import { fingerprint } from './host-worker.js';
 import { createAppLinks } from './app-links.js';
 import { SUITE_CATALOGS, mergeCatalogs, CATALOG_FALLBACK } from './i18n.js';
+import { aboutAnswer } from './about.js';
 
 const HOUR = 3600 * 1000;
 /** The suite's browser code, served at /suite/. */
@@ -967,10 +968,15 @@ export function createApp({
     : () => Boolean(offersMcp ?? (mcp && config.modules.mcp));
 
   const api = createRouter();
+  // The code that runs is the product's: in a host, the host's (its commit pins every module's).
+  const about = {
+    answer: aboutAnswer(install.about, install.about?.of ?? { id: config.app.id, version }),
+    signupUrl: install.about?.signupUrl ?? null,
+  };
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
-    database: suite.database,
+    database: suite.database, about,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: {
@@ -1443,7 +1449,9 @@ export function createApp({
       // Which app on a phone may open the site's links (suite.config.js `appLinks`): asked by the
       // phone with no session and followed by no redirect, so answered here, before any page.
       if (appLinks(req, res, pathname)) return;
-      if (pathname === '/.well-known/security.txt' && ['GET', 'HEAD'].includes(req.method)) {
+      // Only where the install names someone to write to (SECURITY_CONTACT or ADMIN_EMAIL): else
+      // the plain not_found below, never somebody else's address.
+      if (pathname === '/.well-known/security.txt' && install.securityContact && ['GET', 'HEAD'].includes(req.method)) {
         const body = securityTxt({ contact: install.securityContact, baseUrl: install.baseUrl });
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
         res.end(req.method === 'HEAD' ? undefined : body);

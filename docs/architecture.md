@@ -87,6 +87,7 @@ suite-core/
   admin-mcp.js          done   the administrator's connector: /admin/mcp, its own OAuth, rules kept by the server
   creator-invitations.js done  invitations with the plan (a creator's code, or the plan alone): a link, and the account, plan and code made when someone enters
   origins.js            done   where each account came from (a link's tag, the site before, how it was made) and each payment with its origin
+  about.js              done   Settings › About's notice of the code: its exact source, licence, closed parts, legal links (SOURCE_*, *_URL)
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -279,7 +280,9 @@ Environment variables configure the install, never the product (`config.js` read
 `BILLING_PROVIDER` (`stripe` or one registered from outside) with `STRIPE_*` or its own, `EARLY_ACCESS_UNTIL`,
 `FOUNDER_OFFER_UNTIL`, `FOUNDER_JOIN_UNTIL` and `EARLY_ACCESS_PLAN`,
 `STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
-`smtp`) with `MAIL_*`, `ALERT_EMAIL`; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
+`smtp`) with `MAIL_*`, `ALERT_EMAIL`; `SECURITY_CONTACT`; for Settings › About (about.js) `SOURCE_URL`,
+`SOURCE_REVISION`, `SOURCE_MODIFIED`, `SOURCE_CLOSED`, `TERMS_URL`, `PRIVACY_URL`, `COOKIES_URL`, `LEGAL_URL`,
+`SUPPORT_URL`, and `SIGNUP_URL` for the public pages; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`; with `appLinks`, `APPLE_TEAM_ID` and `ANDROID_CERT_SHA256`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and
@@ -1358,7 +1361,7 @@ apps learned the hard way:
 3. Sign-in and discovery: `/auth/*`, `/.well-known/*`, `/oauth/*`. Discovery paths that the install
    does not serve answer a JSON 404, never the app's HTML, or MCP clients choke on it: OAuth's
    with "No OAuth here", any other `/.well-known/*` with `not_found`, but `security.txt`
-   (RFC 9116, `SECURITY_CONTACT`) and, with `appLinks`, the phones' `apple-app-site-association` and
+   (RFC 9116, `SECURITY_CONTACT`, else `ADMIN_EMAIL`; with neither, `not_found` too) and, with `appLinks`, the phones' `apple-app-site-association` and
    `assetlinks.json` (app-links.js: JSON, no session, no redirect, an hour's cache; a host's at its root
    only, a page that is the root taking only `/`). `/api` itself is the API's JSON 404 too.
 4. `/mcp`.

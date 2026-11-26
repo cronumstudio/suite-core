@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isoInstant } from '../time.js';
 import {
-  knownTimeZone, SERVER_TIME_ZONE, zoneOf, inZoneOf, currentZone, dayIn, addDays, todayIn, todayFor, daysSince,
+  knownTimeZone, SERVER_TIME_ZONE, serverTimeZone, zoneOf, inZoneOf, currentZone, dayIn, addDays, todayIn, todayFor, daysSince,
   dayStart, daySpan,
 } from '../time.js';
 
@@ -13,6 +13,15 @@ test('knownTimeZone canonicalises IANA names and refuses the rest', () => {
   assert.equal(knownTimeZone(''), null);
   assert.equal(knownTimeZone(42), null);
   assert.equal(knownTimeZone('x'.repeat(65)), null);
+});
+
+test('the server’s zone: the one the install names (TZ), else UTC, never the machine’s own', () => {
+  assert.equal(serverTimeZone({ TZ: 'Europe/Madrid' }), 'Europe/Madrid', 'a configured install keeps its zone');
+  assert.equal(serverTimeZone({ TZ: 'america/new_york' }), 'America/New_York');
+  assert.equal(serverTimeZone({}), 'UTC', 'none named: UTC');
+  assert.equal(serverTimeZone({ TZ: '' }), 'UTC', 'an empty TZ, as compose passes an unset one, is none');
+  assert.equal(serverTimeZone({ TZ: 'Mars/Olympus' }), 'UTC', 'a zone that isn’t one: UTC, as Node reads it');
+  assert.equal(SERVER_TIME_ZONE, serverTimeZone(process.env));
 });
 
 test('isoInstant: a stored instant as ISO, an SQLite stamp being UTC (audit of 6/11, sc-feat-14)', () => {

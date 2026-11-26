@@ -933,7 +933,11 @@ export async function createHost({
     }
     if (errors.length) throw new SuiteConfigError(errors);
 
-    const moduleInstall = { ...install, baseUrl: `${install.baseUrl}/${entry.mount}` };
+    // Its About names the host's code, at the host's version: the host's commit pins the module's.
+    const moduleInstall = {
+      ...install, baseUrl: `${install.baseUrl}/${entry.mount}`,
+      about: { ...install.about, of: { id: config.app.id, version } },
+    };
     const moduleConfig = {
       ...config,
       app,

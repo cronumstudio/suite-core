@@ -2508,7 +2508,8 @@ export function openSettings(options) {
   /**
    * What is running and whether it is the latest, the live channel, what the
    * app is and "by Cronum Studio". An installed app has no reload button, so
-   * the new version can be checked by hand here.
+   * the new version can be checked by hand here. And the code's notice (licenceBlock): the
+   * licence, the source of the version that runs, the closed parts and whoever runs it.
    */
   function about() {
     // A module mounted in Work's shell watches no version of its own: the shell's watcher is the
@@ -2547,8 +2548,10 @@ export function openSettings(options) {
         button(t('kit.about.update'), (event) => applyUpdate?.(event), 'primary'),
       ].filter(Boolean);
     };
-    // In a host, the host's: its source, its icon, its name. A module's own are its card's below.
-    const source = host ? hostInfo.source || `https://github.com/cronumstudio/${host.id}` : app.source || `https://github.com/cronumstudio/${app.id}`;
+    // The source of the version that runs, as the install says it (/api/auth/config `about`,
+    // about.js): in a host, the host's. A server from before it: the product's repository.
+    const source = config.about?.source
+      || (host ? hostInfo.source || `https://github.com/cronumstudio/${host.id}` : app.source || `https://github.com/cronumstudio/${app.id}`);
     // Inside the app from the store, its own number: updating the page doesn't move it (native.js).
     const native = nativeInfo();
     const nativeName = { ios: 'iOS', android: 'Android' }[native?.platform];
@@ -2557,8 +2560,9 @@ export function openSettings(options) {
       native?.version && nativeName ? fact(t('kit.about.nativeApp', { platform: nativeName }), `v${native.version}`) : null,
       liveFact,
       el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.latest') }), serverLine, button(t('kit.about.check'), check)),
-      // The AGPL asks modified versions to offer their source.
-      el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.source') }), el('a', { href: source, target: '_blank', rel: 'noopener', text: source.replace(/^https?:\/\//, '') })));
+      // The AGPL asks modified versions to offer their source (section 13): the exact one that runs.
+      el('div', { class: 'kit-fact' }, el('span', { text: t('kit.about.source') }),
+        el('a', { class: 'kit-fact__source', href: source, target: '_blank', rel: 'noopener', text: sourceText(source) })));
     const cards = host ? el('div', { class: 'kit-about-cards' }) : null;
     // The host's icon and its modules' names come with its answer of the modules: painted again then.
     const hostIcon = el('img', { alt: '', width: 54, height: 54 });
@@ -2585,9 +2589,49 @@ export function openSettings(options) {
       // In a host, a card for each module in use, with its version: the whole app updates as one.
       ...(host ? [block(t('kit.about.modulesTitle'), hint(t('kit.about.modulesHint', { app: host.name })), cards)] : []),
       ...(options.aboutExtra && !host ? [aboutOf(options.aboutExtra)] : []),
+      licenceBlock(nativeName),
       block(t('kit.about.keys'), shortcuts()),
       block(null, el('div', { class: 'kit-signature' }, signature())),
     ];
+  }
+
+  /**
+   * The code's notice (the AGPL's «Appropriate Legal Notices», section 0): who holds its copyright
+   * and who changed it, that it is free software under the AGPL with a link to the licence, that it
+   * comes with no warranty but the person's rights as a user stay, the closed parts the service runs
+   * beside it (the install's SOURCE_CLOSED, and the phone's app this page is in), and the links to
+   * the notices and to whoever runs the install. All from the install's `about`; a server from
+   * before it still shows the licence.
+   */
+  function licenceBlock(nativeName) {
+    const about = config.about || {};
+    const name = host ? hostInfo.name || host.name : app.name;
+    const away = (text, href) => (typeof href === 'string' && /^https?:\/\//.test(href)
+      ? el('li', {}, el('a', { class: 'kit-link', href, target: '_blank', rel: 'noopener', text })) : null);
+    const parts = [
+      ...(Array.isArray(about.closed) ? about.closed : []).map((part) => ({ croc: t('kit.about.closedCroc'), payments: t('kit.about.closedPayments') })[part]),
+      nativeName ? t('kit.about.closedNativeApp', { platform: nativeName }) : null,
+    ].filter(Boolean);
+    const links = about.links || {};
+    const list = [
+      away(t('kit.about.thirdParty'), about.third_party),
+      away(t('kit.about.trademarks'), about.trademarks),
+      away(t('kit.about.terms'), links.terms),
+      away(t('kit.about.privacy'), links.privacy),
+      away(t('kit.about.cookies'), links.cookies),
+      away(t('kit.about.legalNotice'), links.legal),
+      away(t('kit.about.support'), links.support),
+    ].filter(Boolean);
+    const copyright = about.copyright?.holder
+      ? el('p', { class: 'kit-about-licence__copyright', text: t('kit.about.copyright', { years: about.copyright.years, holder: about.copyright.holder }) }) : null;
+    return block(t('kit.about.licenseTitle'),
+      copyright,
+      about.modified ? hint(t('kit.about.modifiedBy', { who: about.modified })) : null,
+      el('p', { text: t('kit.about.license', { app: name }) }),
+      el('p', {}, el('a', { class: 'kit-link', href: about.license || 'https://www.gnu.org/licenses/agpl-3.0.html', target: '_blank', rel: 'noopener', text: t('kit.about.licenseRead') })),
+      hint(t('kit.about.warranty')),
+      parts.length ? hint(t('kit.about.closed', { parts: listFormat({ type: 'conjunction' }).format(parts) })) : null,
+      list.length ? el('ul', { class: 'kit-about-licence__links' }, ...list) : null);
   }
 
   /**
@@ -2682,6 +2726,14 @@ function shortcuts() {
     row(['/'], t('kit.about.keySearch')),
     row(['n'], t('kit.about.keyNew')),
     row(['Esc'], t('kit.about.keyClose')));
+}
+
+/**
+ * The source's address as About writes it: without its scheme, and a commit's full hash cut to its
+ * first 12 characters, which name it as well and fit a phone's width. The link keeps all of it.
+ */
+export function sourceText(url) {
+  return String(url || '').replace(/^https?:\/\//, '').replace(/\b([0-9a-f]{12})[0-9a-f]{28}\b/gi, '$1');
 }
 
 function fact(label, value, detail = '') {

@@ -4,6 +4,7 @@ import {
   ResolveError, resolveErrorText, nameKey, keywords, stopwords, numberRef, byNumber, score, matchByName,
 } from '../resolve.js';
 import { parseNaturalDate } from '../dates.js';
+import { SERVER_TIME_ZONE, todayIn } from '../time.js';
 
 const items = (...names) => names.map((name, i) => ({ id: i + 1, name }));
 const fails = (fn, pattern) => assert.throws(fn, (err) => err instanceof ResolveError && pattern.test(err.message));
@@ -75,6 +76,10 @@ test('create: a new name is null, a half-match is asked with the hint', () => {
   assert.equal(matchByName(list, 'the online shop', { create: true }).id, 1);
   fails(() => matchByName(list, 'shop redesign', { create: 'Call again with new=true.' }), /clearly.*new=true/);
   fails(() => matchByName(list, 'Kitchen'), /Can't find item "Kitchen"/);
+});
+
+test('parseNaturalDate without a today: the server’s, in its zone (TZ, else UTC), not the machine’s', () => {
+  assert.equal(parseNaturalDate('today'), todayIn(SERVER_TIME_ZONE));
 });
 
 test('parseNaturalDate: ISO, strict and in range', () => {

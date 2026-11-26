@@ -1568,6 +1568,11 @@ a.kit-linked__open:hover .kit-linked__title { text-decoration: underline; }
 .kit-fact__ok { color: var(--kit-ok); }
 /* An app's own `a { color: inherit }` (Next) mustn't turn the source link into plain text. */
 .kit-fact a { color: var(--kit-accent); }
+/* A source's address is one long word: it breaks anywhere rather than push a phone's page sideways. */
+.kit-fact__source { min-width: 0; overflow-wrap: anywhere; }
+/* About's notice of the code: the copyright line, then the links to the notices and to whoever runs it. */
+.kit-about-licence__copyright { font-weight: 600; }
+.kit-about-licence__links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; }
 /* Settings › Sharing (shared.js): one card for each thing shared, a row for each person. On a
    narrow phone the choice of permission goes under the name, never off the screen. */
 .kit-shared[aria-busy="true"]:empty { min-height: 120px; }

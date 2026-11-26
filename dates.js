@@ -10,6 +10,7 @@
  */
 import { isoDate } from './http.js';
 import { ResolveError, nameKey } from './resolve.js';
+import { SERVER_TIME_ZONE, todayIn } from './time.js';
 
 // As nameKey() writes them (lowercase, no accents, punctuation turned into
 // spaces: "aujourd'hui" → "aujourd hui").
@@ -67,11 +68,8 @@ function calendarDay(year, month, day) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date : null;
 }
 
-/** The server's own calendar day, for when nobody says whose today it is. */
-function localToday() {
-  const now = new Date();
-  return `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
+/** The server's own calendar day, for when nobody says whose today it is: in its zone (TZ, else UTC), as time.js reads it. */
+const localToday = () => todayIn(SERVER_TIME_ZONE);
 
 /**
  * Turns a date as people say it into YYYY-MM-DD:

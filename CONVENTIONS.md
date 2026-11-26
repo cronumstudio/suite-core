@@ -102,7 +102,7 @@ names are the same in every app:
 | `PORT` / `HOST_PORT` | Port inside the container / published on the host |
 | `DATA_DIR` | Where the database and uploads live (`/data` in the container) |
 | `DATA_PATH`, `PROJECT_PATH` | Absolute host paths for the compose files (Synology needs them) |
-| `TZ` | Time zone for "today", due dates and the like |
+| `TZ` | Time zone for "today", due dates and the like; UTC when empty (or not a zone), never the machine's own |
 | `TRUST_PROXY` | `true` only behind a reverse proxy that sets `X-Forwarded-For` |
 | `SECURE_COOKIES` | Force or disable Secure cookies; empty = from `BASE_URL` |
 | `SESSION_SECRET` | Optional: generated and kept in the database when empty |
@@ -124,7 +124,12 @@ names are the same in every app:
 | `STORE_BILLING` | Purchases in the App Store and Google Play through a store provider registered from outside the repository (the hosted suite's RevenueCat), with variables of its own, next to the web's; off when empty |
 | `MAIL_PROVIDER`, `MAIL_*` | Outgoing mail; `log` in development |
 | `ALERT_EMAIL` | Who is emailed when the server fails (an uncaught exception, an unhandled rejection, 5 or more 5xx within 5 minutes, a scheduled job of the suite that threw), at most once per kind every 30 minutes; needs `MAIL_PROVIDER=smtp`. Off when empty, and never `ADMIN_EMAIL` on its own |
-| `SECURITY_CONTACT` | The `Contact` of `/.well-known/security.txt`: a `mailto:` or `https:` address, or an email; `mailto:hello@cronumstudio.com` when empty |
+| `SECURITY_CONTACT` | The `Contact` of `/.well-known/security.txt`: a `mailto:` or `https:` address, or an email; `ADMIN_EMAIL` when empty, and with neither there is no security.txt |
+| `SOURCE_URL`, `SOURCE_REVISION` | Where the source code of the running version is (`{ref}` becomes the revision, or `v<version>` without one) and the commit it was built from: Settings › About links to it (AGPL section 13). Empty: the product's repository at that revision, only right for an unchanged copy |
+| `SOURCE_MODIFIED` | Who changed the code and when, shown under the copyright line in Settings › About (AGPL section 5(a)) |
+| `SOURCE_CLOSED` | The closed parts this install runs, named in Settings › About, from a fixed list: `croc`, `payments` |
+| `TERMS_URL`, `PRIVACY_URL`, `COOKIES_URL`, `LEGAL_URL`, `SUPPORT_URL` | The terms, privacy policy, cookie policy, legal notice and support page of whoever runs the install, linked from Settings › About; no link when empty |
+| `SIGNUP_URL` | Where a public page's «Start free» and its foot's link lead; empty, a public page invites nobody to sign up anywhere |
 | `IMPORT_MAX_MB` | The biggest copy of data an import takes over HTTP, for someone's own and the admin's; when empty, 95 behind Cloudflare (`trustProxy: 'cloudflare'`), which cuts any request over 100 MB with a page of its own, and the suite's own limits otherwise (512 and 4096) |
 
 Old names are not read: `PORT_HOST` and `PUERTO` (now `HOST_PORT`), `RECARGA_EN_CALIENTE`

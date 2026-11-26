@@ -32,14 +32,35 @@
  * comes back into sight, never while hidden: an answer that says the same draws nothing, a reading
  * that fails leaves what is shown, and the page stays where its reader had it.
  *
+ * The bar's «Start free» and the foot's way to make one's own lead where the install invites people
+ * to sign up (`SIGNUP_URL`, /api/auth/config's `signup_url`, asked as the page starts): an install
+ * that names none (one that isn't open to anyone, or someone's own) shows neither, and nothing on
+ * its pages sends people to sign up somewhere else. The bar's name, what the page is made with,
+ * stays.
+ *
  * Its words are the kit's (`kit.public.*`, `errors.public_not_found`, `kit.retry`) and the
  * module's (`words`, `failed`: catalog keys).
  */
 import { el } from './dom.js';
 import { loadLanguage, t } from './i18n.js';
 
-/** Where whoever liked what they saw starts their own: Cronum Work, which every module is part of. */
+/** What every module is part of: Cronum Work, which the bar's name leads to. */
 export const CRONUM_WORK = 'https://cronumstudio.com/work';
+
+/**
+ * Where the install invites whoever opens one of its pages to start their own (`signup_url` in
+ * /api/auth/config, the install's SIGNUP_URL): an http(s) address, or null for none.
+ */
+export async function signupUrl(base = globalThis.location?.href) {
+  try {
+    const res = await fetch(new URL('api/auth/config', base), { credentials: 'omit' });
+    const config = res.ok ? await res.json() : null;
+    const url = config?.signup_url;
+    return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Whether the page is in another site's frame: asked so (`embed=1`), or framed without saying it.
@@ -77,20 +98,23 @@ export function startPublicPage({
   const page = document.getElementById('page');
   const token = new URLSearchParams(location.search).get('p') || '';
   const embedded = embeddedPage();
+  // Asked at once, beside the language: embedded, a page refused there still has the foot under it.
+  const signupAsked = signupUrl(location.href);
+  let signup = null;
   const mark = (size) => el('img', { src: icon, alt: '', width: size, height: size });
   const dot = () => el('span', { class: 'sp-hero__dot', 'aria-hidden': 'true' });
 
-  /** The bar over the page: what it is made with, and the way to start one's own, easy to find. */
+  /** The bar over the page: what it is made with, and where the install invites, the way to start one's own, easy to find. */
   const bar = () => el('header', { class: 'sp-bar' },
     // Named by its label too: on a phone its name is hidden and only the icon shows (public-page.css).
     el('a', { class: 'sp-bar__brand', href: CRONUM_WORK, rel: 'noopener', 'aria-label': t(words.brand) },
       mark(22), el('span', { class: 'sp-bar__name', text: t(words.brand) })),
     el('span', { class: 'sp-bar__pitch', text: t(words.pitch) }),
-    el('a', { class: 'sp-bar__cta', href: CRONUM_WORK, rel: 'noopener', text: t('kit.public.startFree') }));
+    signup ? el('a', { class: 'sp-bar__cta', href: signup, rel: 'noopener', text: t('kit.public.startFree') }) : null);
 
   const foot = () => el('footer', { class: 'sp-foot' },
     el('span', { class: 'sp-foot__made' }, mark(18), t(words.made)),
-    el('a', { class: 'sp-foot__link', href: CRONUM_WORK, rel: 'noopener', text: t(words.makeYours) }));
+    signup ? el('a', { class: 'sp-foot__link', href: signup, rel: 'noopener', text: t(words.makeYours) }) : null);
 
   /** What the page shows, framed by the bar and the foot unless it is in another site's. */
   const show = (...parts) => page.replaceChildren(...(embedded ? parts : [bar(), ...parts, foot()]));
@@ -178,6 +202,7 @@ export function startPublicPage({
       document.head.append(el('base', { target: '_blank' }));
     }
     await loadLanguage('auto', { remember: false }).catch(() => {});
+    signup = await signupAsked;
     await refresh();
     if (!reread) return;
     setInterval(() => { if (document.visibilityState !== 'hidden') refresh(); }, reread);

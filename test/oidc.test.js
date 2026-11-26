@@ -119,10 +119,13 @@ test('OIDC: sign-in, accounts linked by verified email, tokens checked, sign-out
     return { status: res.status, data: await res.json().catch(() => null) };
   };
 
-  assert.deepEqual((await api('GET', '/api/auth/config')).data, {
+  // Beside it, what Settings › About says of the code (about.js, test/about.test.js).
+  const { about, signup_url: signupUrl, ...authConfig } = (await api('GET', '/api/auth/config')).data;
+  assert.deepEqual(authConfig, {
     provider: 'oidc', name: 'Authentik', signup: null, mail: false, password_min: null, two_factor: false, deletion_days: 30,
     app: { id: 'demo', name: 'Demo', languages: ['en', 'es'], modules: { organizations: false, billing: false, data: false, mcp: false } },
   });
+  assert.deepEqual([typeof about.source, signupUrl], ['string', null]);
   assert.equal((await api('POST', '/api/auth/login', null, { username: 'x', password: 'y' })).data.error, 'password_login_disabled');
 
   // Going to the provider: PKCE, a state and a nonce.
@@ -328,6 +331,8 @@ test('OIDC: where someone comes from rides with the sign-in to the account made 
   const ada = await signIn({ sub: 'u-ada', email: 'ada@example.com', email_verified: true, name: 'Ada' },
     '?signup=1&src=Reddit-MCP&via=https%3A%2F%2Fwww.reddit.com%2Fr%2Fmcp%2F');
   assert.deepEqual(origin('ada@example.com'), { src: 'reddit-mcp', referrer: 'reddit.com', entry: 'web' });
+  // The sign-in's cookie carries only what the sign-in needs: the origin waited on the server.
+  assert.ok(ada.set.every((c) => c.split(';')[0].split('=')[1].split('.').length === 4), ada.set.join(' | '));
   // Nothing new is kept in the browser: the sign-in's own cookies and no other, and the provider is told nothing of it.
   assert.deepEqual(ada.set.map((c) => c.split('=')[0]).filter((name) => !name.startsWith('demo_oidc')), []);
   assert.ok(ada.set.every((c) => /HttpOnly/.test(c) && /Path=\/auth/.test(c) && /Max-Age=1800/.test(c)));

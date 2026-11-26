@@ -426,12 +426,9 @@ test('an app made of the suite: sign-in, profile, admin, its own routes, MCP, st
   // Only what an OAuth client looks for says so; any other /.well-known/ is a plain not_found (prod-10).
   assert.deepEqual((await call('GET', '/.well-known/openid-configuration')).data, { error: 'not_found' });
   assert.deepEqual((await call('GET', '/.well-known/change-password')).data, { error: 'not_found' });
-  const securityTxt = await call('GET', '/.well-known/security.txt');
-  assert.equal(securityTxt.status, 200);
-  assert.match(securityTxt.headers.get('content-type'), /^text\/plain; charset=utf-8/);
-  assert.match(securityTxt.data, /^Contact: mailto:hello@cronumstudio\.com\nExpires: \d{4}-\d\d-\d\dT00:00:00\.000Z\nPreferred-Languages: en, es\n/);
-  const expires = Date.parse(/Expires: (\S+)/.exec(securityTxt.data)[1]);
-  assert.ok(expires > Date.now() + 360 * 86400e3 && expires < Date.now() + 365 * 86400e3, 'a little under a year ahead');
+  // An install that names nobody to write to (no SECURITY_CONTACT, no ADMIN_EMAIL) has no security.txt:
+  // never somebody else's address.
+  assert.deepEqual((await call('GET', '/.well-known/security.txt')).data, { error: 'not_found' });
   // `/api` itself is JSON, and a dotfile's path is no page of the app's (prod-9). An app that doesn't
   // name its client routes keeps every other path as its page, as before.
   assert.deepEqual([(await call('GET', '/api')).status, (await call('GET', '/api')).data], [404, { error: 'not_found' }]);
@@ -565,15 +562,20 @@ test('an app without an MCP shows AI clients nothing to follow, nor its pages a 
 });
 
 test('security.txt names the install’s contact; an app that names its routes answers any other path with a 404 page (prod-9, prod-10)', async (t) => {
-  // SECURITY_CONTACT: an address of its own, a bare email as mailto:, a mistake said and the suite's kept.
-  const contact = (value) => {
-    const config = resolveConfig(PRODUCT, { DATA_DIR: os.tmpdir(), SECURITY_CONTACT: value });
+  // SECURITY_CONTACT: an address of its own, a bare email as mailto:, a mistake said; empty, the
+  // install's administrator (ADMIN_EMAIL), and with neither nobody: never the suite's authors.
+  const contact = (value, adminEmail = '') => {
+    const config = resolveConfig(PRODUCT, { DATA_DIR: os.tmpdir(), SECURITY_CONTACT: value, ADMIN_EMAIL: adminEmail });
     return [config.install.securityContact, config.warnings.some((w) => w.startsWith('SECURITY_CONTACT'))];
   };
-  assert.deepEqual(contact(''), ['mailto:hello@cronumstudio.com', false]);
-  assert.deepEqual(contact('security@example.com'), ['mailto:security@example.com', false]);
+  assert.deepEqual(contact(''), [null, false]);
+  assert.deepEqual(contact('', 'admin@example.com'), ['mailto:admin@example.com', false]);
+  assert.deepEqual(contact('', 'not an email'), [null, false]);
+  assert.deepEqual(contact('security@example.com', 'admin@example.com'), ['mailto:security@example.com', false]);
+  assert.deepEqual(contact('mailto:security@example.com'), ['mailto:security@example.com', false]);
   assert.deepEqual(contact('https://example.com/security'), ['https://example.com/security', false]);
-  assert.deepEqual(contact('call us'), ['mailto:hello@cronumstudio.com', true]);
+  assert.deepEqual(contact('call us', 'admin@example.com'), ['mailto:admin@example.com', true]);
+  assert.deepEqual(contact('call us'), [null, true]);
   const { securityTxt } = await import('../app.js');
   assert.equal(securityTxt({ contact: 'mailto:a@example.com', baseUrl: 'https://x.example', now: Date.parse('2026-11-14T15:00:00Z') }),
     'Contact: mailto:a@example.com\nExpires: 2027-11-13T00:00:00.000Z\nPreferred-Languages: en, es\nCanonical: https://x.example/.well-known/security.txt\n');
@@ -597,6 +599,13 @@ test('security.txt names the install’s contact; an app that names its routes a
   };
 
   assert.match((await get('/.well-known/security.txt')).text, /^Contact: mailto:security@example\.com\n/);
+  {
+    const txt = await get('/.well-known/security.txt');
+    assert.equal(txt.status, 200);
+    assert.match(txt.type, /^text\/plain; charset=utf-8/);
+    const expires = Date.parse(/Expires: (\S+)/.exec(txt.text)[1]);
+    assert.ok(expires > Date.now() + 360 * 86400e3 && expires < Date.now() + 365 * 86400e3, 'a little under a year ahead');
+  }
   assert.match((await get('/')).text, /<title>Demo<\/title>/);
   assert.match((await get('/board')).text, /<title>Demo<\/title>/, 'a route it names is its page');
   assert.match((await get('/calendar/')).text, /<title>Calendar<\/title>/);

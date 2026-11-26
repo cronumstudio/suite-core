@@ -101,7 +101,7 @@ async function otherAppsOf(idp, userId) {
 
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
-  mail = true, passwordMin = null, twoFactor = null, deletion = null, database = null,
+  mail = true, passwordMin = null, twoFactor = null, deletion = null, database = null, about = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
@@ -116,12 +116,15 @@ export function registerAuthApi(router, {
     // for the suite's own pages (the admin panel).
     // `deletion_days`: how long an account someone deletes waits before it goes; `deletion_identity`,
     // that its login is shared with other apps and goes with it only as the person decides.
+    // `about`: the code that runs, its licence and whoever runs it, for Settings › About (about.js);
+    // `signup_url`: where a public page invites whoever opens it to start their own, or null.
     sendJson(ctx.res, 200, {
       provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
       mail: Boolean(mail), password_min: idp && idp.id !== 'workos' ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
       ...(deletion ? { deletion_days: deletion.days } : {}),
       ...(deletion?.choosing ? { deletion_identity: true } : {}),
       ...(app ? { app } : {}),
+      ...(about ? { about: about.answer, signup_url: about.signupUrl } : {}),
     });
   });
 

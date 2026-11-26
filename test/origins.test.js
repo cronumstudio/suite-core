@@ -123,6 +123,24 @@ test('carried with the sign-in and written with the account: the first origin st
   assert.equal(origins.of(ana.id).src, 'reddit-mcp');
 });
 
+test('held on the server under the sign-in’s state: handed back once, and never after 30 minutes', (t) => {
+  const { origins, clock } = setup(t);
+  const packed = origins.pack({ src: 'reddit-mcp', via: 'reddit.com' });
+  origins.hold('state-one', packed);
+  origins.hold('state-two', packed);
+  origins.hold('state-none', '');
+  assert.equal(origins.take('state-one'), packed, 'back with its state: what it brought');
+  assert.equal(origins.take('state-one'), '', 'once: then forgotten');
+  assert.equal(origins.take('state-none'), '', 'a sign-in that brought nothing holds nothing');
+  assert.equal(origins.take('another'), '', 'another state: nothing');
+  assert.equal(origins.take(undefined), '');
+  clock.now += 30 * 60 * 1000;
+  assert.equal(origins.take('state-two'), '', 'after the 30 minutes a sign-in may take, gone');
+  origins.hold('state-three', packed);
+  clock.now += 29 * 60 * 1000;
+  assert.equal(origins.take('state-three'), packed, 'within them, still there');
+});
+
 test('how an account was made: on the web, from the phone app, by an assistant’s token; never noted for the admin’s or a script’s', (t) => {
   const { origins, arrive, accounts } = setup(t);
   assert.deepEqual(ENTRIES, ['web', 'app', 'mcp', 'other']);
