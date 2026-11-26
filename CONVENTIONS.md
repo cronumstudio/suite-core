@@ -68,18 +68,26 @@ it may not relax these. The design they serve is in [docs/architecture.md](docs/
 - **Nothing personal in the repository.** Secrets and domains live in `.env`; the paths, ports and
   details of one installation live in local notes for agents. Both are ignored, with `data/`,
   `data-dev/`, `*.db*`, `node_modules/` and `.claude/settings.local.json`.
-- **License:** AGPL-3.0-only: the `LICENSE` file with the official text,
-  `"license": "AGPL-3.0-only"` in `package.json`, `org.opencontainers.image.licenses` in the
-  Dockerfile and a License section in the README that reads, in every repository:
-
-  > Licensed under the GNU Affero General Public License v3.0 only (see LICENSE).
-  > Copyright (C) 2026 Martin Andersen (Cronum Studio).
-  > The licence gives no rights to the Cronum names, logos and app icons as trademarks: see
-  > [NOTICE.md](NOTICE.md) and https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md
-
-- **Third-party material** a repository includes (fonts, icons, code) keeps its own licence and is
-  listed in the repository's `THIRD_PARTY_NOTICES.md`: name, version, licence, copyright and the
-  licence text where the licence asks for it. A new one goes there in the same change.
+- **License:** AGPL-3.0-only, copyright Martin Andersen (Cronum Studio): the `LICENSE` file with
+  the official text, never edited; `"license": "AGPL-3.0-only"` and
+  `"author": { "name": "Martin Andersen (Cronum Studio)", "url": "https://cronumstudio.com" }`
+  in `package.json`; `org.opencontainers.image.licenses` in the Dockerfile; the README's License
+  section, the same in every repository (the one in suite-core's README, with the names of its
+  own third-party material); and `THIRD_PARTY_NOTICES.md` for anything that isn't ours.
+- **Third-party material** (code, icons, fonts or images we didn't make) keeps its own licence and
+  comes in only under MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, Unlicense or CC0
+  (code), SIL OFL 1.1 (fonts), or CC BY 4.0 or CC0 (icons and images). It goes into the
+  repository's `THIRD_PARTY_NOTICES.md` in the same change, with its source, version, licence,
+  copyright and the licence text where the licence asks for it, and a comment in the file that
+  carries it. Never GPL, AGPL, LGPL, MPL, EPL, EUPL, CC BY-SA, SSPL or BUSL, nor anything
+  "non-commercial" or without a licence: the hosted service runs closed parts in the same
+  process, those licences would oblige us to publish them or set conditions we don't take on,
+  and material without a licence, or only for non-commercial use, can't be used there at all.
+- **AI tools** write code under a person's direction, and that person reads, tests and answers
+  for every line. Code from another project comes in only as third-party material, never pasted
+  in through a tool, and a tool is never given secrets or people's data.
+- **Code from issues and comments** by someone who hasn't signed the CLA isn't copied in: ask
+  them for a pull request (and their signature), or write our own.
 - **Contributions** follow the organization's
   [CONTRIBUTING.md](https://github.com/cronumstudio/.github/blob/main/CONTRIBUTING.md) and need the
   [Contributor License Agreement](https://github.com/cronumstudio/.github/blob/main/CLA.md); a
@@ -101,8 +109,8 @@ it may not relax these. The design they serve is in [docs/architecture.md](docs/
 
 - **Commit subject**: `Scope: what changes for whoever uses the app`, in English, without
   Conventional Commits prefixes (`Gantt: arrows go around the bars instead of crossing them`). The
-  body explains the why in prose. Work done with an AI assistant carries its `Co-Authored-By`
-  trailer.
+  body explains the why in prose. Work done with an AI assistant says so in an
+  `Assisted-by: <tool and model>` trailer; `Co-authored-by` names people only.
 - **Branches**: `main` is always deployable. Work happens on a branch, in a clone or worktree
   outside the folders that production runs from, and reaches `main` by fast-forward or pull
   request. Pushed history is never rewritten.

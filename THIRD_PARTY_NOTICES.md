@@ -124,6 +124,12 @@ Microsoft Corporation, licensed under the Creative Commons Attribution 4.0 Inter
 text's colour. The material is offered as-is, without warranties of any kind, as Section 5 of that
 licence says.
 
+## Not third-party
+
+- `web/qr.js` is our own implementation of the QR code standard (ISO/IEC 18004), with no library.
+  QR Code is a registered trademark of DENSO WAVE INCORPORATED.
+- suite-core has no npm dependencies.
+
 ## Trademarks
 
 The names and marks of other products shown here belong to their owners: Claude and Claude Code
@@ -132,3 +138,7 @@ Cursor (Anysphere), VS Code (Microsoft), and any other product named in this rep
 used only to name those products where suite-core says how to connect them, and their use does not
 mean that their owners endorse suite-core or Cronum Studio. The licences above cover the drawings,
 not the marks.
+
+The licence of suite-core gives no trademark rights in the Cronum names and logos either: see
+[NOTICE.md](NOTICE.md) and the
+[trademark policy](https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md).

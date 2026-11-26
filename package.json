@@ -4,6 +4,7 @@
   "private": true,
   "description": "The platform shared by the Cronum Studio apps: accounts, OAuth for the MCP and, module by module, the rest.",
   "license": "AGPL-3.0-only",
+  "author": { "name": "Martin Andersen (Cronum Studio)", "url": "https://cronumstudio.com" },
   "type": "module",
   "engines": {
     "node": ">=24.0.0"

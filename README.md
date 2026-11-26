@@ -528,8 +528,19 @@ its own through `tools/test-kit.mjs`, `tools/conformance.js` and `tools/i18n.mjs
 
 ## License
 
-Licensed under the GNU Affero General Public License v3.0 only (see [LICENSE](LICENSE)).
 Copyright (C) 2026 Martin Andersen (Cronum Studio).
+
+The code of suite-core is free software: you can use, study, change and share it under the
+GNU Affero General Public License, version 3 only (AGPL-3.0-only), as published by the Free
+Software Foundation. The full text is in [LICENSE](LICENSE). It comes without any warranty and
+without liability for damages, to the extent the law allows (sections 15 and 16 of the licence).
+
+In short, if you share it, changed or not, the licence asks you to pass it on under the same terms
+with its source code; and if you run a changed version for other people over a network, to offer
+them the source code of that version (section 13). The licence itself is what counts.
+
+Third-party material in this repository (fonts, some icons and the AI assistants' marks) keeps
+its own licence: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 **Names and logos.** The AGPL covers the code, not Cronum Studio's names and logos. As
 [NOTICE.md](NOTICE.md) sets out under section 7 of the licence, it grants no trademark rights in
@@ -539,7 +550,8 @@ the names and logos is explained in our
 [trademark policy](https://github.com/cronumstudio/.github/blob/main/TRADEMARKS.md). Other product
 names mentioned here are trademarks of their respective owners.
 
-The fonts and icons included from other projects keep their own licences: see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Contributions are accepted under the
+[Contributor License Agreement](https://github.com/cronumstudio/.github/blob/main/CLA.md).
 
-Versions up to v0.2.0 were published under the MIT License.
+Versions up to 0.2.0, published on 27 September 2026, were released under the MIT License, and
+the copies people got of them keep that licence. Later versions are released under the AGPL.
