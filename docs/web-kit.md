@@ -2,8 +2,7 @@
 
 The interface every app of the suite shares, served by suite-core at `/suite/`: native ES modules,
 no build, no dependencies, the same CSP everywhere (`script-src 'self'`). It is the Cronum Studio
-brand made into a frame, screens and components, approved on 2026-10-05 (the «Kit web» branch of
-«Suite: unificación» in Next). Each app keeps its own domain —Notes' editor, Next's step graph,
+brand made into a frame, screens and components. Each app keeps its own domain —Notes' editor, Next's step graph,
 Tasks' lists— and takes everything else from here.
 
 ## What was decided
@@ -24,7 +23,7 @@ next to what is saved.
 
 ## Same in every module
 
-Martin's rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
+The rules for the sidebar and the heads (v0.247.0), for an item's detail and a row's swipe
 (v0.248.0), for the search (v0.249.0), and for deleting and dialogs (v0.245.0, v0.246.0), so that
 going from one module to the next in Cronum Work nothing moves:
 
@@ -43,7 +42,7 @@ going from one module to the next in Cronum Work nothing moves:
    where the list and the detail sit side by side (a computer). Then the place the item lives in
    (its list, notebook or project, as a chip: `lead`), the item's quick toggles if the module has
    them in its head (Notes' pin), and one «…» with the item's actions in this order: the module's
-   own, share, public page, a separator, and «Borrar» or «Mover a la papelera» last, in red, which
+   own, share, public page, a separator, and "Delete" (`kit.delete`) or "Move to the trash" last, in red, which
    goes to the trash at once and leaves an Undo (`undoToast`). Escape closes the detail too. Next's
    step and branch cards stay dialogs, as a card fits its board: they keep their ×, Escape and the
    backdrop, and get a «…» in their header (`tools: moreButton(items)`).
@@ -56,7 +55,7 @@ going from one module to the next in Cronum Work nothing moves:
 7. **Deleting asks only for what can't come back.** What goes to a trash goes at once and leaves
    an Undo (`undoToast()`): a task, a note, a notebook, a list or a group of lists, a project's task
    or phase, a file. A subtask (Tasks) and a dependency (Projects) don't ask either: their Undo makes
-   them again. What can't come back asks «¿Borrar «X»?» with a red Borrar (`deleteDialog()`):
+   them again. What can't come back asks "Delete “X”?" (`kit.deleteAsk`) with a red "Delete" (`deleteDialog()`):
    deleting from a trash for good, emptying it, a category, a template, a Notes group, a Next
    project or step. Taking something shared back from someone asks only if they had accepted it
    (the share dialog's default); withdrawing an invitation never asks.
@@ -65,26 +64,26 @@ going from one module to the next in Cronum Work nothing moves:
    question (a photo viewer may take the room it needs). Sharing is the kit's dialog in every
    module (`shareDialog()`), an app's own roles included.
 9. **The search is the same in every module** (`createShell({ search })`): the sidebar's first
-   line, as tall in each, reading «Buscar» in the kit's faint colour; the module's own words
-   («Buscar tareas») name it for a screen reader. «/» goes to it from a keyboard in every module,
+   line, as tall in each, reading "Search" (`kit.side.search`) in the kit's faint colour; the
+   module's own words ("Search tasks") name it for a screen reader. "/" goes to it from a keyboard in every module,
    on any device; its key shows at the field's end only on a big screen with a mouse or a trackpad,
    never in its words (they wouldn't fit), and goes while the field has the focus or text. It runs
    the same way everywhere (`search: { onSearch, wait, min }`): 220 ms after the last key, from the
    first letter, at once with Enter or when emptied; opening a collection from the sidebar empties
    it (`shell.clearSearch()`).
-10. **Sharing reads the same in every module** (v0.301.0, audit of 6/11). An invitation waiting
+10. **Sharing reads the same in every module** (v0.301.0). An invitation waiting
    for an answer is the kit's card (`invitationCard()`), first in the sidebar, above the views,
-   with «Rechazar» and «Aceptar»; on a phone, while one waits, ☰ carries a dot (`setMark()`). The
-   «…» says «Compartir» (`kit.share.action`) to whoever manages it and «Quién lo tiene»
-   (`kit.share.people`) to anyone else, who may leave it there. Leaving is «Salir» («¿Salir de
-   «X»?»), and «Has salido de «X»» after it (`kit.share.left`). Whoever has something is its
-   «Propietario» (`errors.owner_only`: «Solo el propietario puede hacer eso.»). Only the name of
+   with "Decline" and "Accept"; on a phone, while one waits, ☰ carries a dot (`setMark()`). The
+   "…" menu says "Share" (`kit.share.action`) to whoever manages it and "Who has it"
+   (`kit.share.people`) to anyone else, who may leave it there. Leaving is "Leave" ("Leave “X”?",
+   `kit.share.leaveAsk`), and "You left “X”" after it (`kit.share.left`). The one it belongs to is its
+   "Owner" (`kit.share.owner`; `errors.owner_only`: "Only the owner can do that."). Only the name of
    whoever accepted is shown to the owner, never their email, and with WorkOS nobody's @username.
    What the AI shares, unless told otherwise, gives what the dialog gives.
 11. **The sidebar's entries are the kit's** (`navItem()`, v0.302.0): a view with the kit's icon
    and its count (every module counts its views), a collection with its own emoji (`emoji`, as wide
    as a view's icon, so every label starts in line) or its colour, shared ones with the kit's one
-   mark (`shared`, «Compartido · de Ana» when it is someone else's), a long name told to a pointer
+   mark (`shared`, "Shared · by Ana", `kit.side.sharedBy`, when it is someone else's), a long name told to a pointer
    (`title`). A right-click or a long press on an entry opens the same menu as its «…» (`menu`
    or `onMenu`), and on a group's head the group's menu; collections are put in order by dragging
    them, and the order a drop makes is the kit's (`orderAfterDrop()`, drag.js). The collection
@@ -94,22 +93,22 @@ going from one module to the next in Cronum Work nothing moves:
    a task, a note, a step), Escape to close what is open. Settings › About lists them, and words
    that tell a shortcut with a letter say ⌘ on a Mac and Ctrl elsewhere (`modKey()`, keyboard.js).
 13. **A dialog looks the same in every module** (v0.303.0): the kit's header, body and footer,
-    with no line under the title nor over the buttons (Martin, 14/11); a module paints none of them
+    with no line under the title nor over the buttons; a module paints none of them
     (`.kit-dialog__header`, `__body`, `__footer`) and passes its own nodes to `openDialog({ body,
     footer })` when it draws them itself. Its fields are the kit's: `field()` for a label and its
     control (a label 13/500, a 40 px control), `switchRow()` for a switch, `.kit-hint` for a line
     under them; a module styles no `input` of its own outside its own controls. A collection's
-    settings are «Editar X» («Editar lista», «Editar libreta», «Editar proyecto»), its Name first, then
+    settings are "Edit X" ("Edit list", "Edit notebook", "Edit project"), its Name first, then
     how it looks and what is the module's own; deleting it is never in that form, it is
     the last item of the collection's «…», in red, to the trash with an Undo (rule 7).
 14. **An empty place, or one still loading, is the kit's and says what to do** (`blank()`, v0.304.0):
     an icon in its box (the kit's, or the emoji a person chose for a Tasks list, `glyph`; a new
     empty place takes the kit's icon, not an emoji), one size of title, a line and, where the first
-    thing to do there is to make something, one button that makes it («Nuevo proyecto» in Projects
-    with none, «Nueva tarea» in Tasks' My Day of an account with no tasks). One such button per
+    thing to do there is to make something, one button that makes it ("New project" in Projects
+    with none, "New task" in Tasks' My Day of an account with no tasks). One such button per
     screen: a second place for the same button (Notes' panel beside its list) goes. Alone in a
     view, `page: true`. While what goes there is on its way, `blank({ loading: true })`: the kit's
-    spinner and «Cargando…», never the empty message. A filter that leaves nothing out of things
+    spinner and "Loading…" (`kit.loading`), never the empty message. A filter that leaves nothing out of things
     that exist says so in a short sentence, never «add the first one».
 15. **An item's detail says how its save went and who made it** (`saveState()`, `stamps()`): its
     labels are the kit's (`field()`, or `.kit-label` over a block of several controls), the state
@@ -118,7 +117,7 @@ going from one module to the next in Cronum Work nothing moves:
     `.kit-stamps`). The small capitals over a group (a section's, «Why», «Waiting on») are
     `.kit-eyebrow` (`--kit-eyebrow-*`), never a module's own measure.
 16. **The add bar is the same card in Tasks and Projects** (`addBar()`, v0.304.0): a +, the field
-    and «Añadir», with the module's own tools between them; Projects keeps its gradient behind it,
+    and "Add" (`kit.add`), with the module's own tools between them; Projects keeps its gradient behind it,
     over the Gantt. The notices rise above it, never onto it (`toast()` measures it).
 17. **The row open in the detail has a soft background** (`.kit-list-row[aria-current="true"]`,
     `--kit-accent-soft`, v0.304.0), as Notes' had: Tasks, Notes and Projects (whose state stripe
@@ -127,32 +126,33 @@ going from one module to the next in Cronum Work nothing moves:
     (`createShell({ detail: 'column' })`, `setDetailOpen()`).
 18. **Without a signal every module says the same, at once** (`offlineBanner()`, v0.305.0): the
    kit's banner under the header the moment the browser says the signal went, not once a request
-   has failed, with or without changes waiting: «Sin conexión. Se ve lo último que se cargó.» and
-   how many changes wait on the device; «Reintentar», when there is one, is never the primary
-   button. Back online, «Enviando N cambios…» while they go, and a notice once they arrived
+   has failed, with or without changes waiting: "Offline. Showing what was last loaded."
+   (`kit.offline.banner`) and how many changes wait on the device; "Try again" (`kit.retry`), when
+   there is one, is never the primary button. Back online, "Sending N changes made offline…"
+   (`kit.offline.pending`) while they go, and a notice once they arrived
    (`kit.offline.sent`). The words are the kit's (`kit.offline.*`, `errors.offline`): no module
-   keeps a copy. What only the server can show (a trash) says «Necesita conexión» in its place
-   (`offlineNotice()`), and its dialog keeps its «Cerrar».
+   keeps a copy. What only the server can show (a trash) says "Needs a connection"
+   (`kit.offline.title`) in its place (`offlineNotice()`), and its dialog keeps its "Close".
 19. **A collection's colour and icon come from the kit** (`colorPicker()`, `iconPicker()`,
    `palette.js`; v0.306.0): the same twelve colours, by name, for a list, a notebook, a project
-   and their groups, and the same twenty icons in view with «Más…» for the rest. A colour or an
+   and their groups, and the same twenty icons in view with "More…" (`kit.icons.more`) for the rest. A colour or an
    icon it has from before, that the palette no longer offers, is kept as it is and offered first.
    A module leaves out (`except`) only the colours its states already mean (Projects: brown,
    pink, plum, violet, indigo; Next: green). A state written in words (overdue, at risk, blocked,
    stuck) is the kit's `--kit-danger`, `--kit-warn`, `--kit-ok` or `--kit-color-violet`, which
    read on the page, a panel and their soft tint; a module's own vivid state colours stay for
    bars, dots and borders.
-20. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title «Papelera»
+20. **A trash speaks the same words in every module** (v0.307.0), the kit's: its title "Trash"
    (`kit.trash.title`, no emoji; Projects' per-project trash names its project), how long it keeps
    things above its rows whenever it holds some, from the plan the server sends as `days`
-   (`trashKeeps(days)`), «Restaurar» (`kit.restore`) and «Borrar para siempre» / «Delete for good»
-   (`kit.deleteForever`) on a row, «Esto no se puede deshacer.» (`kit.cantUndo`) where it asks,
-   and «Vaciar papelera» (`kit.trash.emptyAction`) at the start of the dialog's foot, «Cerrar» plain
-   at its end. «Vaciar» is offered only for what the person may empty, and its question counts only
-   that. Each of these says what it did: «"X" a la papelera» with its name (`kit.trash.moved`, with
-   Undo), «"X" ha vuelto» (`kit.trash.restored`), «"X" se ha borrado para siempre»
-   (`kit.trash.deleted`) and «N elementos borrados para siempre» (`kit.trash.emptied`).
-21. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): «Archivos» with
+   (`trashKeeps(days)`), "Restore" (`kit.restore`) and "Delete for good"
+   (`kit.deleteForever`) on a row, "This can’t be undone." (`kit.cantUndo`) where it asks,
+   and "Empty trash" (`kit.trash.emptyAction`) at the start of the dialog's foot, "Close" plain
+   at its end. "Empty" is offered only for what the person may empty, and its question counts only
+   that. Each of these says what it did: "“X” moved to the trash" with its name (`kit.trash.moved`,
+   with Undo), "“X” is back" (`kit.trash.restored`), "“X” deleted for good"
+   (`kit.trash.deleted`) and "N items deleted for good" (`kit.trash.emptied`).
+21. **An item's files are one section** (`attachments()` in `files.js`, v0.308.0): "Files" (`kit.files.title`) with
    how many, photos as squares that open the kit's viewer (`photoViewer()`, a kit dialog with zoom,
    so in Cronum Work it covers the screen and not just the window), a PDF as a row with its name and
    size. They are added with the button, by dropping a file on the detail or pasting one into it;
@@ -164,10 +164,10 @@ going from one module to the next in Cronum Work nothing moves:
    `position: fixed` inside it (`contain: layout paint`), so a box placed by the screen's numbers
    lands off its anchor or is cut off; `placeFixed` measures where its (0, 0) really is and keeps it
    in its room (`fixedRoom()`).
-23. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` «14 mar» (with the
-   year when it isn't this one), `timeText()` the language's own short time («15:52», «3:52 PM»),
-   `shortStamp()` the time today and the date before, and `timeAgo()` «hace 3 días».
-24. **A sheet says the kit's measures by name** (v0.312.0, audit of 6/11): type, corners and room
+23. **A date reads the same in every module** (`i18n.js`, v0.308.0): `shortDate()` "Mar 14" (with the
+   year when it isn't this one), `timeText()` the language's own short time ("15:52", "3:52 PM"),
+   `shortStamp()` the time today and the date before, and `timeAgo()` "3 days ago".
+24. **A sheet says the kit's measures by name** (v0.312.0): type, corners and room
    are the look's scale (`--look-*`, one value each in the Cronum look and its own in Clean),
    written `var(--look-body)`, never with a number beside it; a size that must not go under its
    own in Cronum is `max(16px, var(--look-body))`, and one off the scale is written as it is with
@@ -176,23 +176,25 @@ going from one module to the next in Cronum Work nothing moves:
    only where a drawing runs left to right (Projects' Gantt, Next's lines), which the module's
    test names. A layout changes at 640 px (phone) and 960 px (a list and its detail side by side).
    A module's own sheets are checked by `tools/css-rules.mjs` in its tests.
-25. **Texts say the same thing the same way in every module** (v0.311.0, audit of 6/11): Spanish is
-   the reference, in plain words, and every text is in the five languages. One word for one thing:
-   «Avisos» (not «notificaciones», but for the phone's own settings), «Vencidas» and «Fecha límite»,
-   a project «En marcha», «En pausa» or «Terminado» under «Estado», «entrar» for signing in,
-   «subtareas» in Tasks, a step «apuntado» and «hecho», a «dependencia» in Projects, «email» for
-   the address and «correo» for the message, «Nuevo X» and «Editar X». Quotes are the language's
-   own («…», “…”, « … », „…“), an apostrophe is ’, a way through menus reads «Ajustes › Perfil», and
+25. **Texts say the same thing the same way in every module** (v0.311.0): Spanish sets the
+   wording, in plain words, and every text is in the five languages. One word for one thing, in
+   each language: notifications (`kit.notifications.*`; the phone's own settings keep the phone's
+   word), overdue and the due date, a project's status ("Active", "Paused" or "Finished" under
+   "Status"), signing in, Tasks' subtasks, a step logged and done (`kit.links.done`), a dependency
+   in Projects, the email address and the email message (`kit.share.email`,
+   `errors.mail_failed`), "New X" and "Edit X". Quotes are the language's
+   own («…», “…”, « … », „…“), an apostrophe is ’, a way through menus reads "Settings › Profile", and
    English is American (color, canceled). A notice (`toast()`, `undoToast()`) has no full stop when
-   it is one sentence and has them when it is two («Plantilla borrada»; «Paso copiado. Pégalo en tu
-   IA para seguir.»); an error (`errors.*`) is a sentence with its full stop. What the kit says, a
+   it is one sentence and has them when it is two ("Template deleted"; "Step copied. Paste it into
+   your AI to go on."); an error (`errors.*`) is a sentence with its full stop. What the kit says, a
    module doesn't copy: the public page's words (`kit.public.*`), the push of something shared
    (`sharePush()`, `kit.share.push.*`), a group's words (`kit.group.*`, `kit.moveUp`, `kit.dropBefore`…),
-   «Cargando…» and the rest. `appChecks(root, { kitWords: true,
+   "Loading…" (`kit.loading`) and the rest. `appChecks(root, { kitWords: true,
    kitOverrides: true, typography: true })` checks both, with `kitAllow` for a key that only looks
    like the kit's or says what only the module has. A
-   dialog opened from a menu gives the focus back to the menu's «…» when it closes; the public
-   page's has «Activar» as its one primary button and «Cerrar» plain (`publicDialog()`).
+   dialog opened from a menu gives the focus back to the menu's "…" when it closes; the public
+   page's has "Turn on the public page" (`kit.public.turnOn`) as its one primary button and "Close"
+   plain (`publicDialog()`).
 
 **Which icon for what** (`icons.js`): the same thing has the same icon in every module.
 
@@ -212,7 +214,7 @@ going from one module to the next in Cronum Work nothing moves:
 | Public page | `globe` |
 | Earlier versions | `history` |
 | Print | `print` |
-| Leave something shared («Salir») | `logout` |
+| Leave something shared ("Leave") | `logout` |
 | Delete, the trash | `trash` |
 | Close, take away | `x` |
 | Move up, move down | `chevron-up`, `chevron-down` |
@@ -243,9 +245,12 @@ button writes a character (✕, ↑, ‹, 🗑) in place of an icon.
 </html>
 ```
 
-`data-app` picks the product's accent from `tokens.css` (light and dark, measured by the tests). An
-app that isn't there sets `--app`, `--app-accent`, `--app-on`, `--app-accent-dark` and
-`--app-on-dark` on `<html>` itself. `theme.js` sets `data-theme` before the first paint; the app
+`data-app` picks the product's accent from `tokens.css` (light and dark, measured by the tests),
+which lists the suite's own apps (Tasks, Projects, Next, Notes and Cronum Work). Any other app sets
+`--app`, `--app-accent`, `--app-on`, `--app-accent-dark` and `--app-on-dark` under
+`:root[data-app="<its id>"]` in its own sheet, and gives `app.accent` in `suite.config.js` so the
+pages the suite draws itself (the admin panel, affiliates, the connect page, the not-found page) wear the same
+accent (v0.317.0). `theme.js` sets `data-theme` before the first paint; the app
 saves the person's choice as `<app>.theme` in `localStorage` so the next start gets it right.
 
 In a host, each person also chooses a look (v0.111.0): the suite's own, or **Clean**
@@ -267,17 +272,17 @@ whenever `data-theme`, `data-look` or `data-app` change. Their own `content` is 
 
 | File | What it gives |
 | --- | --- |
-| `tokens.css` | The brand: yolk, ink, cream, the products' colours and accents, the fonts |
+| `tokens.css` | The brand: yolk, ink, cream, the colours and accents of the suite's own apps, the fonts |
 | `kit.css` | Every component below, light and dark, logical properties |
 | `dom.js` | `el(tag, props, …children)`, `svg(tag, props, …children)`, `$`, `$$`, `append`, `clear`: nodes through `textContent` and `setAttribute`, never HTML in strings; `style` and `dataset` may be objects, children may come in nested arrays |
 | `i18n.js` | The same translations for every app: `t(key, vars)` with plurals and numbers written by Intl, `loadLanguage(preference)` (`'auto'` or a language, kept as `<app>.lang`; each catalog fetched once per page), `savedLanguage`, `changeLanguage`, `shareLanguage`, `reportLanguage(user, lang, { send })` (the browser's resolved language into `prefs.lang_seen` while the person follows it, once per change), `translateDom`, and the Intl formats (`dateFormat`, `numberFormat`, `listFormat`, `relativeDay`, `compareText`, `capitalize`, `formatDateTime`) |
-| `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: «20 listas»); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
+| `api.js` | `api.get/post/put/patch/delete/upload`, `api.write(method, path, body, { key })` with an Idempotency-Key, `api.request` with every option, `api.with(options)`; `setPatience(ms)`; per call `patience`, `signal`, `text` (the body's text too), `type` (an upload's), and the hooks `beforeSend`, `onAnswer` (status and headers, before the body) and `onNoSignal` (an answer instead of `Offline`: Tasks' queue); `ApiError`, `SessionExpired`, `Offline`; `errorMessage(err)` in words (a plan's limit names what it counts: "20 lists"); `setPlanOpener(open)` and `planAction(text)`, the way to the plans from a 402's notice |
 | `icons.js` | `icon(name, { label })`: the suite's icons (`PATHS` lists them); `cronumRing()` |
-| `palette.js` | `KIT_COLORS` (twelve `{ name, hex, dark }`: the hex a module stores, the name's `--kit-color-<name>` token, lighter in the dark), `KIT_COLOR_NAMES`, `kitColor(nameOrHex)`, `suggestedColor(used, { as, except })` (the first free one, five apart around the wheel; `except`, names a module leaves out), `KIT_ICONS` (twenty in view), `KIT_MORE_ICONS` (behind «Más…»). No DOM: a server loads it too |
-| `pickers.js` | `colorPicker({ value, as: 'hex' \| 'name', label, none, paint, nameOf, except, onPick })` and `iconPicker({ value, label, typed, none, frequent, more, onPick })` → `{ node, value() }`: the palette as swatches named in words, the icons with «Más…»; what it has from before kept first |
-| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `stamps({ author, created, editor, updated, completed, createdVia, updatedVia }, { format })` and `stampTime(value)` (who made an item and who changed it, in kit.stamps.* words), `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank({ iconName, glyph, title, text, action, note, page, loading })`, `addBar({ placeholder, label, tools, onAdd, className, id, input })`, `inkOn(color)` (white or the dark ink, whichever reads on a colour), `avatar(person | name, { color, size, title })` (a person's initials in the colour they chose, `avatar_color`), `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` («¿Borrar «X»?», a red Borrar: for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` («…»: a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
+| `palette.js` | `KIT_COLORS` (twelve `{ name, hex, dark }`: the hex a module stores, the name's `--kit-color-<name>` token, lighter in the dark), `KIT_COLOR_NAMES`, `kitColor(nameOrHex)`, `suggestedColor(used, { as, except })` (the first free one, five apart around the wheel; `except`, names a module leaves out), `KIT_ICONS` (twenty in view), `KIT_MORE_ICONS` (behind "More…"). No DOM: a server loads it too |
+| `pickers.js` | `colorPicker({ value, as: 'hex' \| 'name', label, none, paint, nameOf, except, onPick })` and `iconPicker({ value, label, typed, none, frequent, more, onPick })` → `{ node, value() }`: the palette as swatches named in words, the icons with "More…"; what it has from before kept first |
+| `ui.js` | `toast(text, { error, action })`, `banner()`, `saveState()`, `stamps({ author, created, editor, updated, completed, createdVia, updatedVia }, { format })` and `stampTime(value)` (who made an item and who changed it, in kit.stamps.* words), `field(label, control, hint, { class, hintClass, hintTag, groupLabel })`, `switchRow()`, `segmented()`, `blank({ iconName, glyph, title, text, action, note, page, loading })`, `addBar({ placeholder, label, tools, onAdd, className, id, input })`, `inkOn(color)` (white or the dark ink, whichever reads on a colour), `avatar(person | name, { color, size, title })` (a person's initials in the colour they chose, `avatar_color`), `signature()`, `copyText()`, `slideHidden(node, hide)` (a fold that slides open and shut), `slidingDetails(details)` (a `<details>` that does, one of a `name` open at a time), `openDialog()` (`width`, `parent`, `body`/`footer` of a module's own; one action at a time), `formDialog()` (a form: `onSubmit` with its error inside, one send at a time, Ctrl/Cmd+Enter, `header`/`tools`/`bar`/`extra`, `setActions`), `confirmDialog(text, { title, confirm, cancel, danger, detail })` (420 px, `QUESTION_WIDTH`), `deleteDialog(name, { text, detail })` ("Delete “X”?", a red "Delete": for what can't come back) and `undoToast(text, onUndo)` (for what goes to a trash, deleted without asking), `menu(anchor, items, { header, at, parent, body })` (items with `glyph`; `body`, a node of the caller's after the items, its `role="menuitem"` buttons moved through with the arrows; a falsy one is left out, and so is a separator with nothing to separate), `moreButton(items, { label })` ("…": a view's head's one button, its items asked for as it opens); `backLayer(onBack)`: a layer over the page (Settings, a page's window in Work) with an entry in the history while open, so Back closes it; `afterBackLayers(fn)` |
 | `mount.js` | A module in a window of Cronum Work's one-document shell: `workRegistry()` (the shell's services for the page, or null), `ownerOf()`, `markOwned(node)`; `createPlace({ hash, active, reload, own })` → `{ place, placeIn, placeOut, route, navigate, onRoute, lateCode }`, a module's place.js: the window's ctx in Work, the page's address on its own (its hash with `hash`; else its address after its base, which only a replace writes), `place.embedded`, `root`, `mounted`, `services`, `active` (`active(said)` reads what the shell says), `signal`, `retitle()`, `lateCode()`, `reload({ fresh })`, and the module's `own` members |
-| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, «Buscar», and «/» to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes, `emoji`, `shared`, `marks`, `title`, `under`, `countTitle` and `menu`/`onMenu`), `sharedMark({ owner })`, `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash), `setMark(n)` (a dot on ☰ while `n` invitations wait in the drawer) |
+| `shell.js` | `createShell()`: the frame, with `create` (the floating button), `foot` (the sidebar's foot) and `search` (its first line, "Search", and "/" to it), and `head()` for each view (a detail's with ← or ×, which Escape does too: `onBack`, `active`); `navItem()` (with `data` for its data-* attributes, `emoji`, `shared`, `marks`, `title`, `under`, `countTitle` and `menu`/`onMenu`), `sharedMark({ owner })`, `navSection()`, `navFold({ label, key, open, keep, children })` (a heading that folds its group, sliding, remembered on the device), `navGroup({ name, color, … })` (a group of collections, the same in every module), `setCurrent()` (an entry, or the foot's trash), `setMark(n)` (a dot on ☰ while `n` invitations wait in the drawer) |
 | `signin.js` | `signIn({ app, config })` → the user; `confirmEmailFromLink()`; `signOut({ local, ask, before })` → true when it left, which also deletes every app's copy on the device (`clearDeviceCopies()`, the `*-local` databases) and has the server forget where this browser's notices come to (`pushEndpoints()`, sent as `push_endpoints` with `POST /api/auth/logout`; the browser's subscription stays); with `ask` it first asks when changes wait on the device (`pendingChanges()`, every `*-local` queue and the preferences kept), and without an answer from the server (no signal, a 5xx) it deletes nothing and stays; `leave({ answer, local })`, the same way out without the request, which Settings takes once the account is deleted; the screen itself is `signin-form.js`, which `signIn` loads when it draws it (0.285.0): a page with a session never evaluates it |
 | `settings.js` | `openSettings({ … })`; `settingsAsked()`; `settingsConfig()`; `subscribePush()`; `deviceName()`; `summaryOf(parts)` (what a copy holds, its parts joined as every module joins them) |
 | `signal.js` | `watchSignal({ ask, answered, onBack, active, again, firstMs, maxMs, url, patienceMs })`: the one question «is there a signal again?» every module asks while it has none (`/version`, from 3 s up to 30 s apart): `lost()`, `check()` → whether the server answered, `found()`, `stop()` |
@@ -428,7 +433,7 @@ as a function that writes its options, a banner shown again with the same words 
 `keptBanners()` gives those still on screen for a frame drawn again in a new language to show anew.
 
 **The module's search** (`search: { label, onSearch?(text), wait?, min?, onInput?(text), onSubmit?(text) }`) is the sidebar's
-first line, the same in every module (rule 9, v0.249.0). Its field reads the kit's «Buscar»
+first line, the same in every module (rule 9, v0.249.0). Its field reads the kit's "Search"
 (`kit.side.search`) in `--kit-faint`, in either theme and look, and `label`, the module's own words,
 is its `aria-label`: as the words in it they were cut short. `placeholder` would replace the word;
 no module of the suite gives one. Its line height is its own (1.45), so the page's doesn't make it
@@ -499,7 +504,7 @@ in a pane keeps the bar there, as before.
 **A detail's head** (`pane: 'detail'`, rule 5) closes it the same way at every width: ← at its
 start where the list is a screen of its own, and where the list sits beside it (`panes: 'split'`
 from 960 px, folded or not), where ← doesn't show, the kit's × last on the line (`kit-head__close`,
-«Cerrar», `kit.close`). Both call `createShell({ onBack })` (by default `showList()`), so a
+"Close", `kit.close`). Both call `createShell({ onBack })` (by default `showList()`), so a
 module's own × goes. `close: false` leaves the × out, for a detail that must not close beside its
 list. `actions` holds the item's toggles (Notes' pin) and its «…», `lead` the place it lives in.
 
@@ -525,7 +530,7 @@ on a page of its own, always); with the focus somewhere, the frame it is in. A m
 own Escape for the detail.
 
 **«…»** (`moreButton(items, { label })`, ui.js) is a `kit-icon-btn` with the kit's «…» icon, named
-«Más opciones» (`kit.more`) unless `label` says otherwise, `aria-haspopup="menu"`. A press opens
+"More options" (`kit.more`) unless `label` says otherwise, `aria-haspopup="menu"`. A press opens
 `menu()` under it with `items`, or with what `items()` returns then, so the menu says what is
 possible at that moment; a second press closes it, and the press goes no further (a row doesn't
 open, the drawer doesn't close). `menu()` leaves out a falsy item and a separator with nothing to
@@ -540,8 +545,8 @@ accessible name and the words a pointer resting on it shows. What it covers at t
 the module's to leave room for (a bottom padding of about 88 px in the list).
 
 **The sidebar's foot** (`foot: { create, trash }`, each optional) makes collections (a list, a
-notebook, a group of them) and keeps the trash: a + at its start (`kit-side__add`, «Crear»,
-`kit.side.create`, unless `create.label`) and the trash at its end (`kit-side__trash`, «Papelera»,
+notebook, a group of them) and keeps the trash: a + at its start (`kit-side__add`, "Create",
+`kit.side.create`, unless `create.label`) and the trash at its end (`kit-side__trash`, "Trash",
 `kit.side.trash`). `create` is `{ onClick }`, or `{ items }` (an array, or a function that returns
 one) for a menu that opens over the drawer; each choice, and the trash, closes the drawer as an
 entry does. `trash` is `{ onClick }` (a dialog: Tasks, Projects) or `{ href, current }` (a view of
@@ -567,7 +572,7 @@ nav.append(navGroup({
 }));
 ```
 
-The chevron (`kit-nav-group__toggle`, «Plegar X» / «Desplegar X») folds it, sliding as `navFold`
+The chevron (`kit-nav-group__toggle`, "Fold X" / "Unfold X", `kit.side.groupFold` / `groupUnfold`) folds it, sliding as `navFold`
 does, and tells `onToggle(open)`; folded, the head shows `count`. The name (`kit-nav-group__name`)
 opens the group's menu through `onName(event, name)`, anchored on it; without `onName` it folds the
 group too. It is a `span` with `role="button"`, pressed with Enter or Space, so the group can still
@@ -761,7 +766,8 @@ openSettings({ ...settingsOptions, plan: { billing: true, hideCheckout: true, op
   Settings at Plan. Once, and only for those words: any other
   notice is left as it is. `setPlanOpener(open)` is what the shell gives (`null` when it goes); a
   page without a shell can give its own. `plan_limit` says what it limits, as Usage counts it:
-  «Tu plan (Free) permite 20 listas y ya tienes 20.», «… 50 MB de espacio …».
+  "Your plan (Free) allows 20 lists, and you already have 20." (`errors.plan_limit`), "… 50 MB of
+  storage …".
 - `billingReturn({ onPlan, open })` → false unless the address has `?billing=done` or
   `?billing=canceled`. Then it takes the mark out of the address (not again on a reload). Back from
   paying, it thanks the person (with "See plans" when there is `open`) and reads the plan again a
@@ -1025,7 +1031,7 @@ buzz. It was Tasks' own swipe, made the kit's (`swipe.js`):
 import { rowSwipe, keepSwipe, trashAction } from '/suite/swipe.js';
 
 rowSwipe(row, {
-  left: mayTrash(task) ? [trashAction(() => trash(task))] : [],     // «Borrar» in red; trash() offers Undo
+  left: mayTrash(task) ? [trashAction(() => trash(task))] : [],     // "Delete" in red; trash() offers Undo
   right: () => [                                                     // asked as the swipe starts
     { label: starWords(task), iconName: 'star', tone: 'accent', run: () => toggleStar(task) },
     { label: myDayWords(task), iconName: 'sun', tone: 'sun', run: () => toggleMyDay(task) },
@@ -1038,8 +1044,8 @@ keepSwipe(stepRow);                                                  // nothing 
   at 82 px, the second at 168 (with one, it is reached at 82 and stays further). Past 230 px the
   row comes harder, a quarter of the finger's way. Each is `{ label, iconName, tone, run }`, or a
   function that returns them, asked when the swipe starts, so the words say what the row is now
-  («Fijar» or «Quitar»). `tone` is the colour once reached: `danger`, `accent` (the default), `sun`
-  (yolk, "now": My Day) or `done`. `trashAction(run, { label })` is the trash's, the kit's «Borrar»
+  ("Pin" or "Unpin"). `tone` is the colour once reached: `danger`, `accent` (the default), `sun`
+  (yolk, "now": My Day) or `done`. `trashAction(run, { label })` is the trash's, the kit's "Delete"
   (`kit.delete`). With nothing that way, the row doesn't move that way. Letting go short of an
   action, or after coming back, does nothing; letting go past it runs it, and the row slides back.
 - **Touch only.** A mouse or a trackpad never swipes: the row's menu does the same.
@@ -1138,8 +1144,8 @@ Settings' `subscribePush()` is for a signed-in person: it reads `/api/push/confi
 which an app's own button uses too (`{ key, post, lang }`: the key or a function that asks for it
 once permission is given, and how to tell its server), so the device is the same row whoever
 turned notices on: the browser's words for it, the subscription replaced when the install's keys
-changed. A device that belongs to the app instead (Focus'
-child's tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
+changed. A device that belongs to the app instead (a child's
+tablet, paired to a profile; a kiosk) uses `push.js` (v0.81.0), which asks nothing of the
 server and hands the subscription to the app:
 
 ```js
