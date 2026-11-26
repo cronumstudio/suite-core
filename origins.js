@@ -19,9 +19,12 @@
  * How they get here without being kept in the browser: in the address. A page that links to the
  * sign-in says them in the link (`/auth/login?src=…&via=…`; the kit's sign-in adds them from the
  * page's own address and `document.referrer`, web/signin.js), and the sign-in carries them to the
- * provider and back in what it already keeps for that (the sign-in's own state: workos-accounts.js
- * and oidc.js, 30 minutes, gone on return). `fromLogin` reads them, `pack`/`arriving` carry them,
- * and `noteCreated` (accounts.whenCreated) writes them with the account, in its transaction.
+ * provider and back on the server, kept under the sign-in's own state (workos-accounts.js and
+ * oidc.js): never in the browser's cookie of that sign-in, which stays what the sign-in needs and
+ * nothing else. `fromLogin` reads them, `hold` keeps them for that state for 30 minutes at most,
+ * `take` hands them back on return and forgets them, `arriving` keeps them for the account made
+ * in that request, and `noteCreated` (accounts.whenCreated) writes them with the account, in its
+ * transaction. What is held lives in memory only: a restart forgets the sign-ins in progress.
  *
  * Every payment is noted with its account's origin as it was then (`origin_payments`), since
  * billing.js keeps what someone has now and not what they paid: the web provider's `payment`
@@ -54,7 +57,7 @@
  *   entitlements.whenLimit(origins.limitReached);   // and each module's, in a host
  *   registerOriginsApi(api, { origins, accounts, visitsToken });   // /api/admin/origins…, /api/origins/visits
  */
-import { sendJson, requireAdmin, notFound, unauthorized, int, parseCookies, readJson } from './http.js';
+import { sendJson, requireAdmin, notFound, unauthorized, int, parseCookies, readJson, SIGN_IN_FLOW_SECONDS } from './http.js';
 import { safeEqual } from './crypto.js';
 import { currentRequest, byTheAdmin } from './request-scope.js';
 import { iso } from './time.js';
@@ -68,6 +71,8 @@ const FEATURE = /^[a-z0-9][a-z0-9._-]{0,59}$/;
 const DAY = 24 * 3600 * 1000;
 /** The most origins a day's visits are told apart by: past them, the rest of that day are `(other)`. */
 const ORIGINS_A_DAY = 500;
+/** The most sign-ins in progress whose origin is held: past them, the oldest goes first. */
+const HELD_MAX = 10000;
 /** The days after it is made in which an account's limit counts in the figures. */
 export const LIMIT_DAYS = 30;
 
@@ -228,9 +233,41 @@ export function createOrigins({
     };
   }
 
-  /** What the sign-in carries of it to the provider and back, in its own state: a short text, or ''. */
+  /** What a sign-in brings of it, as one short text for hold() (or arriving()), or ''. */
   function pack({ src = null, via = null } = {}) {
     return src || via ? Buffer.from(JSON.stringify([src, via])).toString('base64url') : '';
+  }
+
+  /** What sign-ins in progress brought, by their state: { packed, until }, oldest first. */
+  const held = new Map();
+  const heldFor = SIGN_IN_FLOW_SECONDS * 1000;
+  const dropExpired = () => {
+    const now = clock();
+    for (const [state, entry] of held) {
+      if (entry.until > now) break;
+      held.delete(state);
+    }
+  };
+
+  /**
+   * Keeps what a sign-in brought (pack()'s text) under its state, on the server, for as long as a
+   * sign-in may take: the browser's cookie of the sign-in carries none of it.
+   */
+  function hold(state, packed) {
+    if (!state || !packed) return;
+    dropExpired();
+    held.delete(String(state));
+    while (held.size >= HELD_MAX) held.delete(held.keys().next().value);
+    held.set(String(state), { packed: String(packed), until: clock() + heldFor });
+  }
+
+  /** Back from the provider with that state: what was held for it, forgotten now; '' when nothing (or too late). */
+  function take(state) {
+    dropExpired();
+    const entry = held.get(String(state ?? ''));
+    if (!entry) return '';
+    held.delete(String(state));
+    return entry.packed;
   }
 
   /** Back from the provider: what the sign-in carried, checked again, kept for the account made in this request. */
@@ -498,7 +535,7 @@ export function createOrigins({
   }
 
   return {
-    fromLogin, pack, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own,
+    fromLogin, pack, hold, take, arriving, noteCreated, of, paid, refunded, applied, paymentsOf, forget, ownHosts: own,
     made, usedMcp, limitReached, marksOf, visited, report, exportCsv, topSince,
     /** An account's one origin in the figures: { kind, origin }. */
     oneOf: (userId) => {

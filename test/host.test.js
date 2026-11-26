@@ -106,6 +106,11 @@ test('a host serves each module at its own path, with one sign-in, one database 
     'signed in: who the person is, with the page');
   assert.equal((await call('GET', '/api/auth/me')).data.user.username, 'admin', 'and at the root');
   assert.equal((await call('GET', '/alpha/api/auth/config')).data.app.id, 'alpha', 'each module says who it is');
+  // About names the host's code at the host's version in every module: the host's commit pins theirs.
+  for (const at of ['/api/auth/config', '/alpha/api/auth/config', '/beta/api/auth/config']) {
+    const { about, signup_url: signup } = (await call('GET', at)).data;
+    assert.deepEqual([about.source, signup], ['https://github.com/cronumstudio/work/tree/v9.9.9', null], at);
+  }
 
   // The same routes in two modules, each on its own table.
   assert.equal((await call('POST', '/alpha/api/items', { text: 'Buy bread' })).status, 201);

@@ -15,8 +15,8 @@
  * on its own, a host for its modules' tools), and each of the app's routes too
  * when it asks (`zonedRoutes`); `todayFor()` reads it from there, through
  * awaits too. What runs on its own (a timer's clean-up) has nobody's zone and
- * uses the server's: `TZ`, as CONVENTIONS §5 says, which in production is
- * Europe/Madrid.
+ * uses the server's: `TZ`, as CONVENTIONS §5 says, and UTC when the install
+ * names none (never the machine's own zone, which a server doesn't choose).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -49,9 +49,14 @@ export function knownTimeZone(zone) {
   return known;
 }
 
-/** The server's own zone: the container's TZ, or what Node resolves. */
-export const SERVER_TIME_ZONE = knownTimeZone(process.env.TZ)
-  || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+/**
+ * The zone an install names (`TZ`), or UTC. A zone that isn't one is UTC too: Node itself reads
+ * such a TZ as UTC, so the server's days and Node's agree.
+ */
+export const serverTimeZone = (env = process.env) => knownTimeZone(env.TZ) || 'UTC';
+
+/** The server's own zone, for what runs without anybody's: serverTimeZone() when the process started. */
+export const SERVER_TIME_ZONE = serverTimeZone();
 
 const prefsOf = (user) => {
   try {

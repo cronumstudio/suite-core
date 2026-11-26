@@ -10,15 +10,21 @@
  *     answer: { status: 200, body: { list: … } },   // or 'offline', or { status: 200, text: 'not json' }
  *     embed: true,                                   // `&embed=1` in the address
  *     framed: true,                                  // in another page's frame, whatever the address says
+ *     signup: null,                                  // the install's SIGNUP_URL (by default, the hosted service's)
  *   });
  *   shown.html     // '<header class="sp-bar">…</header>…' (the page's children)
  *   shown.title    // the tab's title
+ *
+ * The install's /api/auth/config is answered here, not by the test's `answer` and not in `asked`:
+ * its `signup_url` is `signup`, by default the hosted service's (CRONUM_WORK), so the bar and the
+ * foot invite as they do there; `signup: null` opens the page of an install that invites nobody.
  *
  * Each open() runs the page's script afresh at a new address (`?open=N`), on a new page: what the
  * script drew last time is gone. A module whose page draws more than the fake DOM knows (Next's
  * lines) can still write out its own DOM's nodes with drawn().
  */
 import { installFakeDom, FakeElement } from './fake-dom.js';
+import { CRONUM_WORK } from '../web/public-frame.js';
 // The pages import the kit from ../suite/, as the server serves it: found on disk here.
 import '../tools/web-resolve.mjs';
 
@@ -131,9 +137,13 @@ export function installPublicPage({ origin = 'https://work.example', path = '/ta
   document.visibilityState = 'visible';
 
   /** The server: catalogs it hasn't (every text shows its key), the page's route as the test answers it. */
-  const serve = (answer, asked) => async (url, options = {}) => {
+  const serve = (answer, asked, signup) => async (url, options = {}) => {
     const address = String(url);
     if (/\/i18n\//.test(address)) return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+    if (/\/api\/auth\/config$/.test(address)) {
+      const config = JSON.stringify({ provider: 'local', signup_url: signup });
+      return { ok: true, status: 200, json: async () => JSON.parse(config), text: async () => config };
+    }
     asked.push({ url: address, options });
     const value = typeof answer === 'function' ? answer(address, options) : answer;
     if (value === 'offline') throw new TypeError('Failed to fetch');
@@ -142,7 +152,9 @@ export function installPublicPage({ origin = 'https://work.example', path = '/ta
     return { ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) };
   };
 
-  async function open(script, { answer = { status: 404, body: { error: 'public_not_found' } }, embed = false, framed = false, token = 'a-page-link' } = {}) {
+  async function open(script, {
+    answer = { status: 404, body: { error: 'public_not_found' } }, embed = false, framed = false, token = 'a-page-link', signup = CRONUM_WORK,
+  } = {}) {
     opened += 1;
     const search = `?p=${encodeURIComponent(token)}${embed ? '&embed=1' : ''}`;
     const href = `${origin}${path}${search}`;
@@ -153,7 +165,7 @@ export function installPublicPage({ origin = 'https://work.example', path = '/ta
     globalThis.window = win;
     Object.defineProperty(globalThis, 'navigator', { value: { language: 'en', languages: ['en'] }, configurable: true, writable: true });
     const asked = [];
-    globalThis.fetch = serve(answer, asked);
+    globalThis.fetch = serve(answer, asked, signup);
     document.documentElement = new FakeElement('html');
     document.head = new FakeElement('head');
     document.body = new FakeElement('body');

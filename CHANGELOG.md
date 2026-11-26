@@ -3,6 +3,38 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.349.0 — 2026-11-26
+
+- **Settings › About says the code's licence, and links to the exact source that runs** (`about.js`,
+  `web/settings.js`). A block «Code and licence» under the facts: the copyright line, who changed
+  the code (`SOURCE_MODIFIED`), that it is free software under the AGPL-3.0-only with a link to the
+  licence, that it comes with no warranty while the person's rights as a user stay, the closed parts
+  the service runs beside it (`SOURCE_CLOSED`: `croc`, `payments`; inside the phone's app, that app
+  too), and links to the third-party notices and the trademark policy (while the code is the
+  products' own) and to whoever runs the install: `TERMS_URL`, `PRIVACY_URL`, `COOKIES_URL`,
+  `LEGAL_URL`, `SUPPORT_URL`, each only when set. «Source code of this version» links to
+  `SOURCE_URL` with `{ref}` made the build's commit (`SOURCE_REVISION`, or `v<version>` without
+  one); empty, to the product's repository at that ref, and in a host to the host's, whose commit
+  pins every module's. /api/auth/config says it all as `about`. The menu line says the licence is
+  there. A mistake in a setting is said at the start and left out. New keys in the five catalogs.
+- **security.txt names whoever runs the install** (`config.js`). `SECURITY_CONTACT` as before;
+  empty, the install's `ADMIN_EMAIL`; with neither, `/.well-known/security.txt` is a plain
+  `not_found`, never the suite's authors' address. `SECURITY_CONTACT` is no longer exported.
+- **Public pages invite to sign up only where the install says where** (`SIGNUP_URL`,
+  /api/auth/config's `signup_url`; `web/public-frame.js`). The bar's «Start free» and the foot's way
+  to make one's own lead there; empty, neither is drawn, and the bar's name and the foot's line stay.
+  The test kit's public page (`test/public-page-dom.js`) answers `api/auth/config` itself, by
+  default with `CRONUM_WORK` as the sign-up, so a module's tests draw what they drew; `signup: null`
+  opens the page of an install that invites nobody.
+- **The server's zone is UTC unless the install names one** (`time.js` `serverTimeZone`). `TZ` as
+  before; empty, or not a zone, UTC, never the machine's own; `dates.js` reads the server's today
+  in it too. An install that sets `TZ` sees no change.
+- **Where an account comes from waits on the server while it signs in** (`origins.js` `hold`,
+  `take`; `workos-accounts.js`, `oidc.js`). The link's tag and the site before no longer ride in the
+  sign-in's cookie: they are held in memory under the sign-in's state for 30 minutes at most, handed
+  back once at the callback and forgotten then, so that cookie keeps only what the sign-in needs. A
+  sign-in already under way when this version starts comes back without them. No migration.
+
 ## 0.348.0 — 2026-11-26
 
 - **The creators' default reward is set in /admin › Affiliates** (`affiliates.js` `setCreatorReward`,

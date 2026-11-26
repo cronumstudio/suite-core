@@ -77,6 +77,22 @@ test('embedded (`embed=1`, or framed without it): asked so, only what the module
   }
 });
 
+test('the way to start one’s own is where the install invites (SIGNUP_URL): none, no «Start free» and no link in the foot', async () => {
+  const plain = await open({}, { answer: ok(LIST), signup: null });
+  assert.deepEqual(plain.parts, [
+    BAR.replace(/<a class="sp-bar__cta"[^]*?<\/a>/, ''), '<h2>Garden</h2>', '<p>the rest</p>',
+    FOOT.replace(/<a class="sp-foot__link"[^]*?<\/a>/, ''),
+  ], 'an install that invites nobody: the bar’s name and the foot’s line stay');
+  const own = await open({}, { answer: ok(LIST), signup: 'https://tasks.example.org/join' });
+  assert.deepEqual([own.parts[0], own.parts.at(-1)], [
+    BAR.replace(`class="sp-bar__cta" href="${CRONUM_WORK}"`, 'class="sp-bar__cta" href="https://tasks.example.org/join"'),
+    FOOT.replace(`class="sp-foot__link" href="${CRONUM_WORK}"`, 'class="sp-foot__link" href="https://tasks.example.org/join"'),
+  ], 'an install’s own sign-up');
+  assert.notEqual(own.parts[0], BAR);
+  const odd = await open({}, { answer: ok(LIST), signup: 'javascript:alert(1)' });
+  assert.ok(!odd.html.includes('sp-bar__cta') && !odd.html.includes('javascript'), 'only an http(s) address leads anywhere');
+});
+
 test('whether it is embedded: by the address, or by a frame, whoever’s it is; never an error', () => {
   const win = { location: {} };
   win.self = win;

@@ -234,7 +234,8 @@ function freeUsername(seed, taken) {
  *   whoever signed in before; `otherApps(userId)` reads the names the others set, and
  *   `unmark(userId)` takes this app's off when the account here goes but the user there stays.
  * @param {object} [options.origins]   where accounts come from (origins.js): what `/auth/login` says
- *   of it (`src`, `via`) rides with the sign-in's state to the callback, for the account made there
+ *   of it (`src`, `via`) is held on the server under the sign-in's state (`hold`), never in its
+ *   cookie, and handed back at the callback (`take`), for the account made there
  * @param {boolean} [options.mcp]   false when the app has no MCP: the OAuth metadata for AI
  *   clients isn't served, so its paths answer the app's JSON 404 and no client is sent to AuthKit
  *   for a connector that isn't there. Sign-in on the web is the same either way.
@@ -519,9 +520,10 @@ export function createWorkosAccounts({
       // its own app, not at `/`, which in Cronum Work is the whole of it.
       const back = Buffer.from(localPath(url.searchParams.get('return'))).toString('base64url');
       // Where they come from (a link's tag, the site before), for an account made on the way back:
-      // with the state, never in a cookie of its own (origins.js).
-      const from = origins?.pack(origins.fromLogin(req, url)) || '';
-      flows.start(res, state, `${state}.${verifier}.${back}${from ? `.${from}` : ''}`);
+      // held on the server under the state (origins.js), never in a cookie. The sign-in's cookie
+      // keeps only what the sign-in needs, so it stays a strictly necessary one.
+      origins?.hold(state, origins.pack(origins.fromLogin(req, url)));
+      flows.start(res, state, `${state}.${verifier}.${back}`);
       redirect(res, workos.signInUrl({
         redirectUri: `${BASE_URL}/auth/callback`,
         state,
@@ -541,7 +543,7 @@ export function createWorkosAccounts({
     }
 
     if (path === '/auth/callback') {
-      const [state, verifier, back, from] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
+      const [state, verifier, back] = String(flows.take(req, res, url.searchParams.get('state')) || '').split('.');
       const code = url.searchParams.get('code');
       // Without a state matching the cookie's, this return wasn't started by
       // this browser: it could be someone slipping their own account into the
@@ -553,7 +555,7 @@ export function createWorkosAccounts({
       }
       try {
         const { account, sessionId, method, authTime } = await workos.exchangeCode({ code, verifier });
-        origins?.arriving(req, from);
+        origins?.arriving(req, origins.take(state));
         const user = await localUser(account);
         // Its owner asked to delete it: no session, the offer to take it back.
         if (user.disabled_at && user.delete_after && pendingDeletion) {
