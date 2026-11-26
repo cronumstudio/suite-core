@@ -162,6 +162,35 @@ test('the configuration: the program’s defaults, off; what is given replaces t
   assert.equal(normalizeCode('MARIA_20'), null);
 });
 
+/* ---------------------------- the default reward ---------------------------- */
+
+test('the creators’ default reward: Admin sets it, new campaigns take it, a restart keeps it, null brings the config’s back', async (t) => {
+  const { affiliates, person, database, entitlements, accounts } = setup(t, { enabled: false });
+  person('ana');
+  person('bea');
+  assert.deepEqual(affiliates.settings.creator.reward, { cash: 600, currency: 'EUR' }, 'the config’s at first');
+  assert.deepEqual(affiliates.setCreatorReward(1000), { reward: { cash: 1000, currency: 'EUR' }, configured: { cash: 600, currency: 'EUR' } });
+  const made = await affiliates.createCampaign({ email: 'ana@example.com', code: 'ANA20' }, null);
+  assert.equal(made.cash, 1000, 'a new campaign starts with it');
+  assert.equal(affiliates.list({}).creator_reward_configured.cash, 600);
+  assert.equal(affiliates.list({}).rules.creator.reward.cash, 1000);
+  // Another start of the app, on the same database: it is still there.
+  const again = createAffiliates({
+    database, entitlements, accounts, config: resolveAffiliates({ enabled: false }, { appId: 'work' }).affiliates,
+  });
+  assert.deepEqual(again.settings.creator.reward, { cash: 1000, currency: 'EUR' });
+  // Nonsense is refused and changes nothing.
+  for (const wrong of [-5, 0, 12.5, 'diez', {}]) {
+    assert.equal(await code(() => affiliates.setCreatorReward(wrong)), '400 field_invalid', String(wrong));
+  }
+  assert.equal(affiliates.settings.creator.reward.cash, 1000);
+  // Back to the config's; a campaign made before keeps its own.
+  assert.deepEqual(affiliates.setCreatorReward(null).reward, { cash: 600, currency: 'EUR' });
+  assert.equal(database.get("SELECT COUNT(*) AS n FROM affiliate_settings").n, 0);
+  assert.equal((await affiliates.createCampaign({ email: 'bea@example.com', code: 'BEA20' }, null)).cash, 600);
+  assert.equal(database.get("SELECT reward FROM affiliate_codes WHERE code = 'ANA20'").reward, 'cash:1000');
+});
+
 /* ---------------------------------- codes ---------------------------------- */
 
 test('a referral code: made the first time it is asked for, at the provider first, one per account', async (t) => {
@@ -693,4 +722,24 @@ test('routes: a checkout of someone a link brought carries the code’s discount
   assert.equal(checkout.status, 200);
   assert.ok(checkout.data.url.endsWith(`&discount=dsc_${anaCode.toLowerCase()}`), checkout.data.url);
   assert.ok(base);
+});
+
+test('routes: the creators’ default reward is the admin’s to change, and the list says it and the config’s', async (t) => {
+  const { suite, raw, as } = await serve(t);
+  suite.accounts.create({ username: 'maria', password: 'maria-password', email: 'maria@example.com' });
+  const maria = await as('maria');
+  assert.equal((await raw('/api/admin/affiliates/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"creator_reward":1000}' })).status, 401);
+  const refused = await maria('PUT', '/api/admin/affiliates/settings', { creator_reward: 1000 });
+  assert.deepEqual([refused.status, refused.data.error], [403, 'admin_only']);
+  const admin = await as('admin', 'root-password');
+  assert.deepEqual([(await admin('PUT', '/api/admin/affiliates/settings', {})).data.error], ['field_required']);
+  assert.deepEqual([(await admin('PUT', '/api/admin/affiliates/settings', { creator_reward: -1 })).data.error], ['field_invalid']);
+  const saved = await admin('PUT', '/api/admin/affiliates/settings', { creator_reward: 1000 });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.data.reward, { cash: 1000, currency: 'EUR' });
+  const list = await admin('GET', '/api/admin/affiliates');
+  assert.equal(list.data.rules.creator.reward.cash, 1000);
+  assert.equal(list.data.creator_reward_configured.cash, 600);
+  const made = await admin('POST', '/api/admin/affiliates', { email: 'maria@example.com', code: 'MARIA20' });
+  assert.equal(made.data.code.cash, 1000, 'a campaign made without a reward takes the default');
 });

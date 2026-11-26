@@ -278,6 +278,20 @@ export function resolveAffiliates(given, { appId = 'app' } = {}) {
  * a sandbox's ids aren't the live account's), who brought whom, who has paid once, the
  * commissions, the payouts and the referrals' months to give.
  */
+/**
+ * What Admin changes of the program without a new release (`affiliate_settings`, one row a key):
+ * today the creators' default reward (`creator.reward`, JSON `{ cash, currency }`), which new
+ * campaigns and invitations start with instead of the config's.
+ */
+export function affiliateSettingsSchema(d) {
+  d.exec(`CREATE TABLE IF NOT EXISTS affiliate_settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    updated_by  INTEGER
+  )`);
+}
+
 export function affiliatesSchema(d) {
   d.exec(`CREATE TABLE IF NOT EXISTS affiliate_codes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,7 +423,21 @@ export function createAffiliates({
   database, billing = null, provider = null, discountKey = null, entitlements, accounts, audit = null, config,
   baseUrl = '', secureCookies = false, clock = () => Date.now(), log = console.log, random = crypto.randomInt,
 }) {
-  const settings = config ?? resolveAffiliates(undefined).affiliates;
+  // A copy: what Admin sets (the creators' default reward) changes it, never the app's config.
+  const settings = structuredClone(config ?? resolveAffiliates(undefined).affiliates);
+  /** The creators' default reward as the config gives it; Admin may set another (setCreatorReward). */
+  const configuredReward = { ...settings.creator.reward };
+  const REWARD_KEY = 'creator.reward';
+  const storedReward = () => {
+    try {
+      const row = database.get('SELECT value FROM affiliate_settings WHERE key = ?', REWARD_KEY);
+      const value = row ? JSON.parse(row.value) : null;
+      return value && !cashProblem(value) && value.currency === configuredReward.currency ? value : null;
+    } catch {
+      return null;   // a database from before the table: the config's
+    }
+  };
+  settings.creator.reward = storedReward() ?? { ...configuredReward };
   const enabled = settings.enabled === true;
   const source = billing?.provider || provider?.id || 'billing';
   const key = discountKey || source;
@@ -925,6 +953,27 @@ export function createAffiliates({
 
   /* --------------------------------- admin --------------------------------- */
 
+  /**
+   * The creators' default reward, what new campaigns and invitations start with: `cash` in cents
+   * (the config's currency), kept in `affiliate_settings`; null goes back to the config's. Codes
+   * already made keep theirs. → { reward, configured }
+   */
+  function setCreatorReward(cash, admin = null) {
+    if (cash == null) {
+      database.run('DELETE FROM affiliate_settings WHERE key = ?', REWARD_KEY);
+      settings.creator.reward = { ...configuredReward };
+    } else {
+      const reward = { cash: Number(cash), currency: configuredReward.currency };
+      if (!Number.isInteger(reward.cash) || cashProblem(reward)) throw badRequest('field_invalid', { field: 'creator_reward' });
+      database.run(`INSERT INTO affiliate_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)
+        ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+      REWARD_KEY, JSON.stringify(reward), iso(clock()), admin?.id ?? null);
+      settings.creator.reward = reward;
+    }
+    return { reward: { ...settings.creator.reward }, configured: { ...configuredReward } };
+  }
+
+
   const ownerOf = (userId) => {
     const owner = accounts.byId(userId);
     return owner ? { id: owner.id, email: owner.email ?? null, display_name: owner.display_name ?? owner.username } : null;
@@ -940,7 +989,7 @@ export function createAffiliates({
     const totals = { accounts: 0, pending: 0, confirmed: 0, reversed: 0, earned: 0, paid: 0, balance: 0, months: 0 };
     for (const code of codes) for (const name of Object.keys(totals)) totals[name] += code.figures[name];
     return {
-      enabled, discounts: on('createDiscount'), rules: rules(), products: (billing?.offer?.() ?? []).map((p) => p.key), codes, totals,
+      enabled, discounts: on('createDiscount'), rules: rules(), creator_reward_configured: { ...configuredReward }, products: (billing?.offer?.() ?? []).map((p) => p.key), codes, totals,
     };
   }
 
@@ -1156,7 +1205,7 @@ export function createAffiliates({
   }
 
   return {
-    enabled, settings, rules, me, setPayoutNote, list, createCampaign, campaignFor, freeCode,
+    enabled, settings, rules, me, setPayoutNote, list, createCampaign, campaignFor, freeCode, setCreatorReward,
     // What a campaign's body says, checked as createCampaign checks it (a creator's invitation, before its code exists).
     campaignTerms: (body) => campaignOf(body || {}),
     setActive, commissionsOf, recordPayout, exportCsv,
@@ -1207,6 +1256,15 @@ export function registerAffiliatesApi(router, { affiliates, audit = null, admin 
     const code = await affiliates.createCampaign(body, admin);
     audit?.record({ action: 'admin.affiliates.create', actor: admin, req: ctx.req, targetType: 'affiliate_code', targetId: code.id, meta: { code: code.code } });
     sendJson(ctx.res, 201, { code });
+  });
+  // Before `/:id`: the creators' default reward, in cents, or null for the config's again.
+  router.put('/api/admin/affiliates/settings', async (ctx) => {
+    const admin = requireAdmin(ctx);
+    const body = await readJson(ctx.req);
+    if (!body || !Object.hasOwn(body, 'creator_reward')) throw badRequest('field_required', { field: 'creator_reward' });
+    const result = affiliates.setCreatorReward(body.creator_reward, admin);
+    audit?.record({ action: 'admin.affiliates.settings', actor: admin, req: ctx.req, targetType: 'affiliate_settings', targetId: null, meta: { creator_reward: result.reward.cash } });
+    sendJson(ctx.res, 200, result);
   });
   router.put('/api/admin/affiliates/:id', async (ctx) => {
     const admin = requireAdmin(ctx);

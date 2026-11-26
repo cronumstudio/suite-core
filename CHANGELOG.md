@@ -3,6 +3,16 @@
 Versions follow [semantic versioning](https://semver.org/); while in `0.x`, a minor version may
 change an interface and a patch never does. Apps pin a version through the submodule pointer.
 
+## 0.348.0 — 2026-11-26
+
+- **The creators' default reward is set in /admin › Affiliates** (`affiliates.js` `setCreatorReward`,
+  `PUT /api/admin/affiliates/settings`). Under the tab's lead, «Creators' default reward: €10 for each
+  yearly subscription» with a Change button. What is saved is what new campaigns and creator
+  invitations start with; the ones already made keep theirs. It is kept in `affiliate_settings`
+  (suite migration 40) and lasts across restarts; `null` goes back to the app's
+  `affiliates.creator.reward`, which the dialog shows as the install's. The list's answer says both
+  (`rules.creator.reward`, `creator_reward_configured`), and the activity log notes each change.
+
 ## 0.347.1 — 2026-11-25
 
 - **No banner for a change made online** (`web/ui.js` `offlineBanner`). Online, the banner said

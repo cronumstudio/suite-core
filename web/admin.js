@@ -1957,6 +1957,10 @@ async function renderAffiliates(main) {
   append(main,
     el('h2', { text: t('admin.affiliates.title') }),
     el('p', { class: 'kit-lead', text: t(view.enabled ? 'admin.affiliates.leadOn' : 'admin.affiliates.leadOff') }),
+    el('p', { class: 'kit-hint' },
+      el('span', { text: t('admin.affiliates.defaultReward', { amount: money(view.rules.creator.reward.cash, view.rules.creator.reward.currency) }) }),
+      ' ',
+      el('button', { type: 'button', class: 'kit-link', text: t('admin.affiliates.defaultRewardChange'), onClick: () => rewardDialog(view) })),
     view.discounts ? null : el('p', { class: 'kit-notice', text: t('admin.affiliates.noDiscounts') }),
     el('div', { class: 'kit-toolbar' },
       filter,
@@ -2248,6 +2252,31 @@ async function renderOrigins(main) {
       el('a', { class: 'kit-btn', href: `/api/admin/origins/export?weeks=${weeks}`, download: '', text: t('admin.origins.export') })),
     tables.length ? tables : el('p', { class: 'kit-empty', text: t('admin.origins.none') }),
   );
+}
+
+/** The creators' default reward: what a new campaign or invitation starts with (affiliates.js setCreatorReward). */
+function rewardDialog(view) {
+  const { reward } = view.rules.creator;
+  const configured = view.creator_reward_configured || reward;
+  const input = el('input', { inputmode: 'decimal', autocomplete: 'off', value: String(reward.cash / 100) });
+  formDialog({
+    title: t('admin.affiliates.defaultRewardTitle'),
+    content: [
+      el('p', { class: 'kit-hint', text: t('admin.affiliates.defaultRewardLead', { configured: money(configured.cash, configured.currency) }) }),
+      field(t('fields.reward'), input, t('admin.affiliates.rewardHint', { currency: reward.currency })),
+    ],
+    actions: [
+      { label: t('admin.cancel') },
+      { label: t('admin.save'), primary: true, submit: true },
+    ],
+    onSubmit: async () => {
+      await api.put('/api/admin/affiliates/settings', { creator_reward: centsOf(input.value) });
+      toast(t('admin.affiliates.defaultRewardSaved'));
+      show();
+      return true;
+    },
+  });
+  input.focus();
 }
 
 /** A creator's campaign: whose (by email), its code and name, what the buyer gets and what it earns. */

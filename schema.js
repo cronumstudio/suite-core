@@ -22,7 +22,7 @@ import { organizationsSchema } from './organizations.js';
 import { auditSchema, auditActionSchema } from './audit.js';
 import { tokensSchema } from './tokens.js';
 import { billingSchema, billingPendingSchema, billingEndingSchema } from './billing.js';
-import { affiliatesSchema } from './affiliates.js';
+import { affiliatesSchema, affiliateSettingsSchema } from './affiliates.js';
 import { creatorInvitationsSchema } from './creator-invitations.js';
 import { originsSchema, originFiguresSchema } from './origins.js';
 import { OAUTH_SCHEMA } from './oauth.js';
@@ -127,4 +127,6 @@ export const SUITE_MIGRATIONS = Object.freeze([
   { version: 38, name: 'account-origins', up: originsSchema },
   // What an account did for the first time, and the visits a site tells of, a number per day (origins.js).
   { version: 39, name: 'origin-figures', up: originFiguresSchema },
+  // What Admin sets of the affiliates program: the creators' default reward (affiliates.js).
+  { version: 40, name: 'affiliate-settings', up: affiliateSettingsSchema },
 ]);
