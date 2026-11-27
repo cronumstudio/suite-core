@@ -17,7 +17,8 @@
  */
 import crypto from 'node:crypto';
 import { createKeySet, verifyJwt } from './jwt.js';
-import { localPath, signInFlowCookies, signedOutHere } from './http.js';
+import { localPath, signInFlowCookies, signedOutHere, sendJson } from './http.js';
+import { answersWithAddress } from './terms.js';
 import { safeEqual } from './crypto.js';
 
 const TIMEOUT_MS = 8000;
@@ -178,10 +179,12 @@ export function createOidcClient({
  * @param {object} options.sessions     open(res, userId, { idpSessionId, req }) opens the app's session
  * @param {(req, res) => string|null} [options.afterSignIn]   where a sign-in that would land on `/`
  *   goes instead, once the session is open (device-pages.js connectAfterSignIn), or null for `/`
+ * @param {object} [options.terms]   the install's terms (terms.js): an account that has yet to accept
+ *   them goes to their page before anything else, as with WorkOS
  */
 export function createOidcAccounts({
   baseUrl, oidc, accounts, adminEmail = '', sessions, secureCookies = false, stateCookie = 'suite_oidc',
-  pendingDeletion = null, afterSignIn = null, origins = null, log = console.log,
+  pendingDeletion = null, afterSignIn = null, origins = null, terms = null, log = console.log,
 }) {
   const BASE_URL = noSlash(baseUrl);
   const REDIRECT = `${BASE_URL}/auth/callback`;
@@ -206,11 +209,16 @@ export function createOidcAccounts({
         // Where they come from, for an account made on the way back: held on the server under the
         // state (origins.js), never in the sign-in's cookie.
         origins?.hold(state, origins.pack(origins.fromLogin(req, url)));
+        // The box of the terms ticked in the kit's form, as with WorkOS (workos-accounts.js).
+        if (terms && await terms.tickedAt(req)) terms.hold(state);
         flows.start(res, state, [state, verifier, nonce, back].join('.'));
         // `prompt=login` from the device connect page (device-pages.js), to sign in as someone else,
         // and after someone signed out in this browser (http.js SIGNED_OUT_COOKIE).
         const fresh = url.searchParams.get('prompt') === 'login' || signedOutHere(req);
-        redirect(res, await oidc.authorizationUrl({ redirectUri: REDIRECT, state, challenge, nonce, fresh }));
+        const target = await oidc.authorizationUrl({ redirectUri: REDIRECT, state, challenge, nonce, fresh });
+        // The kit's sign-up posts its box of the terms and opens the address itself (terms.js).
+        if (answersWithAddress(req)) sendJson(res, 200, { location: target });
+        else redirect(res, target);
       } catch (err) {
         log(`[oidc] sign-in could not start: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof OidcUnavailable ? 'unavailable' : 'failed'}`);
@@ -231,6 +239,7 @@ export function createOidcAccounts({
       try {
         const claims = await oidc.exchangeCode({ code, verifier, redirectUri: REDIRECT, nonce });
         origins?.arriving(req, origins.take(state));
+        const ticked = terms?.take(state) ?? false;
         const user = accounts.fromIdentity({
           provider: PROVIDER, subject: claims.sub, email: claims.email ?? null,
           emailVerified: claims.email_verified === true || claims.email_verified === 'true',
@@ -250,7 +259,9 @@ export function createOidcAccounts({
         sessions.open(res, user.id, { idpSessionId: `oidc:${claims.sid || '-'}`, req });
         const target = localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/');
         // A phone's connect page that sent here: straight back to it, not by `/` (device-pages.js).
-        redirect(res, (target === '/' && afterSignIn?.(req, res)) || target);
+        const next = (target === '/' && afterSignIn?.(req, res)) || target;
+        // The terms first, for an account that has yet to accept them (terms.js).
+        redirect(res, terms ? terms.afterSignIn(user.id, { ticked, req, next }) : next);
       } catch (err) {
         log(`[oidc] sign-in could not be completed: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof OidcUnavailable ? 'unavailable' : 'failed'}`);

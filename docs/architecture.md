@@ -88,6 +88,7 @@ suite-core/
   creator-invitations.js done  invitations with the plan (a creator's code, or the plan alone): a link, and the account, plan and code made when someone enters
   origins.js            done   where each account came from (a link's tag, the site before, how it was made) and each payment with its origin
   about.js              done   Settings › About's notice of the code: its exact source, licence, closed parts, legal links (SOURCE_*, *_URL)
+  terms.js              done   the install's terms, accepted once by each new account: the box, /auth/terms, the record (TERMS_VERSION)
   mcp.js                done   Streamable HTTP transport, tool registry, prompts
   live.js               done   SSE hub with audiences, event ids and replay
   i18n.js               done   catalogs, language negotiation, t() on the server
@@ -282,7 +283,7 @@ Environment variables configure the install, never the product (`config.js` read
 `STORE_BILLING` (a registered store provider) with its own variables, `MAIL_PROVIDER` (`log` |
 `smtp`) with `MAIL_*`, `ALERT_EMAIL`; `SECURITY_CONTACT`; for Settings › About (about.js) `SOURCE_URL`,
 `SOURCE_REVISION`, `SOURCE_MODIFIED`, `SOURCE_CLOSED`, `TERMS_URL`, `PRIVACY_URL`, `COOKIES_URL`, `LEGAL_URL`,
-`SUPPORT_URL`, and `SIGNUP_URL` for the public pages; `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
+`SUPPORT_URL`, and `SIGNUP_URL` for the public pages; `TERMS_VERSION`, the version of the terms new accounts accept (terms.js); `VAPID_*`; with `push.native`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`,
 `APNS_TOPIC` and `FCM_SERVICE_ACCOUNT`; with `appLinks`, `APPLE_TEAM_ID` and `ANDROID_CERT_SHA256`. Three product settings may be overridden
 per install: `PLANS` (JSON, same shape as `plans`), `DEFAULT_PLAN` and `SIGNUP`.
 An old variable name (`RECARGA_EN_CALIENTE`, `PORT_HOST`, `PUERTO`, `PUBLIC_URL`) stops the start and

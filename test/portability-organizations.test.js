@@ -1053,6 +1053,25 @@ test('an account waiting to be deleted goes on waiting after a whole install’s
   assert.deepEqual(other.suite.accounts.dueForDeletion().map((u) => u.username), []);
 });
 
+test('the terms an account accepted travel with a whole install’s move, and with nobody’s own copy into another account', async (t) => {
+  const source = install(t);
+  const s = seedSource(source);
+  source.db.run("UPDATE users SET terms_accepted_at = '2026-12-08T10:00:00.000Z', terms_version = '2026-12-08' WHERE id = ?", s.cleo.id);
+  const file = path.join(source.dir, 'install.zip');
+  await exportTo(source, file, { scope: 'install' });
+  const { json } = await readZip(t, file);
+  const rows = await json('data/users.json');
+  assert.deepEqual([rows.find((u) => u.username === 'cleo').terms_version, rows.find((u) => u.username === 'ben').terms_version], ['2026-12-08', null]);
+  assert.equal(rows.some((u) => 'terms_asked' in u), false, 'whether this install asks is not the copy’s');
+
+  const target = install(t);
+  await target.portability.applyFile(file, { mode: 'install' });
+  const cleo = target.suite.accounts.byUsername('cleo');
+  assert.deepEqual([cleo.terms_accepted_at, cleo.terms_version, cleo.terms_asked], ['2026-12-08T10:00:00.000Z', '2026-12-08', 0]);
+  assert.deepEqual([target.suite.accounts.byUsername('ben').terms_accepted_at, target.suite.accounts.byUsername('ben').terms_asked], [null, 0],
+    'an account that moves is not new: it is not asked');
+});
+
 /* ------------------------------- a copy isn't trusted ------------------------------ */
 
 test('a crafted copy’s organizations reach nothing here: new ones, names cut, other kinds none, a ceiling on how many', async (t) => {

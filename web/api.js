@@ -32,9 +32,14 @@
  * A plan's barrier (a 402) met by any call is kept for a moment by its sentence: the notice that
  * then says it (ui.js `toast`, whichever module shows it) carries «Ver planes», which opens what
  * `setPlanOpener` was given (createShell: Settings › Plan). Without an opener, the words alone.
+ *
+ * An account that has yet to accept the install's terms gets 403 `terms_required` from every route
+ * (the server's terms.js): the whole window goes to their page (`/auth/terms`), which comes back
+ * here once they are accepted, and the call that met it never settles, so nothing behind it draws
+ * half a screen meanwhile.
  */
 import { t } from './i18n.js';
-import { at } from './base.js';
+import { at, FRAMED } from './base.js';
 
 export class ApiError extends Error {
   constructor(status, code, data = {}) {
@@ -144,12 +149,32 @@ async function request(method, path, body, options = {}) {
   // 100 MB with a page of its own): too big, said as such rather than as a failure (audit prod-14).
   const code = data?.error || (res.status === 413 ? 'upload_too_large' : 'generic');
   if (res.status === 401) throw new SessionExpired(401, code, data);
+  if (res.status === 403 && code === 'terms_required' && toTerms()) return new Promise(() => {});
   const error = new ApiError(res.status, code, data);
   // How long the server (or whatever stands before it) asks to wait, when it says (a 429, a 503).
   const after = retryAfterMs(res.headers?.get?.('Retry-After'));
   if (after != null) error.retryAfter = after;
   if (res.status === 402) barrier = { text: errorMessage(error), at: Date.now() };
   throw error;
+}
+
+/** The page of the terms (the server's terms.js TERMS_PATH), at the site's root. */
+const TERMS_PAGE = '/auth/terms';
+
+/**
+ * To the page of the terms with the whole window, back to this page after it. → false where there
+ * is no window to send (a test, a worker), or on that page itself, which then says the error.
+ */
+function toTerms() {
+  try {
+    const page = FRAMED ? window.top : window;
+    const here = page.location;
+    if (here.pathname === TERMS_PAGE) return false;
+    page.location.assign(`${TERMS_PAGE}?return=${encodeURIComponent(here.pathname + here.search + here.hash)}`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

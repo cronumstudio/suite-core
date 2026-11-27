@@ -129,6 +129,7 @@ names are the same in every app:
 | `SOURCE_MODIFIED` | Who changed the code and when, shown under the copyright line in Settings › About (AGPL section 5(a)) |
 | `SOURCE_CLOSED` | The closed parts this install runs, named in Settings › About, from a fixed list: `croc`, `payments` |
 | `TERMS_URL`, `PRIVACY_URL`, `COOKIES_URL`, `LEGAL_URL`, `SUPPORT_URL` | The terms, privacy policy, cookie policy, legal notice and support page of whoever runs the install, linked from Settings › About; no link when empty |
+| `TERMS_VERSION` | With `TERMS_URL` or `PRIVACY_URL`: the version of the terms an account accepts, recorded with it (a date, such as `2026-12-08`, or a short name). Every account made from suite-core 0.350.0 on accepts them once, at sign-up or on `/auth/terms` before anything else; empty, acceptances are recorded without a version |
 | `SIGNUP_URL` | Where a public page's «Start free» and its foot's link lead; empty, a public page invites nobody to sign up anywhere |
 | `IMPORT_MAX_MB` | The biggest copy of data an import takes over HTTP, for someone's own and the admin's; when empty, 95 behind Cloudflare (`trustProxy: 'cloudflare'`), which cuts any request over 100 MB with a page of its own, and the suite's own limits otherwise (512 and 4096) |
 

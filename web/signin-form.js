@@ -10,6 +10,7 @@ import { at, FRAMED } from './base.js';
 import { signature, toast } from './ui.js';
 import { markOwned } from './mount.js';
 import { straightToProvider, arrivalQuery } from './signin.js';
+import { termsBox } from './terms.js';
 
 const param = (name) => new URLSearchParams(window.location.search).get(name);
 function dropParam(name) {
@@ -82,7 +83,8 @@ export async function signIn({ app, config = null, root = document.body }) {
     };
     const show = (...children) => {
       clear(card).append(...children.flat().filter(Boolean));
-      card.querySelector('input:not([type="hidden"])')?.focus();
+      // The first field to type in: never the box of the terms, which a card with none would focus otherwise.
+      card.querySelector('input:not([type="hidden"]):not([type="checkbox"])')?.focus();
     };
     const back = () => el('button', {
       type: 'button', class: 'kit-link', text: t('kit.signin.back'),
@@ -138,7 +140,7 @@ export async function signIn({ app, config = null, root = document.body }) {
           message ? el('p', { class: 'kit-error', role: 'alert', text: message }) : null,
           el('a', { class: 'kit-btn kit-btn--primary kit-btn--block', href: login(), target: FRAMED ? '_top' : null, text: name ? t('kit.signin.with', { provider: name }) : t('kit.signin.submit') }),
           // Signing up is AuthKit's; an OIDC provider has its own, if it allows it.
-          settings.provider === 'workos' ? el('a', { class: 'kit-btn kit-btn--block', href: login('signup=1'), target: FRAMED ? '_top' : null, text: t('kit.signin.signupLink') }) : null);
+          settings.provider === 'workos' ? signUpAt(login('signup=1')) : null);
         return;
       }
       const username = input({ id: 'kit-signin-username', name: 'username', autocomplete: 'username', required: true });
@@ -168,6 +170,40 @@ export async function signIn({ app, config = null, root = document.body }) {
           // A forgotten password comes back by mail: without mail the link would never arrive.
           settings.mail ? el('button', { type: 'button', class: 'kit-link', text: t('kit.signin.forgotLink'), onClick: () => forgot(username.value) }) : null,
           settings.signup === 'open' ? el('button', { type: 'button', class: 'kit-link', text: t('kit.signin.signupLink'), onClick: () => signup() }) : null));
+    }
+
+    /**
+     * «Create an account» at the provider. With the install's terms (`settings.terms`), the box to
+     * accept them goes before it, and the button waits for it. The tick is posted to /auth/login,
+     * which holds it on the server for the account made on return (the server's terms.js) and
+     * answers the provider's address, opened from here: a form posted there would be redirected to
+     * another site, which the pages' `form-action 'self'` stops; a link could be sent by anyone.
+     * Without an answer, the provider's page all the same, and the terms are asked after it.
+     */
+    function signUpAt(href) {
+      const link = () => el('a', { class: 'kit-btn kit-btn--block', href, target: FRAMED ? '_top' : null, text: t('kit.signin.signupLink') });
+      const box = settings.terms ? termsBox(settings.terms, { id: 'kit-signin-terms', onChange: (ticked) => { make.disabled = !ticked; } }) : null;
+      if (!box) return link();
+      const make = el('button', { type: 'submit', class: 'kit-btn kit-btn--block', disabled: true, text: t('kit.signin.signupLink') });
+      const node = el('form', { class: 'kit-stack kit-signin__signup', method: 'post', action: href }, box.node, make);
+      node.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        if (!box.input.checked) return;
+        make.disabled = true;
+        const page = FRAMED ? window.top : window;
+        try {
+          const res = await fetch(href, {
+            method: 'POST', credentials: 'same-origin', body: 'terms=1',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+          });
+          const answer = res.ok ? await res.json() : null;
+          if (typeof answer?.location !== 'string' || !/^https?:\/\//.test(answer.location)) throw new Error('no address');
+          page.location.assign(answer.location);
+        } catch {
+          page.location.assign(href);
+        }
+      });
+      return node;
     }
 
     /* ------------------------------ second step ------------------------------- */
@@ -294,14 +330,20 @@ export async function signIn({ app, config = null, root = document.body }) {
       const email = input({ id: 'kit-signup-email', type: 'email', autocomplete: 'email', required: !token });
       const password = input({ id: 'kit-signup-password', type: 'password', autocomplete: 'new-password', minlength: minimum, required: true });
       const error = errorLine();
+      const create = submit(t('kit.signin.signup.submit'));
+      // With the install's terms, the box to accept them, and the button waits for it.
+      const box = settings.terms ? termsBox(settings.terms, { id: 'kit-signup-terms', onChange: (ticked) => { create.disabled = !ticked; } }) : null;
+      if (box) create.disabled = true;
       show(
         el('h2', { text: t('kit.signin.signup.title') }),
         el('p', { text: t(token ? 'kit.signin.signup.invited' : settings.mail ? 'kit.signin.signup.open' : 'kit.signin.signup.openNoMail') }),
         form(async () => {
+          if (box && !box.input.checked) return;
           try {
             const answer = await api.post('/api/auth/signup', {
               token: token || undefined, username: username.value.trim(), display_name: name.value.trim() || undefined,
               email: token ? undefined : email.value.trim(), password: password.value,
+              ...(box ? { accept_terms: true } : {}),
             });
             dropParam('signup');
             done(answer?.user ?? (await api.get('/api/auth/me')).user);
@@ -311,8 +353,9 @@ export async function signIn({ app, config = null, root = document.body }) {
         labelled(t('kit.signin.signup.name'), name),
         token ? null : labelled(t('kit.signin.signup.email'), email),
         labelled(t('kit.signin.password'), password),
+        box?.node,
         error,
-        submit(t('kit.signin.signup.submit'))),
+        create),
         back());
     }
 

@@ -33,6 +33,7 @@ import { organizationKinds } from './organizations.js';
 import { DEFAULT_LIMITS } from './rate-limit.js';
 import { isObject } from './http.js';
 import { aboutFromEnv } from './about.js';
+import { termsFromEnv } from './terms.js';
 
 /** The modules an app can switch on or off, and their defaults. */
 export const MODULES = Object.freeze({
@@ -493,6 +494,9 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
   // Links to the site that open the app on a phone (app-links.js): the product's pages and ids,
   // the install's Team ID and signing certificate.
   const appLinks = appLinksFrom(p.appLinks, env, errors, warnings);
+  // What Settings › About says of the code that runs and of whoever runs it (about.js): SOURCE_*,
+  // the legal links, and where the public pages invite people to sign up (SIGNUP_URL).
+  const about = aboutFromEnv(env, warnings);
 
   const install = {
     baseUrl,
@@ -539,9 +543,10 @@ export function resolveConfig(product, env = process.env, { cwd = process.cwd() 
     // Where /.well-known/security.txt sends reports of a security problem (SECURITY_CONTACT, else
     // ADMIN_EMAIL); null: whoever runs the install named nobody, and there is no security.txt.
     securityContact: securityContactOf(env.SECURITY_CONTACT, env.ADMIN_EMAIL, warnings),
-    // What Settings › About says of the code that runs and of whoever runs it (about.js): SOURCE_*,
-    // the legal links, and where the public pages invite people to sign up (SIGNUP_URL).
-    about: aboutFromEnv(env, warnings),
+    about,
+    // The terms new accounts accept (terms.js): TERMS_URL and PRIVACY_URL as About links them, and
+    // TERMS_VERSION; null when neither page is linked, and then nobody is asked.
+    terms: termsFromEnv(env, about.links, warnings),
     // The biggest copy of data an import takes over HTTP, in MB (IMPORT_MAX_MB); null: portability.js's own.
     importMaxMb: importMaxMbOf(env.IMPORT_MAX_MB, env.TRUST_PROXY || p.trustProxy, errors),
     hotReload: env.HOT_RELOAD === 'true',

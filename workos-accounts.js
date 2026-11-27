@@ -12,6 +12,7 @@ import { WorkosUnavailable } from './workos.js';
 import { ensureColumn } from './migrate.js';
 import { HttpError, sendJson, localPath, signInFlowCookies, signedOutHere } from './http.js';
 import { safeEqual } from './crypto.js';
+import { answersWithAddress } from './terms.js';
 
 const METADATA_PATH = '/.well-known/oauth-protected-resource';
 const AS_METADATA_PATH = '/.well-known/oauth-authorization-server';
@@ -236,6 +237,9 @@ function freeUsername(seed, taken) {
  * @param {object} [options.origins]   where accounts come from (origins.js): what `/auth/login` says
  *   of it (`src`, `via`) is held on the server under the sign-in's state (`hold`), never in its
  *   cookie, and handed back at the callback (`take`), for the account made there
+ * @param {object} [options.terms]   the install's terms (terms.js): the box ticked in the kit's form,
+ *   posted to `/auth/login`, is held under the sign-in's state and recorded at the callback, and an
+ *   account that has yet to accept them goes to their page before anything else
  * @param {boolean} [options.mcp]   false when the app has no MCP: the OAuth metadata for AI
  *   clients isn't served, so its paths answer the app's JSON 404 and no client is sent to AuthKit
  *   for a connector that isn't there. Sign-in on the web is the same either way.
@@ -243,7 +247,7 @@ function freeUsername(seed, taken) {
 export function createWorkosAccounts({
   baseUrl, appName, workos, adminEmail = '', users, sessions, connections = null,
   secureCookies = false, stateCookie = 'suite_auth', pendingDeletion = null, mcp = true, mark = null, afterSignIn = null,
-  origins = null, log = console.log,
+  origins = null, terms = null, log = console.log,
 }) {
   const BASE_URL = String(baseUrl).replace(/\/$/, '');
   const RESOURCE = `${BASE_URL}/mcp`;
@@ -523,8 +527,11 @@ export function createWorkosAccounts({
       // held on the server under the state (origins.js), never in a cookie. The sign-in's cookie
       // keeps only what the sign-in needs, so it stays a strictly necessary one.
       origins?.hold(state, origins.pack(origins.fromLogin(req, url)));
+      // The box of the terms ticked in the kit's form beside «Create an account» (posted from this
+      // site's page, never a link): held on the server under the state too, and recorded on return.
+      if (terms && await terms.tickedAt(req)) terms.hold(state);
       flows.start(res, state, `${state}.${verifier}.${back}`);
-      redirect(res, workos.signInUrl({
+      const target = workos.signInUrl({
         redirectUri: `${BASE_URL}/auth/callback`,
         state,
         challenge: pkceChallenge,
@@ -538,7 +545,10 @@ export function createWorkosAccounts({
         ...(STRAIGHT_TO[url.searchParams.get('provider')] ? { provider: STRAIGHT_TO[url.searchParams.get('provider')] } : {}),
         // AuthKit's page with their email already written (an invitation to an email that has a login).
         ...(hintOf(url.searchParams.get('hint')) ? { loginHint: hintOf(url.searchParams.get('hint')) } : {}),
-      }));
+      });
+      // The kit's sign-up posts its box of the terms and opens the address itself (terms.js).
+      if (answersWithAddress(req)) sendJson(res, 200, { location: target });
+      else redirect(res, target);
       return true;
     }
 
@@ -556,6 +566,7 @@ export function createWorkosAccounts({
       try {
         const { account, sessionId, method, authTime } = await workos.exchangeCode({ code, verifier });
         origins?.arriving(req, origins.take(state));
+        const ticked = terms?.take(state) ?? false;
         const user = await localUser(account);
         // Its owner asked to delete it: no session, the offer to take it back.
         if (user.disabled_at && user.delete_after && pendingDeletion) {
@@ -574,7 +585,9 @@ export function createWorkosAccounts({
         sessions.open(res, user.id, { workosSessionId: sessionId, req, authTime });
         const target = localPath(Buffer.from(back || '', 'base64url').toString('utf8') || '/');
         // A phone's connect page that sent here: straight back to it, not by `/` (device-pages.js).
-        redirect(res, (target === '/' && afterSignIn?.(req, res)) || target);
+        const next = (target === '/' && afterSignIn?.(req, res)) || target;
+        // The terms first, for an account that has yet to accept them (terms.js), then on to the same place.
+        redirect(res, terms ? terms.afterSignIn(user.id, { ticked, req, next }) : next);
       } catch (err) {
         log(`[workos] sign-in could not be completed: ${err.message}`);
         redirect(res, `/?auth_error=${err instanceof WorkosUnavailable ? 'unavailable' : 'failed'}`);

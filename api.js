@@ -101,7 +101,7 @@ async function otherAppsOf(idp, userId) {
 
 export function registerAuthApi(router, {
   accounts, sessions, limiter, audit = null, idp = null, serializeUser, signup = 'admin', app = null,
-  mail = true, passwordMin = null, twoFactor = null, deletion = null, database = null, about = null,
+  mail = true, passwordMin = null, twoFactor = null, deletion = null, database = null, about = null, terms = null,
 }) {
   /** Before signing in: the sign-in screen has to know what to show. */
   router.get('/api/auth/config', (ctx) => {
@@ -118,6 +118,8 @@ export function registerAuthApi(router, {
     // that its login is shared with other apps and goes with it only as the person decides.
     // `about`: the code that runs, its licence and whoever runs it, for Settings › About (about.js);
     // `signup_url`: where a public page invites whoever opens it to start their own, or null.
+    // `terms`: the install's terms and privacy policy, which a new account accepts (terms.js), with
+    // their version; absent when the install links neither.
     sendJson(ctx.res, 200, {
       provider: idp?.id ?? 'local', name: idp?.name ?? null, signup: idp ? null : signup,
       mail: Boolean(mail), password_min: idp && idp.id !== 'workos' ? null : passwordMin, two_factor: !idp && Boolean(twoFactor),
@@ -125,6 +127,7 @@ export function registerAuthApi(router, {
       ...(deletion?.choosing ? { deletion_identity: true } : {}),
       ...(app ? { app } : {}),
       ...(about ? { about: about.answer, signup_url: about.signupUrl } : {}),
+      ...(terms?.on ? { terms: terms.links() } : {}),
     });
   });
 
@@ -338,7 +341,7 @@ export function registerPushApi(router, { push, texts, appName, sessionKeyOf = (
  * /?signup=…), which posts the token here.
  */
 export function registerAccountMailApi(router, {
-  accountMail, sessions, serializeUser, accounts = null, admin = true, twoFactor = null,
+  accountMail, sessions, serializeUser, accounts = null, admin = true, twoFactor = null, terms = null,
 }) {
   /** Opens a session for someone who just came in through a link: a sign-in, for the admin panel. */
   const signIn = (ctx, user) => {
@@ -392,6 +395,8 @@ export function registerAccountMailApi(router, {
       token: body.token ?? null, username: body.username, displayName: body.display_name ?? null,
       email: body.email ?? null, password: body.password, locale: body.locale ?? null,
     }, { req: ctx.req });
+    // The box of the terms ticked in the form (terms.js): accepted with the account, not asked again.
+    if (body.accept_terms === true) terms?.accept(user.id, { req: ctx.req });
     sendJson(ctx.res, 201, { user: serializeUser(signIn(ctx, user)) });
   });
 

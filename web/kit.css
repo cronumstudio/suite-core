@@ -418,6 +418,11 @@ h1, h2, h3, h4 { line-height: 1.2; text-wrap: balance; }
 .kit-error { margin: 0; color: var(--kit-danger); font-size: var(--look-footnote); }
 .kit-check { display: flex; align-items: center; gap: 9px; }
 .kit-check input { width: 18px; height: 18px; accent-color: var(--kit-accent); margin: 0; flex: none; }
+/* The box of the install's terms (terms.js): its sentence may wrap, with its two links in it. */
+.kit-terms { align-items: flex-start; }
+.kit-terms input { margin-block-start: 2px; cursor: pointer; }
+.kit-terms__label { font-size: var(--look-subhead); line-height: 1.4; cursor: pointer; overflow-wrap: anywhere; }
+.kit-terms__link { color: var(--kit-accent); text-decoration: underline; text-underline-offset: 2px; font-weight: 500; }
 .kit-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
 .kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .kit-stack { display: grid; gap: 12px; }

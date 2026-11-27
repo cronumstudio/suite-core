@@ -186,6 +186,8 @@ export function createAccounts({
     two_factor: Boolean(user.two_factor_at),
     // Its owner asked to delete it: it goes for good then, unless they take it back.
     ...(user.delete_after ? { delete_after: isoOf(user.delete_after) } : {}),
+    // When it accepted the install's terms, and which version (terms.js): only once it has.
+    ...(user.terms_accepted_at ? { terms_accepted_at: isoOf(user.terms_accepted_at), terms_version: user.terms_version ?? null } : {}),
   });
 
   const activeAdmins = () => Number(database.get(

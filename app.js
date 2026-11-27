@@ -51,6 +51,7 @@ import { billingProviderOf, storeProviderOf } from './providers.js';
 import { createAffiliates, registerAffiliatesApi } from './affiliates.js';
 import { createCreatorInvitations, registerCreatorInvitationsApi, INVITATION_PATH } from './creator-invitations.js';
 import { createOrigins, registerOriginsApi } from './origins.js';
+import { createTerms, registerTermsApi, TERMS_PATH, OPEN_ROUTES as TERMS_OPEN_ROUTES } from './terms.js';
 import { createStoreBilling, registerStoreApi } from './stores.js';
 import { createWorkosClient, WorkosUnavailable } from './workos.js';
 import { createWorkosAccounts, workosUsers, workosConnections } from './workos-accounts.js';
@@ -180,6 +181,10 @@ export function createSuite({
   });
   const tokens = createTokens({ database, prefix: config.tokens.prefix });
   const audit = createAudit({ database, trustProxy: install.trustProxy });
+  // The install's terms, accepted once by every account made from now on (terms.js): marked as it
+  // is made, whether the install links its pages yet or not; asked only while it does.
+  const terms = createTerms({ database, settings: install.terms ?? null, audit, baseUrl: install.baseUrl, log });
+  accounts.whenCreated(terms.noteCreated);
   // An app on a phone, with modules.devices: its token is its own kind, which no route of the suite
   // takes, except, with stores.devices, the store routes and the overview (stores.js).
   const devices = config.modules.devices ? createDevices({
@@ -405,6 +410,7 @@ export function createSuite({
     mcp: config.modules.mcp,
     afterSignIn: connectAfterSignIn({ config, sessions }),
     origins,
+    terms,
     sessions: {
       open: (res, userId, { workosSessionId, req = null, authTime = null }) => {
         freshSignIns.note(sessions.open(userId, { req, res, idpSessionId: workosSessionId }), authTime);
@@ -425,6 +431,7 @@ export function createSuite({
     pendingDeletion: (user) => deletionTicket(sessions.sign, user.id),
     afterSignIn: connectAfterSignIn({ config, sessions }),
     origins,
+    terms,
     sessions: {
       open: (res, userId, { idpSessionId, req = null }) => {
         sessions.open(userId, { req, res, idpSessionId });
@@ -765,7 +772,7 @@ export function createSuite({
   made = {
     config, database, sessions, accounts, tokens, audit, limiter, twoFactor, live, push, uploads, texts, entitlements,
     organizations, billing, workos, oidc, idp, oauth, mailer, accountMail, ensureAdmin, purge, authenticateToken,
-    shareMail, shareBrake, goneBrake, affiliates, creatorInvitations, origins,
+    shareMail, shareBrake, goneBrake, affiliates, creatorInvitations, origins, terms,
     // The first thing someone creates, noted once for the figures by origin; null without them.
     made: origins?.made ?? null,
     /**
@@ -976,7 +983,7 @@ export function createApp({
   registerAuthApi(api, {
     accounts, sessions, limiter, audit, idp, serializeUser: serialize, signup: config.accounts.signup,
     mail: mailer.provider !== 'log', passwordMin: config.accounts.minPasswordLength, twoFactor, deletion,
-    database: suite.database, about,
+    database: suite.database, about, terms: suite.terms ?? null,
     app: {
       id: config.app.id, name: config.app.name, languages: config.app.languages,
       modules: {
@@ -1006,9 +1013,12 @@ export function createApp({
       ...(portability ? { imports: { max_bytes: portability.max.upload.account } } : {}),
     },
   });
+  // The page of the terms (terms.js): what it must accept, and accepting them. Off, it says nothing is asked.
+  if (suite.terms) registerTermsApi(api, { terms: suite.terms, accounts, serializeUser: serialize });
   if (install.authProvider === 'local') {
     registerAccountMailApi(api, {
       accountMail, sessions, accounts, serializeUser: serialize, admin: config.modules.admin, twoFactor,
+      terms: suite.terms ?? null,
     });
   }
   // The account and its preferences, the same in every module that says what its preferences are.
@@ -1423,6 +1433,12 @@ export function createApp({
           sessionToken: sessions.tokenFrom(req),
           baseUrl: install.baseUrl,
         };
+        // An account made since the install asks for its terms, that has not accepted them yet: in
+        // the browser, only the page of the terms, until it does (terms.js). The kit goes there.
+        if (ctx.user && suite.terms?.blocks(ctx.user) && !TERMS_OPEN_ROUTES.includes(pathname)) {
+          sendJson(res, 403, { error: 'terms_required' });
+          return;
+        }
         // A write with an Idempotency-Key runs once; the same key again gets the same answer. Not one
         // whose answer is a secret shown once (answeredOnce: a token, a two-step secret, recovery codes,
         // an invitation's link): it is never kept in clear, and the same key runs the route again.
@@ -1437,6 +1453,19 @@ export function createApp({
         return;
       }
 
+      // The page of the terms, for an account that has yet to accept them (terms.js); with none to
+      // accept, the app's own page.
+      if (pathname === TERMS_PATH && ['GET', 'HEAD'].includes(req.method)) {
+        if (!suite.terms?.on) {
+          res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+          res.end();
+          return;
+        }
+        const page = brandedAdmin(fs.readFileSync(path.join(WEB_DIR, 'terms.html'), 'utf8'), config.app);
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+        res.end(req.method === 'HEAD' ? undefined : page);
+        return;
+      }
       if (idp && await idp.handle(req, res, url)) return;
       if (oauth && await oauth.handle(req, res, url)) return;
 
